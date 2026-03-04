@@ -6,22 +6,30 @@ import backtrader as bt
 
 
 def register_analyzers(cerebro: bt.Cerebro) -> None:
-    """Add Sharpe, DrawDown, Returns, and Trade analyzers to cerebro."""
-    # Configure SharpeRatio analyzer for 30-minute data
-    # For 30-minute bars in Chinese market:
-    # - Trading hours: 9:30-11:30 (2 hours) + 13:00-15:00 (2 hours) = 4 hours/day
-    # - 30-min bars per day: 4 hours * 2 = 8 bars/day
-    # - Trading days per year: ~252 days
-    # - Total 30-min bars per year: 252 * 8 = 2016 bars
-    # Using TimeFrame.Minutes with compression=30 and factor=2016 for proper annualization
+    """
+    Add Sharpe, DrawDown, Returns, and Trade analyzers to cerebro.
+    
+    SharpeRatio is configured to use daily portfolio returns for calculation,
+    even when the underlying data is 30-minute bars. This ensures consistent
+    Sharpe ratio calculation regardless of data frequency.
+    
+    For 30-minute data, Backtrader will automatically aggregate portfolio values
+    to daily intervals before calculating the Sharpe ratio.
+    """
+    # Configure SharpeRatio analyzer to use daily returns
+    # This works for both daily and 30-minute data:
+    # - For daily data: Uses daily returns directly
+    # - For 30-minute data: Aggregates portfolio values to daily, then calculates Sharpe
+    # - factor=252.0: Trading days per year for annualization
+    # - riskfreerate=0.03: 3% annual risk-free rate (typical for Chinese market)
     cerebro.addanalyzer(
         bt.analyzers.SharpeRatio,
         _name="sharpe",
-        timeframe=bt.TimeFrame.Minutes,  # 30-minute bars
-        compression=30,  # 30-minute compression
+        timeframe=bt.TimeFrame.Days,  # Use daily timeframe for Sharpe calculation
+        compression=1,  # 1 day compression
         annualize=True,
-        riskfreerate=0.0,
-        factor=2016.0,  # 30-min bars per year (252 trading days * 8 bars/day)
+        riskfreerate=0.03,  # 3% annual risk-free rate
+        factor=252.0,  # Trading days per year for annualization
     )
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
     cerebro.addanalyzer(bt.analyzers.Returns, _name="returns")
