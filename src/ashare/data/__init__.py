@@ -1,1 +1,1 @@
-# data — Tushare client, loaders, Backtrader normalizers
+# data — Data providers (BaoStock/Tushare), loaders, Backtrader normalizers

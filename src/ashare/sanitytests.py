@@ -1,4 +1,4 @@
-"""Sanity checks for data loaders and integrations (e.g., Tushare)."""
+"""Sanity checks for data loaders and integrations (BaoStock/Tushare providers)."""
 
 from __future__ import annotations
 

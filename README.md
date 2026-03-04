@@ -2,7 +2,7 @@
 
 A-share algo trading research and backtesting framework.
 
-- **Data**: Tushare API (minute, daily)
+- **Data**: BaoStock API (minute, daily) - free, no token required
 - **Engine**: Backtrader
 - **Strategies**: Modular, testable strategy modules
 
@@ -10,7 +10,8 @@ A-share algo trading research and backtesting framework.
 
 ```bash
 pip install -e .
-cp .env.example .env   # Set TUSHARE_TOKEN
+# No token required! BaoStock is free and doesn't need authentication.
+# Optionally set ASHARE_DATA_PROVIDER=tushare in .env to use Tushare instead.
 ```
 
 ## Usage
@@ -24,7 +25,7 @@ python -m ashare backtest --symbol 000001.SZ --strategy mid_freq_ma --start 2024
 ## Structure
 
 - `src/ashare/config/` — Capital, fees, symbols, date ranges
-- `src/ashare/data/` — Tushare client, loaders, Backtrader normalizers
+- `src/ashare/data/` — Data providers (BaoStock/Tushare), loaders, Backtrader normalizers
 - `src/ashare/strategies/` — Strategy modules
 - `src/ashare/engine/` — Cerebro builder, analyzers, runner
 - `src/ashare/constraints/` — A-share rules (e.g. 100-share lot)

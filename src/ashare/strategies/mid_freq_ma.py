@@ -3,9 +3,10 @@
 import backtrader as bt
 
 from ashare.constraints.ashare import calc_buy_size
+from ashare.strategies.base import BaseStrategy
 
 
-class MidFreqMA(bt.Strategy):
+class MidFreqMA(BaseStrategy):
     """Dual moving average crossover with turnover rate filter."""
 
     params = (
@@ -15,6 +16,7 @@ class MidFreqMA(bt.Strategy):
     )
 
     def __init__(self) -> None:
+        super().__init__()  # Initialize BaseStrategy for logging
         self.short_ma = bt.indicators.SimpleMovingAverage(
             self.data.close, period=self.p.short_period
         )
@@ -34,6 +36,8 @@ class MidFreqMA(bt.Strategy):
         if not self.position and self.crossover > 0 and turnover_ok:
             size = calc_buy_size(cash, price)
             if size > 0:
+                self._last_order_reason = f"MA_crossover_bullish short_ma={self.short_ma[0]:.2f} long_ma={self.long_ma[0]:.2f} turnover={turnover[0] if turnover is not None else 'N/A'}"
                 self.buy(size=size)
         elif self.position and self.crossover < 0:
+            self._last_order_reason = f"MA_crossover_bearish short_ma={self.short_ma[0]:.2f} long_ma={self.long_ma[0]:.2f}"
             self.close()

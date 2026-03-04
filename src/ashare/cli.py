@@ -10,6 +10,12 @@ from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
 from ashare.sanitytests import sanitycheck_daily, sanitycheck_minute30
 from ashare.strategies import get_strategy_class
+from ashare.utils.logging import get_logger, log_backtest_start, log_data_loaded, log_backtest_metrics, setup_logging
+
+# Initialize logging when CLI module is imported (if not already initialized)
+setup_logging()
+
+logger = get_logger("ashare.cli")
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -39,13 +45,33 @@ def backtest(
     except KeyError as e:
         raise click.UsageError(str(e))
 
+    # Log backtest start
+    log_backtest_start(logger, symbol, strategy, start, end, config)
+
     click.echo(f"Loading 30-min data: {symbol} ({start} .. {end}) ...")
     df = load_minute_30(ts_code=symbol, start_date=start, end_date=end)
     if df.empty:
         raise click.ClickException(f"No data returned for {symbol}. Check symbol and date range.")
 
+    # Log data loaded
+    log_data_loaded(
+        logger,
+        symbol=symbol,
+        num_bars=len(df),
+        start_date=start,
+        end_date=end,
+        data_start=str(df.index.min()) if not df.empty else None,
+        data_end=str(df.index.max()) if not df.empty else None,
+    )
+
     click.echo(f"Initial capital: {config.initial_cash:,.2f} 元")
-    cerebro, strat, metrics = run_backtest(strategy_cls, df, config)
+    cerebro, strat, metrics = run_backtest(strategy_cls, df, config, symbol=symbol)
+
+    # Extract number of trades from metrics (already extracted in extract_results)
+    num_trades = metrics.get("num_trades", 0)
+
+    # Log backtest metrics
+    log_backtest_metrics(logger, symbol, strategy, num_trades, metrics)
 
     click.echo(f"Final value: {metrics['final_value']:,.2f} 元")
     click.echo(f"Total return: {metrics['rtot'] * 100:.2f}%")
@@ -91,7 +117,7 @@ def sanitytest() -> None:
     help="Only print final PASS/FAIL.",
 )
 def daily(symbol: str, start: str | None, end: str | None, quiet: bool) -> None:
-    """Sanity check: can we load daily OHLCV + turnover from Tushare?"""
+    """Sanity check: can we load daily OHLCV + turnover from data provider?"""
     if not start or not end:
         start, end = _default_date_range()
 
@@ -133,7 +159,7 @@ def daily(symbol: str, start: str | None, end: str | None, quiet: bool) -> None:
     help="Only print final PASS/FAIL.",
 )
 def minute30(symbol: str, start: str | None, end: str | None, quiet: bool) -> None:
-    """Sanity check: can we load 30-min OHLCV + turnover from Tushare?"""
+    """Sanity check: can we load 30-min OHLCV + turnover from data provider?"""
     if not start or not end:
         start, end = _default_date_range()
 
