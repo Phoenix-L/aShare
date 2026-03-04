@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ashare"
+version = "0.1.0"
+description = "A-share algo trading research and backtesting framework"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+  "click>=8.1",
+  "pandas>=2.0",
+  "backtrader>=1.9",
+  "tushare>=1.2",
+  "python-dotenv>=1.0",
+  "pytest>=8.2",
+]
+
+[project.scripts]
+ashare = "ashare.cli:cli"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,0 +1,6 @@
+click>=8.1
+pandas>=2.0
+backtrader>=1.9
+tushare>=1.2
+python-dotenv>=1.0
+pytest>=8.2
