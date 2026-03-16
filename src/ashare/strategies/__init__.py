@@ -1,9 +1,11 @@
 """Strategy modules and registry for CLI lookup."""
 
+from ashare.strategies.core_satellite_mean_reversion import CoreSatelliteMeanReversion
 from ashare.strategies.mid_freq_ma import MidFreqMA
 
 STRATEGY_REGISTRY: dict[str, type] = {
     "mid_freq_ma": MidFreqMA,
+    "core_satellite": CoreSatelliteMeanReversion,
 }
 
 

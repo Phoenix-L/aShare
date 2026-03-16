@@ -467,3 +467,24 @@ Improvements delivered:
 6. **Milestone F (Phase 6 complete):** expanded metrics integrated into default outputs.
 
 This phased order minimizes implementation risk while steadily increasing research capability in line with the architecture principles and PRD-aligned goals.
+
+## 10. Core–Satellite Strategy Module
+
+The planned Core–Satellite Mean Reversion module extends the existing strategy layer without changing core layering responsibilities.
+
+### 10.1 Strategies Layer Fit
+- Implemented as a dedicated strategy module under `src/ashare/strategies/`.
+- Registered through the central strategy registry so CLI and research tools resolve it by name.
+- Keeps core/satellite position logic isolated from data and engine concerns.
+
+### 10.2 Research Layer Fit
+- Compatible with existing research tooling in `src/ashare/research/`.
+- Parameterized thresholds (e.g., z-score bands, block size, MA windows) can be explored via experiments.
+
+### 10.3 Experiment Runner Fit
+- `experiment_runner` can execute parameter sweeps over strategy parameters using the same `run_backtest` contract.
+- Result outputs can compare core-satellite variants against baseline strategies.
+
+### 10.4 Walk Forward Fit
+- `walk_forward` can optimize in-sample parameters and evaluate out-of-sample behavior with no architecture special casing.
+- Registry-based lookup ensures identical strategy selection semantics across CLI, experiments, and walk-forward pipelines.
