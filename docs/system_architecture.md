@@ -1,313 +1,327 @@
 # aShare System Architecture Design Report
 
-## 1. System Overview
+## 1. Purpose and Positioning
 
-`aShare` is a Python-based personal A-share quantitative research and backtesting framework. Its current purpose is to help an individual trader quickly run strategy experiments via CLI, using market data providers (BaoStock/Tushare), Backtrader simulation, and modular strategy components.  
+`aShare` is a **personal quantitative research platform** for the Chinese A-share market.
+Its primary purpose is to help an individual trader move efficiently through the loop:
 
-### Target Users
-- Individual quantitative trader / independent researcher
-- Developer-oriented user comfortable with CLI workflows
+`idea -> strategy implementation -> backtest -> metric review -> next experiment`
 
-### Main Capabilities
-- CLI-driven single-run backtesting (`ashare backtest ...`)
-- Data provider abstraction and runtime switching (`baostock` default, `tushare` optional)
-- Standardized OHLCV(+turnover) data schema
-- Backtrader-based engine orchestration and analyzer extraction
-- Strategy registry and strategy module separation
-- A-share microstructure helper rules (e.g., 100-share lot sizing)
-- Structured logging for observability
+### What the System Is
+- A single-user quant research laboratory.
+- A CLI-first backtesting and experimentation workflow.
+- A modular architecture for strategy iteration and measurement.
 
-### Design Philosophy
-- Keep the stack lightweight and composable
-- Prioritize fast research iteration over operational complexity
-- Encapsulate external APIs behind provider interfaces
-- Make strategy logic independent from CLI plumbing
+### What the System Is Not (Phase 1)
+- Not a production live trading system.
+- Not a broker-integrated execution platform.
+- Not a distributed/cloud compute platform.
 
-### Research Infrastructure vs Production Trading System
-- **Research infrastructure** emphasizes hypothesis testing, reproducible backtests, feature iteration, and metrics extraction.
-- **Production trading systems** additionally require robust broker integration, real-time risk controls, reconciliation, fault tolerance, and operational SLAs.
-
-`aShare` currently sits clearly in the **research infrastructure** category.
+This aligns with the PRD scope: research infrastructure first, live trading later.
 
 ---
 
-## 2. High-Level Architecture
+## 2. System Goals Aligned to PRD
 
-### Logical Layer Diagram
+The architecture is designed to satisfy the PRD goals:
+
+- **G1 Rapid Strategy Development**: modular strategy framework + CLI execution.
+- **G2 Reproducible Backtests**: deterministic config, standardized data flow, run outputs/logs.
+- **G3 Strategy Comparison**: parameterized strategy design and upcoming experiment runner.
+- **G4 Research Efficiency**: low-friction path from hypothesis to metrics.
+- **G5 Architecture Longevity**: clear layering to support future portfolio and advanced research capabilities.
+
+---
+
+## 3. Architecture Layers (PRD-Aligned)
+
+The architecture is organized around the PRD component model.
 
 ```text
-CLI (Click)
+CLI
   ↓
-Configuration Layer
+Configuration
   ↓
-Data Access Layer (Provider Factory -> BaoStock/Tushare)
+Data Layer
   ↓
-Data Normalization / Adapter Layer (Pandas -> Backtrader Feed)
+Strategy Framework
   ↓
-Backtest Engine (Cerebro Builder + Runner)
+Backtest Engine
   ↓
-Strategy Layer
+Constraints Layer
   ↓
-Constraints / Execution Rules
+Analyzer / Metrics Layer
   ↓
-Analyzers / Metrics
-  ↓
-Outputs (Console + Logs)
+Outputs
 ```
 
-### Layer Responsibilities
-- **CLI**: Accepts user inputs, resolves strategy, orchestrates run, prints summary metrics.
-- **Configuration**: Holds cash/cost/slippage defaults and loading logic.
-- **Data Access**: Abstract provider interface + concrete implementations (BaoStock/Tushare).
-- **Normalization**: Guarantees strategy-facing feed compatibility.
-- **Backtest Engine**: Sets broker model, attaches data/strategy/analyzers, executes run.
-- **Strategy Layer**: Encodes trading signal logic and order behavior.
-- **Constraints Layer**: Encapsulates A-share market rules.
-- **Analyzers**: Produces return, drawdown, Sharpe, and trade statistics.
-- **Outputs**: CLI metrics + structured log events for debugging/auditing.
+### 3.1 CLI
+Responsibilities:
+- parse backtest command inputs (`symbol`, `strategy`, date window, params)
+- trigger a single deterministic run
+- print concise summary metrics
+
+### 3.2 Configuration
+Responsibilities:
+- hold capital, cost, slippage, and runtime settings
+- support deterministic default config + explicit overrides
+- snapshot run-time config for reproducibility
+
+### 3.3 Data Layer
+Responsibilities:
+- provider abstraction (BaoStock, Tushare)
+- symbol normalization and data schema unification
+- API error handling and validation
+- convert raw records to strategy-ready OHLCV(+turnover_rate)
+
+### 3.4 Strategy Framework
+Responsibilities:
+- modular strategy files
+- strategy registry and resolution
+- parameterized strategy execution
+- strategy-level signal, position sizing, and order logic
+
+### 3.5 Backtest Engine
+Responsibilities:
+- build simulation environment
+- attach data feeds, strategies, and analyzers
+- apply broker/cost/slippage settings
+- execute runs and return standardized results
+
+### 3.6 Constraints Layer
+Responsibilities:
+- encode A-share market rules such as lot sizing
+- extend to stamp duty, T+1, and price-limit constraints
+- keep market microstructure logic isolated from strategy logic
+
+### 3.7 Analyzer / Metrics Layer
+Responsibilities:
+- output required core metrics: total return, Sharpe, max drawdown, trade stats
+- extend with win rate, profit factor, volatility, turnover ratio
+- provide comparable result schema for experiment analysis
+
+### 3.8 Outputs
+Responsibilities:
+- console summary for fast iteration
+- persistent artifacts (`equity_curve.csv`, `trades.csv`, `metrics.json`, `plot.png`)
+- run logs under `logs/run_YYYYMMDD.log`
 
 ---
 
-## 3. Package Structure Analysis (`src/ashare`)
+## 4. Single-User Research Workflow
 
 ```text
-src/ashare/
-├── __main__.py
-├── cli.py
-├── config/
-│   ├── loader.py
-│   └── settings.py
-├── constraints/
-│   └── ashare.py
-├── data/
-│   ├── loaders.py
-│   ├── normalizers.py
-│   ├── tushare_client.py
-│   └── providers/
-│       ├── base.py
-│       ├── baostock_provider.py
-│       └── tushare_provider.py
-├── engine/
-│   ├── cerebro_builder.py
-│   ├── analyzers.py
-│   └── runner.py
-├── strategies/
-│   ├── base.py
-│   ├── mid_freq_ma.py
-│   └── __init__.py
-├── sanitytests.py
-└── utils/
-    └── logging.py
+Idea
+  ↓
+Implement or tune strategy
+  ↓
+Run CLI backtest
+  ↓
+Review metrics + artifacts
+  ↓
+Adjust parameters
+  ↓
+Run next experiment
 ```
 
-### `cli`
-- `click` command group with `backtest` and `sanitytest` commands.
-- Primary orchestration point for end-to-end execution.
-
-### `config`
-- `BacktestConfig` dataclass for capital/cost/slippage model.
-- Loader currently centered on defaults with optional argument override.
-
-### `data`
-- **Provider abstraction** via `DataProvider` interface.
-- **Factory** chooses provider via `ASHARE_DATA_PROVIDER`.
-- **Tushare provider** merges price and turnover from `daily_basic`.
-- **BaoStock provider** handles login/session, symbol mapping, and turnover approximation/mapping.
-- **Normalizer** converts pandas DataFrame to Backtrader feed with optional `turnover_rate` line.
-
-### `strategies`
-- Static strategy registry for CLI lookup.
-- `BaseStrategy` centralizes transaction and trade lifecycle logging.
-- `MidFreqMA` implements dual-MA crossover + turnover threshold.
-
-### `engine`
-- `cerebro_builder`: broker and slippage setup.
-- `analyzers`: analyzer registration + metric extraction.
-- `runner`: orchestration function for data feed, strategy execution, and outputs.
-
-### `constraints`
-- A-share lot sizing helpers (`LOT_SIZE=100`, round and buy-size calculation).
-
-### `tests`
-- Test files are scaffold placeholders right now; effective automated coverage is currently absent.
+Design implications:
+- prioritize speed of iteration over operational complexity
+- keep all modules scriptable and composable
+- preserve run artifacts so decisions are evidence-based
 
 ---
 
-## 4. Data Flow (Backtest Execution Sequence)
+## 5. Architecture Principles
 
-### End-to-End Flow
+1. **Research-first design**
+   - optimize for hypothesis testing and iteration speed.
+
+2. **Modular extensibility**
+   - isolate CLI/config/data/strategy/engine/analyzers for safe evolution.
+
+3. **Reproducibility by default**
+   - deterministic inputs, standardized outputs, and run metadata logging.
+
+4. **Data-provider abstraction**
+   - shield strategy/engine from upstream API differences.
+
+5. **Strategy isolation**
+   - keep strategy logic independent from infrastructure concerns.
+
+---
+
+## 6. Current Gaps vs PRD Intent
+
+1. **Data caching is missing**
+   - repeated API pulls reduce iteration speed and reliability.
+
+2. **Experiment management is weak**
+   - no first-class batch runner for parameter sweeps and comparisons.
+
+3. **Portfolio-level support is limited**
+   - multi-symbol simulation and allocation workflows are not yet first-class.
+
+4. **Analyzer depth is incomplete**
+   - additional PRD-recommended metrics need to be promoted to default outputs.
+
+5. **Parameter workflow needs hardening**
+   - parameter schema/validation and sweep automation should be standardized.
+
+6. **Test coverage remains thin**
+   - architecture reliability and refactoring safety are constrained by limited tests.
+
+---
+
+## 7. Immediate Architecture Improvements
+
+### 7.1 Data Caching Layer
+- Add local Parquet cache to reduce repeated provider requests.
+- Use deterministic keys: provider + symbol + frequency + date range.
+- Add data integrity checks and cache invalidation rules.
+
+### 7.2 Experiment Management
+- Add structured experiment runs with run IDs, parameter sets, and result tables.
+- Persist metadata for reproducible comparisons across hypotheses.
+
+### 7.3 Multi-Symbol Portfolio Support
+- Extend runner to accept symbol lists and allocation policies.
+- Add portfolio-level result aggregation and metrics.
+
+### 7.4 Analyzer Metric Expansion
+- Promote win rate, profit factor, annualized volatility, turnover ratio to standard outputs.
+- Keep core metrics stable for backward-compatible reporting.
+
+### 7.5 Strategy Parameter Framework
+- Standardize parameter declaration, validation, serialization, and sweep spaces.
+- Ensure CLI can pass parameters in a repeatable machine-readable form.
+
+### 7.6 Test Coverage Expansion
+- Add unit tests for data normalization, constraints, analyzers, and strategy behavior.
+- Add integration tests for end-to-end single-symbol backtest execution.
+
+---
+
+## 8. Imminent Engineering Actions
+
+### Action 1 — Introduce Data Cache
+
+Goal:
+Reduce repeated API calls and improve research iteration speed.
+
+Implementation:
+
+`src/ashare/data/cache.py`
+
+Features:
+- parquet storage
+- symbol-frequency-date indexing
+- provider-aware cache keys
+- freshness and integrity checks
+
+---
+
+### Action 2 — Experiment Runner
+
+Goal:
+Support structured strategy experimentation and comparison.
+
+Create:
+
+`src/ashare/research/experiment_runner.py`
+
+Capabilities:
+- batch strategy runs
+- parameter sweeps
+- result comparison
+- run metadata persistence
+
+---
+
+### Action 3 — Portfolio Backtest Support
+
+Goal:
+Move from single-symbol research to portfolio-level analysis.
+
+Enhance:
+
+`src/ashare/engine/runner.py`
+
+Support:
+- multiple symbols
+- capital allocation models
+- portfolio metrics
+
+---
+
+### Action 4 — Analyzer Expansion
+
+Goal:
+Align default metrics with PRD recommended analytics depth.
+
+Enhance:
+
+`src/ashare/engine/analyzers.py`
+
+Add metrics:
+- win rate
+- profit factor
+- volatility
+- turnover
+
+---
+
+### Action 5 — Test Infrastructure
+
+Goal:
+Improve reliability and refactoring safety.
+
+Improve coverage in:
+- `tests/test_engine.py`
+- `tests/test_strategies.py`
+- `tests/test_data_loaders.py`
+
+Add:
+- deterministic fixtures
+- provider mocking strategy
+- regression tests for metric extraction
+
+---
+
+## 9. Roadmap Alignment
+
+### Phase 1 — Research Infrastructure (Current Focus)
+- stable backtesting
+- reliable data ingestion and validation
+- reproducible outputs and efficient experimentation
+
+### Phase 2 — AI-Assisted Research
+- pattern discovery support
+- parameter optimization workflows
+- automated experiment diagnostics
+
+### Phase 3 — Advanced Research Platform
+- multi-symbol portfolio simulation
+- experiment tracking and walk-forward validation
+- research report generation
+
+This sequence preserves the PRD direction: AI and advanced capabilities extend a solid core research infrastructure.
+
+---
+
+## 10. Consolidated Architecture View
 
 ```text
-CLI command
-  -> config load
-  -> strategy class resolution
-  -> data loader (provider selected)
-  -> dataframe normalization
-  -> backtrader feed creation
-  -> cerebro initialization
-  -> strategy execution
-  -> analyzers
-  -> metric extraction
-  -> console/log output
-```
-
-### Concrete Runtime Sequence
-1. User invokes `ashare backtest --symbol ... --strategy ... --start ... --end ...`.
-2. CLI loads `BacktestConfig`.
-3. CLI resolves strategy from registry.
-4. CLI calls `load_minute_30(...)`.
-5. Loader requests provider from provider factory.
-6. Provider fetches and normalizes OHLCV+turnover data.
-7. Runner builds cerebro and broker settings.
-8. Runner converts DataFrame to Backtrader feed.
-9. Runner attaches strategy + analyzers.
-10. `cerebro.run()` executes simulation.
-11. Analyzer metrics are extracted.
-12. CLI prints final value/return/Sharpe/drawdown.
-
----
-
-## 5. Dependency Graph
-
-### Internal Module Dependencies (Simplified)
-
-```text
-cli
-├── config.loader
-├── data.loaders
-├── strategies (registry)
-├── engine.runner
-├── sanitytests
-└── utils.logging
-
-engine.runner
-├── config.settings
-├── data.normalizers
-├── engine.cerebro_builder
-├── engine.analyzers
-└── utils.logging
-
-strategies.mid_freq_ma
-├── strategies.base
-└── constraints.ashare
-
-data.loaders
-└── data.providers (factory)
-    ├── providers.baostock_provider
-    └── providers.tushare_provider
-```
-
-### Coupling Assessment
-- No obvious circular imports in current architecture.
-- Tight coupling exists between engine and Backtrader types/APIs.
-- CLI currently assumes 30-minute flow directly.
-- Strategy registry is static and code-defined.
-
----
-
-## 6. Strengths of Current Architecture
-
-- Clean layered decomposition aligned with quant backtest workflow.
-- Provider interface abstraction allows source switching without CLI rewrites.
-- Standardized data schema reduces strategy/data mismatch.
-- CLI is simple and productive for rapid experimentation.
-- Structured logging improves run traceability.
-- Constraints are explicit and reusable.
-
----
-
-## 7. Architectural Weaknesses / Risks
-
-- Test suite currently lacks executable test coverage.
-- Single strategy in registry limits comparative experimentation.
-- Backtrader dependency is deeply embedded in engine path.
-- Cost model simplification (e.g., stamp duty handling) may reduce realism.
-- No formal data cache layer; repeated API calls may be inefficient.
-- No portfolio-level abstraction for multi-symbol research.
-- Limited experiment management (no run metadata/result persistence standard).
-
----
-
-## 8. Scalability Evaluation
-
-### Capability Readiness
-- **Multiple strategies**: partially supported (manual registry growth needed).
-- **Portfolio-level backtests**: limited in current CLI/runner design.
-- **Multi-symbol backtesting**: not first-class yet.
-- **Walk-forward testing**: not built-in.
-- **Hyperparameter optimization**: not built-in.
-- **Live trading integration**: absent by design at current stage.
-
-### Summary
-Current architecture scales well for **single-user, single-strategy, single-symbol research loops**, but needs dedicated abstractions for portfolio simulation, experiment orchestration, and eventual live integration.
-
----
-
-## 9. Recommended Architectural Improvements
-
-Recommendations optimized for a **single individual quant investor**:
-
-1. **Add experiment-runner module**
-   - Batch run strategy params/symbols/windows and store comparable outputs.
-2. **Introduce local market data cache**
-   - Parquet-based cache keyed by provider/symbol/frequency/date range.
-3. **Create portfolio research layer**
-   - Multiple symbols, allocation policies, benchmark comparison.
-4. **Improve strategy extensibility**
-   - Plugin-like strategy discovery rather than static registry edits.
-5. **Strengthen evaluation pipeline**
-   - Persist equity curves, trade logs, analyzer snapshots, factor diagnostics.
-6. **Expand testing pyramid**
-   - Unit tests for constraints/normalizers + integration tests with mocked providers.
-7. **Refine transaction cost model**
-   - Side-specific fees/taxes and liquidity-aware slippage options.
-8. **Add lightweight experiment tracking**
-   - Run IDs, config snapshots, metrics table, reproducible outputs.
-
----
-
-## 10. Future Evolution Roadmap
-
-## Stage 1 — Research Framework (Current -> Near-Term)
-Focus: stability and reproducibility.
-- Implement meaningful automated tests.
-- Add data cache and deterministic run artifacts.
-- Expand strategy registry and parameter controls.
-
-## Stage 2 — Strategy Laboratory
-Focus: comparative research.
-- Batch experiments and parameter sweeps.
-- Walk-forward split support and report generation.
-- Portfolio simulation for multi-symbol strategies.
-
-## Stage 3 — Personal Trading Platform
-Focus: controlled live deployment.
-- Add paper/live adapters (broker abstraction).
-- Risk checks and execution constraints before order placement.
-- Daily reconciliation and operational observability dashboards.
-
----
-
-## Additional Architecture Views
-
-### Component Interaction Diagram
-
-```text
-[User]
+[User / Researcher]
   -> [CLI]
-      -> [Config Loader]
-      -> [Strategy Registry]
-      -> [Data Loader]
-          -> [Provider Factory]
-              -> [BaoStock Provider | Tushare Provider]
-      -> [Backtest Runner]
-          -> [Cerebro Builder]
-          -> [Feed Normalizer]
-          -> [Analyzers]
-      -> [Result Output + Structured Logging]
+      -> [Configuration]
+      -> [Data Layer]
+          -> [Provider Abstraction: BaoStock | Tushare]
+          -> [Normalization + (Planned) Cache]
+      -> [Strategy Framework]
+      -> [Backtest Engine]
+          -> [Constraints Layer]
+          -> [Analyzer / Metrics Layer]
+      -> [Outputs: Console + Artifacts + Logs]
 ```
 
-### Code Structure Summary
-- Packaging uses `src/` layout and exposes `ashare` CLI script.
-- Dependencies are minimal and practical for personal research tooling.
-- Architecture is coherent and incremental-evolution friendly.
+This architecture remains intentionally lightweight and modular for a single-user quant workflow while leaving clear extension points for upcoming engineering phases.
