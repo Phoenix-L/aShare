@@ -9,6 +9,7 @@ from ashare.config.loader import load_backtest_config
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
 from ashare.research.experiment_runner import run_experiment
+from ashare.research.walk_forward import run_walk_forward
 from ashare.sanitytests import sanitycheck_daily, sanitycheck_minute30
 from ashare.strategies import get_strategy_class
 from ashare.utils.logging import get_logger, log_backtest_start, log_data_loaded, log_backtest_metrics, setup_logging
@@ -147,6 +148,48 @@ def experiment(strategy: str, symbols: str, param_options: tuple[str, ...], star
 
     click.echo(f"Experiment completed: {result['num_runs']} runs")
     click.echo(f"Output directory: {result['experiment_dir']}")
+    click.echo(f"Results CSV: {result['results_path']}")
+
+
+@cli.command(name="walk-forward")
+@click.option("--symbol", required=True, help="Single symbol (e.g. 600519.SH)")
+@click.option("--strategy", required=True, help="Strategy name (e.g. mid_freq_ma)")
+@click.option("--start", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("--end", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--train-window", required=True, type=int, help="Training window size in days")
+@click.option("--test-window", required=True, type=int, help="Testing window size in days")
+@click.option("--param", "param_options", multiple=True, help="Parameter grid entry: key=v1,v2,v3")
+def walk_forward(
+    symbol: str,
+    strategy: str,
+    start: str,
+    end: str,
+    train_window: int,
+    test_window: int,
+    param_options: tuple[str, ...],
+) -> None:
+    """Run walk-forward optimization for one symbol."""
+    config = load_backtest_config()
+    try:
+        strategy_cls = get_strategy_class(strategy)
+    except KeyError as e:
+        raise click.UsageError(str(e))
+
+    param_grid = _parse_param_options(param_options)
+
+    result = run_walk_forward(
+        strategy_cls=strategy_cls,
+        symbol=symbol,
+        param_grid=param_grid,
+        start_date=start,
+        end_date=end,
+        train_window=train_window,
+        test_window=test_window,
+        config=config,
+    )
+
+    click.echo(f"Walk-forward completed: {result['num_windows']} windows")
+    click.echo(f"Output directory: {result['output_dir']}")
     click.echo(f"Results CSV: {result['results_path']}")
 
 
