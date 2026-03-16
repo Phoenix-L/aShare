@@ -325,3 +325,26 @@ This sequence preserves the PRD direction: AI and advanced capabilities extend a
 ```
 
 This architecture remains intentionally lightweight and modular for a single-user quant workflow while leaving clear extension points for upcoming engineering phases.
+
+---
+
+## 11. Architecture Implementation Roadmap
+
+### Phase 1 — Test Coverage Expansion
+
+Phase 1 implements the foundational layers of the quant research testing pyramid: unit tests, data integrity tests, and minimal backtest integration tests. Strategy research validation tests are intentionally deferred to later phases to avoid premature complexity.
+
+Scope (bottom layers of the quant research testing pyramid):
+- Unit Tests
+- Data Integrity Tests
+- Backtest Integration Tests
+
+Phase 1 modules:
+- `tests/test_constraints.py`
+- `tests/test_normalizers.py`
+- `tests/test_data_loaders.py`
+- `tests/test_data_integrity.py`
+- `tests/test_mid_freq_ma.py`
+- `tests/test_engine_runner.py`
+
+Integration tests must include deterministic backtest validation.
