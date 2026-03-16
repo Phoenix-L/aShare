@@ -82,9 +82,12 @@ def extract_results(cerebro: bt.Cerebro, strat: bt.Strategy) -> dict[str, Any]:
         # Trade analyzer might not have data or structure is different
         pass
     
+    total_return = strat.analyzers.returns.get_analysis().get("rtot", 0.0)
+
     return {
         "final_value": cerebro.broker.getvalue(),
-        "rtot": strat.analyzers.returns.get_analysis().get("rtot", 0.0),
+        "rtot": total_return,
+        "total_return": total_return,
         "sharpe": sharpe_value,
         "max_drawdown": strat.analyzers.drawdown.get_analysis()["max"]["drawdown"],
         "max_drawdown_len": strat.analyzers.drawdown.get_analysis()["max"]["len"],
