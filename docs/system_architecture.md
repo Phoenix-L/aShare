@@ -384,23 +384,25 @@ Improvements delivered:
 **Estimated implementation complexity**
 - **Medium-High** (cache key design, invalidation policy, integrity checks).
 
-### Phase 3 — Strategy Parameter Framework + Experiment Runner
+### Phase 3 — Strategy Parameter Framework + Experiment Runner ✅ (Implemented)
 
 **Purpose**
 - Enable structured strategy parameterization and repeatable batch experimentation.
 
-**Architectural benefit**
-- Converts ad-hoc single runs into reproducible experiment pipelines.
-- Improves G3 (strategy comparison) and G4 (research efficiency).
+**Implemented capabilities**
+- The Experiment Runner automates systematic research by executing many backtests across symbols and parameter combinations, collecting results for comparison.
+- Generates cartesian parameter combinations via `itertools.product()`.
+- Executes multi-symbol batch runs via `engine.runner` with loader-driven market data.
+- Persists reproducible artifacts per run under `experiments/experiment_<timestamp>/` including `config.json` and `results.csv`.
+- Exposes CLI command `ashare experiment` to parse symbols and parameter grids.
 
 **Modules affected**
 - `src/ashare/research/experiment_runner.py` (new)
-- `src/ashare/strategies/base.py`
-- `src/ashare/strategies/__init__.py` (registry + parameter metadata)
-- `src/ashare/cli.py` (parameter input and experiment commands)
+- `src/ashare/cli.py` (experiment command + parameter parsing)
+- `tests/test_experiment_runner.py` (new)
 
 **Estimated implementation complexity**
-- **High** (schema design, CLI UX, result collation, metadata persistence).
+- **High** (batch orchestration, CLI UX, result collation, metadata persistence).
 
 ### Phase 4 — Portfolio Backtest Support
 

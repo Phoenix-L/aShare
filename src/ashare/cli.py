@@ -8,6 +8,7 @@ from ashare import __version__
 from ashare.config.loader import load_backtest_config
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
+from ashare.research.experiment_runner import run_experiment
 from ashare.sanitytests import sanitycheck_daily, sanitycheck_minute30
 from ashare.strategies import get_strategy_class
 from ashare.utils.logging import get_logger, log_backtest_start, log_data_loaded, log_backtest_metrics, setup_logging
@@ -81,6 +82,72 @@ def backtest(
 
     if plot:
         cerebro.plot()
+
+
+def _parse_param_options(param_options: tuple[str, ...]) -> dict[str, list[int | float | str]]:
+    """Parse repeated --param key=v1,v2 options into param grid."""
+    param_grid: dict[str, list[int | float | str]] = {}
+
+    def _coerce(value: str):
+        stripped = value.strip()
+        if stripped == "":
+            raise click.UsageError("Parameter values cannot be empty")
+        try:
+            return int(stripped)
+        except ValueError:
+            pass
+        try:
+            return float(stripped)
+        except ValueError:
+            return stripped
+
+    for option in param_options:
+        if "=" not in option:
+            raise click.UsageError(f"Invalid --param format: {option}. Use key=v1,v2")
+        key, raw_values = option.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise click.UsageError(f"Invalid --param key in: {option}")
+        values = [_coerce(v) for v in raw_values.split(",") if v.strip()]
+        if not values:
+            raise click.UsageError(f"No values provided for --param {key}")
+        param_grid[key] = values
+
+    return param_grid
+
+
+@cli.command()
+@click.option("--strategy", required=True, help="Strategy name (e.g. mid_freq_ma)")
+@click.option("--symbols", required=True, help="Comma-separated symbols (e.g. 600519.SH,000858.SZ)")
+@click.option("--param", "param_options", multiple=True, help="Parameter grid entry: key=v1,v2,v3")
+@click.option("--start", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("--end", required=True, help="End date (YYYY-MM-DD)")
+def experiment(strategy: str, symbols: str, param_options: tuple[str, ...], start: str, end: str) -> None:
+    """Run a multi-symbol parameter sweep experiment."""
+    config = load_backtest_config()
+    try:
+        strategy_cls = get_strategy_class(strategy)
+    except KeyError as e:
+        raise click.UsageError(str(e))
+
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    if not symbol_list:
+        raise click.UsageError("At least one symbol must be provided")
+
+    param_grid = _parse_param_options(param_options)
+
+    result = run_experiment(
+        strategy_cls=strategy_cls,
+        symbols=symbol_list,
+        param_grid=param_grid,
+        start_date=start,
+        end_date=end,
+        config=config,
+    )
+
+    click.echo(f"Experiment completed: {result['num_runs']} runs")
+    click.echo(f"Output directory: {result['experiment_dir']}")
+    click.echo(f"Results CSV: {result['results_path']}")
 
 
 def _default_date_range(days: int = 30) -> tuple[str, str]:
