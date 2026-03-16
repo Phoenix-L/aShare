@@ -330,6 +330,138 @@ This architecture remains intentionally lightweight and modular for a single-use
 
 ## 11. Architecture Implementation Roadmap
 
+This roadmap turns the immediate architecture improvements into an ordered delivery plan with minimal disruption to current single-user research workflows.
+
+### Why this order
+- Build **test safety rails first** to reduce regression risk during structural changes.
+- Improve **data reliability and repeatability** before scaling experiment volume.
+- Add **experimentation and portfolio capabilities** only after foundations are stable.
+- Expand **metrics and analytics depth** after run orchestration is mature.
+
+### Phase 1 — Test Coverage Expansion (Recommended First)
+
+**Purpose**
+- Establish confidence and change safety before introducing new layers (cache, experiment orchestration, portfolio logic).
+
+**Architectural benefit**
+- Protects modular boundaries across data, strategy, engine, and constraints.
+- Enables faster iterative refactors with deterministic feedback.
+- Improves reproducibility by validating run invariants in CI/local workflows.
+
+**Modules affected**
+- `tests/test_data_loaders.py`
+- `tests/test_normalizers.py`
+- `tests/test_constraints.py`
+- `tests/test_strategies.py`
+- `tests/test_engine_runner.py`
+
+**Estimated implementation complexity**
+- **Medium** (test harness and mocking setup needed; production module changes should be light).
+
+**Concrete test strategy**
+- **Unit tests**
+  - `test_data_loaders.py`: provider selection, symbol normalization, schema checks, failure behavior.
+  - `test_normalizers.py`: OHLCV(+turnover_rate) normalization and feed compatibility assumptions.
+  - `test_constraints.py`: lot-size rounding, buy-size calculations, boundary conditions.
+  - `test_strategies.py`: signal generation and position behavior for deterministic synthetic series.
+- **Integration tests**
+  - `test_engine_runner.py`: end-to-end single-symbol run with mocked provider data; verify core metrics keys, output schema, and stable execution path.
+- **Mock data providers**
+  - Build fixture-driven fake providers to avoid network/API dependence.
+- **Strategy behavior validation**
+  - Validate trade entry/exit invariants, parameter handling, and no-crash behavior on sparse data.
+
+**Should tests be Phase 1?**
+- **Yes, recommended.**
+- Benefits:
+  - catches regressions early while introducing cache/runner/portfolio layers,
+  - shortens debug loops for architecture changes,
+  - provides objective quality gates for future phases.
+- Risks if delayed:
+  - hidden regressions accumulate,
+  - refactor speed slows due to manual verification,
+  - output correctness and reproducibility can silently degrade.
+
+### Phase 2 — Data Cache Layer + Data Reliability
+
+**Purpose**
+- Reduce repeated API calls and improve deterministic data access for backtests/experiments.
+
+**Architectural benefit**
+- Decouples research speed from upstream provider latency/reliability.
+- Creates a foundation for repeatable experiment runs.
+
+**Modules affected**
+- `src/ashare/data/cache.py` (new)
+- `src/ashare/data/loaders.py`
+- `src/ashare/data/providers/base.py`
+- `src/ashare/config/settings.py` (cache toggles/paths)
+
+**Estimated implementation complexity**
+- **Medium-High** (cache key design, invalidation policy, integrity checks).
+
+### Phase 3 — Strategy Parameter Framework + Experiment Runner
+
+**Purpose**
+- Enable structured strategy parameterization and repeatable batch experimentation.
+
+**Architectural benefit**
+- Converts ad-hoc single runs into reproducible experiment pipelines.
+- Improves G3 (strategy comparison) and G4 (research efficiency).
+
+**Modules affected**
+- `src/ashare/research/experiment_runner.py` (new)
+- `src/ashare/strategies/base.py`
+- `src/ashare/strategies/__init__.py` (registry + parameter metadata)
+- `src/ashare/cli.py` (parameter input and experiment commands)
+
+**Estimated implementation complexity**
+- **High** (schema design, CLI UX, result collation, metadata persistence).
+
+### Phase 4 — Portfolio Backtest Support
+
+**Purpose**
+- Extend from single-symbol research to multi-symbol portfolio simulation.
+
+**Architectural benefit**
+- Adds realistic capital allocation research and broader strategy evaluation.
+- Enables future roadmap items (batch testing, walk-forward workflows).
+
+**Modules affected**
+- `src/ashare/portfolio/portfolio_runner.py` (new, recommended)
+- `src/ashare/engine/runner.py`
+- `src/ashare/config/settings.py` (allocation model config)
+- `src/ashare/cli.py` (multi-symbol inputs)
+
+**Estimated implementation complexity**
+- **High** (allocation logic, portfolio metric aggregation, interface updates).
+
+### Phase 5 — Analyzer Expansion and Reporting Depth
+
+**Purpose**
+- Promote richer analysis outputs as first-class defaults.
+
+**Architectural benefit**
+- Improves transparency and decision quality with standardized advanced metrics.
+- Makes experiment/portfolio comparisons more meaningful.
+
+**Modules affected**
+- `src/ashare/engine/analyzers.py`
+- `src/ashare/engine/runner.py` (result packaging)
+- `outputs/` contract documentation and serializers
+
+**Estimated implementation complexity**
+- **Medium** (metric definitions, edge-case handling, output schema compatibility).
+
+### Recommended Delivery Milestones
+
+1. **Milestone A (Phase 1 complete):** deterministic tests cover core single-symbol path.
+2. **Milestone B (Phase 2 complete):** cache-enabled runs with validated data integrity.
+3. **Milestone C (Phase 3 complete):** parameter sweeps and reproducible experiment reports.
+4. **Milestone D (Phase 4 complete):** portfolio backtests available from CLI.
+5. **Milestone E (Phase 5 complete):** expanded metrics integrated into default outputs.
+
+This phased order minimizes implementation risk while steadily increasing research capability in line with the architecture principles and PRD-aligned goals.
 ### Phase 1 — Test Coverage Expansion
 
 Phase 1 implements the foundational layers of the quant research testing pyramid: unit tests, data integrity tests, and minimal backtest integration tests. Strategy research validation tests are intentionally deferred to later phases to avoid premature complexity.
