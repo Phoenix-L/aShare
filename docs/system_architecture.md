@@ -384,32 +384,52 @@ Improvements delivered:
 **Estimated implementation complexity**
 - **Medium-High** (cache key design, invalidation policy, integrity checks).
 
-### Phase 3 — Strategy Parameter Framework + Experiment Runner
+### Phase 3 — Strategy Parameter Framework + Experiment Runner ✅ (Implemented)
 
 **Purpose**
 - Enable structured strategy parameterization and repeatable batch experimentation.
 
-**Architectural benefit**
-- Converts ad-hoc single runs into reproducible experiment pipelines.
-- Improves G3 (strategy comparison) and G4 (research efficiency).
+**Implemented capabilities**
+- The Experiment Runner automates systematic research by executing many backtests across symbols and parameter combinations, collecting results for comparison.
+- Generates cartesian parameter combinations via `itertools.product()`.
+- Executes multi-symbol batch runs via `engine.runner` with loader-driven market data.
+- Persists reproducible artifacts per run under `experiments/experiment_<timestamp>/` including `config.json` and `results.csv`.
+- Exposes CLI command `ashare experiment` to parse symbols and parameter grids.
 
 **Modules affected**
 - `src/ashare/research/experiment_runner.py` (new)
-- `src/ashare/strategies/base.py`
-- `src/ashare/strategies/__init__.py` (registry + parameter metadata)
-- `src/ashare/cli.py` (parameter input and experiment commands)
+- `src/ashare/cli.py` (experiment command + parameter parsing)
+- `tests/test_experiment_runner.py` (new)
 
 **Estimated implementation complexity**
-- **High** (schema design, CLI UX, result collation, metadata persistence).
+- **High** (batch orchestration, CLI UX, result collation, metadata persistence).
 
-### Phase 4 — Portfolio Backtest Support
+### Phase 4 — Walk-Forward Optimization ✅ (Implemented)
+
+**Purpose**
+- Validate strategy robustness by repeatedly optimizing in-sample and testing out-of-sample across rolling windows.
+
+**Architectural benefit**
+- Builds directly on the Experiment Runner parameter-sweep model to select candidate parameters per training segment.
+- Evaluates robustness across different market regimes by measuring repeated out-of-sample performance.
+- Reduces overfitting risk compared to single static backtest windows.
+
+**Modules affected**
+- `src/ashare/research/walk_forward.py` (new)
+- `src/ashare/cli.py` (`walk-forward` command)
+- `tests/test_walk_forward.py` (new)
+
+**Estimated implementation complexity**
+- **High** (rolling window orchestration, model-selection policy, artifact persistence).
+
+### Phase 5 — Portfolio Backtest Support
 
 **Purpose**
 - Extend from single-symbol research to multi-symbol portfolio simulation.
 
 **Architectural benefit**
 - Adds realistic capital allocation research and broader strategy evaluation.
-- Enables future roadmap items (batch testing, walk-forward workflows).
+- Enables future roadmap items (batch testing, portfolio risk analysis).
 
 **Modules affected**
 - `src/ashare/portfolio/portfolio_runner.py` (new, recommended)
@@ -420,7 +440,7 @@ Improvements delivered:
 **Estimated implementation complexity**
 - **High** (allocation logic, portfolio metric aggregation, interface updates).
 
-### Phase 5 — Analyzer Expansion and Reporting Depth
+### Phase 6 — Analyzer Expansion and Reporting Depth
 
 **Purpose**
 - Promote richer analysis outputs as first-class defaults.
@@ -442,7 +462,8 @@ Improvements delivered:
 1. **Milestone A (Phase 1 complete):** deterministic tests cover core single-symbol path.
 2. **Milestone B (Phase 2 complete):** cache-enabled runs with validated data integrity.
 3. **Milestone C (Phase 3 complete):** parameter sweeps and reproducible experiment reports.
-4. **Milestone D (Phase 4 complete):** portfolio backtests available from CLI.
-5. **Milestone E (Phase 5 complete):** expanded metrics integrated into default outputs.
+4. **Milestone D (Phase 4 complete):** walk-forward optimization reports produced across rolling windows.
+5. **Milestone E (Phase 5 complete):** portfolio backtests available from CLI.
+6. **Milestone F (Phase 6 complete):** expanded metrics integrated into default outputs.
 
 This phased order minimizes implementation risk while steadily increasing research capability in line with the architecture principles and PRD-aligned goals.
