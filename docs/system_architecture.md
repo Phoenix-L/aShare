@@ -338,49 +338,23 @@ This roadmap turns the immediate architecture improvements into an ordered deliv
 - Add **experimentation and portfolio capabilities** only after foundations are stable.
 - Expand **metrics and analytics depth** after run orchestration is mature.
 
-### Phase 1 — Test Coverage Expansion (Recommended First)
+### Phase 1 — Test Coverage Expansion
+Phase 1 implements the foundational layers of the quant research testing pyramid: unit tests, data integrity tests, and minimal backtest integration tests. Strategy research validation tests are intentionally deferred to later phases to avoid premature complexity.
 
-**Purpose**
-- Establish confidence and change safety before introducing new layers (cache, experiment orchestration, portfolio logic).
+Scope (bottom layers of the quant research testing pyramid):
+- Unit Tests
+- Data Integrity Tests
+- Backtest Integration Tests
 
-**Architectural benefit**
-- Protects modular boundaries across data, strategy, engine, and constraints.
-- Enables faster iterative refactors with deterministic feedback.
-- Improves reproducibility by validating run invariants in CI/local workflows.
-
-**Modules affected**
-- `tests/test_data_loaders.py`
-- `tests/test_normalizers.py`
+Phase 1 modules:
 - `tests/test_constraints.py`
-- `tests/test_strategies.py`
+- `tests/test_normalizers.py`
+- `tests/test_data_loaders.py`
+- `tests/test_data_integrity.py`
+- `tests/test_mid_freq_ma.py`
 - `tests/test_engine_runner.py`
 
-**Estimated implementation complexity**
-- **Medium** (test harness and mocking setup needed; production module changes should be light).
-
-**Concrete test strategy**
-- **Unit tests**
-  - `test_data_loaders.py`: provider selection, symbol normalization, schema checks, failure behavior.
-  - `test_normalizers.py`: OHLCV(+turnover_rate) normalization and feed compatibility assumptions.
-  - `test_constraints.py`: lot-size rounding, buy-size calculations, boundary conditions.
-  - `test_strategies.py`: signal generation and position behavior for deterministic synthetic series.
-- **Integration tests**
-  - `test_engine_runner.py`: end-to-end single-symbol run with mocked provider data; verify core metrics keys, output schema, and stable execution path.
-- **Mock data providers**
-  - Build fixture-driven fake providers to avoid network/API dependence.
-- **Strategy behavior validation**
-  - Validate trade entry/exit invariants, parameter handling, and no-crash behavior on sparse data.
-
-**Should tests be Phase 1?**
-- **Yes, recommended.**
-- Benefits:
-  - catches regressions early while introducing cache/runner/portfolio layers,
-  - shortens debug loops for architecture changes,
-  - provides objective quality gates for future phases.
-- Risks if delayed:
-  - hidden regressions accumulate,
-  - refactor speed slows due to manual verification,
-  - output correctness and reproducibility can silently degrade.
+Integration tests must include deterministic backtest validation.
 
 ### Phase 2 — Data Cache Layer + Data Reliability
 
@@ -462,21 +436,3 @@ This roadmap turns the immediate architecture improvements into an ordered deliv
 5. **Milestone E (Phase 5 complete):** expanded metrics integrated into default outputs.
 
 This phased order minimizes implementation risk while steadily increasing research capability in line with the architecture principles and PRD-aligned goals.
-### Phase 1 — Test Coverage Expansion
-
-Phase 1 implements the foundational layers of the quant research testing pyramid: unit tests, data integrity tests, and minimal backtest integration tests. Strategy research validation tests are intentionally deferred to later phases to avoid premature complexity.
-
-Scope (bottom layers of the quant research testing pyramid):
-- Unit Tests
-- Data Integrity Tests
-- Backtest Integration Tests
-
-Phase 1 modules:
-- `tests/test_constraints.py`
-- `tests/test_normalizers.py`
-- `tests/test_data_loaders.py`
-- `tests/test_data_integrity.py`
-- `tests/test_mid_freq_ma.py`
-- `tests/test_engine_runner.py`
-
-Integration tests must include deterministic backtest validation.
