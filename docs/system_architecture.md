@@ -174,10 +174,10 @@ Design implications:
 
 ## 7. Immediate Architecture Improvements
 
-### 7.1 Data Caching Layer
-- Add local Parquet cache to reduce repeated provider requests.
-- Use deterministic keys: provider + symbol + frequency + date range.
-- Add data integrity checks and cache invalidation rules.
+### 7.1 Data Caching Layer ✅ (Implemented in Phase 2)
+- Implemented local Parquet cache to reduce repeated provider requests.
+- Implemented deterministic keys: provider + symbol + frequency + date range.
+- Integrated cache-first loading behavior for repeatable data retrieval.
 
 ### 7.2 Experiment Management
 - Add structured experiment runs with run IDs, parameter sets, and result tables.
@@ -355,6 +355,16 @@ Phase 1 modules:
 - `tests/test_engine_runner.py`
 
 Integration tests must include deterministic backtest validation.
+
+
+### Phase 2 — Data Reliability Improvements
+
+Phase 2 is now implemented with a local Parquet-backed data cache layer.
+
+Improvements delivered:
+- cache layer in `src/ashare/data/cache.py` for provider/symbol/frequency/date-range keyed storage
+- deterministic data inputs via cache-first reads in data loaders
+- improved backtest reproducibility by reusing identical cached datasets across runs
 
 ### Phase 2 — Data Cache Layer + Data Reliability
 
