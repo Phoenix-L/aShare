@@ -53,8 +53,9 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
         symbol=None,
         experiment_name=None,
         run_id=None,
+        output_dir=None,
     ):
-        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id)
+        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id, output_dir)
         return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
 
     monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
