@@ -4,7 +4,7 @@ import pandas as pd
 
 from ashare.config.settings import BacktestConfig
 from ashare.experiment.executor import execute_experiment_spec
-from ashare.engine.runner import expand_grid
+from ashare.experiment.grid import expand_grid
 from ashare.strategies.mean_reversion_advanced import MeanReversionAdvanced
 
 
