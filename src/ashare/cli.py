@@ -13,6 +13,7 @@ from ashare.config.loader import load_backtest_config
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
 from ashare.experiment.grid import generate_parameter_sets
+from ashare.experiment.result import build_summary
 from ashare.experiment.spec import load_experiment_spec
 from ashare.research.experiment_runner import run_experiment
 from ashare.research.walk_forward import run_walk_forward
@@ -247,8 +248,20 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
                     encoding="utf-8",
                 )
 
+        summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
+
         click.echo(f"Experiment completed: {total_runs} runs")
         click.echo(f"Output directory: {output_root}")
+        click.echo(f"Summary CSV: {summary_path}")
+        click.echo(f"Sorted summary CSV: {summary_sorted_path}")
+
+        click.echo("Top 5 results:")
+        for index, row in enumerate(ranked_records[:5], start=1):
+            click.echo(
+                f"{index}  sharpe={row['sharpe']:.2f} "
+                f"return={row['total_return'] * 100:.2f}% "
+                f"z_entry={row.get('z_entry')} z_exit={row.get('z_exit')}"
+            )
         return
 
     if not strategy:
