@@ -1,374 +1,79 @@
-# PRD
-## Personal A-Share Algorithmic Trading System
+# PRD — aShare (Implementation-aligned)
 
-Version: v1.0
-Owner: Hai Tian
-Project: **aShare Quant Research Platform**
+## 1. Product definition
 
----
+aShare is a CLI-first A-share quantitative research toolkit for an **individual quant researcher**.
 
-# 1. Product Overview
+It supports iterative workflow:
+- define strategy/config,
+- run backtests,
+- run parameter experiments,
+- review metrics and compare runs.
 
-## 1.1 Product Vision
-
-Build a **personal quantitative research and trading laboratory for the Chinese A-share market** that allows an individual investor to:
-
-* rapidly prototype trading strategies
-* evaluate strategies using realistic market data and constraints
-* iterate strategies efficiently through automated backtesting
-
-The system initially focuses on **one strategy, one instrument, and one market** to maximize research clarity and execution discipline.
-
-The platform prioritizes:
-
-* **fast research iteration**
-* **transparent performance evaluation**
-* **modular extensibility**
-
-At the current stage, the system functions as a **quantitative research infrastructure**, not a live trading platform.
-
----
-
-# 2. Target Users
+## 2. Target user
 
 Primary user:
+- one developer-researcher (or very small team) who can run Python CLI locally,
+- needs repeatable strategy evaluation over A-share symbols,
+- prefers transparent files/artifacts over complex platforms.
 
-**Individual quantitative trader**
+## 3. Core capabilities (current)
 
-User characteristics:
+### A) Single backtest
+- Command: `ashare backtest --symbol ... --strategy ... --start ... --end ...`
+- Uses selected data provider, normalized feed, and Backtrader engine.
+- Returns headline metrics (return, sharpe, drawdown, trades).
 
-* comfortable with Python programming
-* familiar with command-line workflows
-* focuses on strategy research and hypothesis testing
-* operates independently without institutional infrastructure
+### B) Experiment + grid search
+- Command: `ashare experiment <spec.yaml>` (recommended)
+- Also available: direct CLI mode without YAML.
+- Supports cartesian parameter sweeps and multi-symbol runs.
+- Writes per-run metrics and configuration snapshots (YAML mode).
 
-User goals:
+## 4. Non-goals (current phase)
 
-* discover profitable trading strategies
-* validate ideas quickly
-* evaluate risk and return characteristics
-* track and refine strategy experiments
+1. Live broker execution / order routing.
+2. Multi-user SaaS operation.
+3. Cloud/distributed scaling orchestration.
+4. Portfolio OMS/PMS-grade execution controls.
 
----
+## 5. Constraints
 
-# 3. Product Scope
+### Data constraints
+- Data quality and field consistency depend on provider (`baostock` default, `tushare` optional).
+- Minute-level coverage/turnover mapping can vary by backend and date range.
 
-## 3.1 In Scope (Phase 1)
+### Performance constraints
+- Experiments are sequential loops (no built-in parallel execution).
+- Runtime grows linearly with symbol count × parameter combinations.
 
-Core research capabilities:
+### Reproducibility constraints
+- Output contracts differ by experiment entry path (`outputs/` vs `experiments/`).
 
-* market data ingestion
-* historical backtesting
-* strategy development framework
-* performance evaluation metrics
-* experiment iteration
+## 6. Current limitations
 
----
+1. Dual experiment pipelines create inconsistent outputs.
+2. `backtest` command lacks strategy param override flags.
+3. Grid expansion duplicated in two modules.
+4. Ranking summary is only generated in YAML experiment path.
+5. Broker config overrides from YAML `execution` are partial (primarily cash/commission).
 
-## 3.2 Out of Scope (Phase 1)
+## 7. Roadmap (aligned with current architecture)
 
-The following features are intentionally excluded in the first phase:
+### Phase A — Consolidation
+- Unify experiment execution and artifact schema.
+- Centralize grid expansion logic.
+- Normalize summary generation for all experiment modes.
 
-* live order execution
-* broker API integration
-* distributed computation
-* cloud infrastructure deployment
+### Phase B — Research ergonomics
+- Add strategy param overrides for `backtest` command.
+- Improve run metadata and traceability across commands.
+- Add richer metrics (win rate/profit factor/expectancy) into ranking pipeline.
 
-These may be considered in later phases.
+### Phase C — Validation depth
+- Expand walk-forward workflows and compare-train-test reporting.
+- Improve analyzer consistency and edge-case handling for sparse-trade runs.
 
----
-
-# 4. System Goals
-
-The system should enable the user to:
-
-### G1 — Rapid Strategy Development
-
-Develop and test new strategies with minimal setup.
-
-### G2 — Reproducible Backtests
-
-Ensure backtest results are deterministic and reproducible.
-
-### G3 — Strategy Comparison
-
-Evaluate multiple parameter variations of a strategy.
-
-### G4 — Research Efficiency
-
-Minimize friction between **idea → experiment → insight**.
-
-### G5 — Architecture Longevity
-
-Maintain an architecture capable of evolving into a more advanced trading platform.
-
----
-
-# 5. Functional Requirements
-
-## 5.1 Data Layer
-
-Supported data providers:
-
-* BaoStock
-* Tushare
-
-Supported data types:
-
-* Daily OHLCV
-* Intraday OHLCV
-* Liquidity metrics (turnover_rate)
-
-Capabilities:
-
-* unified data schema
-* provider abstraction layer
-* symbol normalization
-* API error handling
-
-Future extensions:
-
-* local historical data cache
-* Parquet-based storage
-* data integrity checks
-
----
-
-## 5.2 Strategy Framework
-
-The system must support:
-
-* modular strategy files
-* parameterized strategies
-* strategy registry
-* CLI-based execution
-
-Example usage:
-
-```
-ashare backtest \
---symbol 600519.SH \
---strategy mid_freq_ma \
---start 2024-01-01 \
---end 2025-01-01
-```
-
-Strategies must support:
-
-* technical indicators
-* signal generation
-* position sizing
-* market constraints
-
----
-
-## 5.3 Backtesting Engine
-
-The system must provide:
-
-* backtesting orchestration
-* configurable capital
-* realistic transaction cost model
-* slippage modeling
-* analyzer integration
-
-Engine responsibilities:
-
-* initialize simulation environment
-* attach strategies and analyzers
-* execute simulation
-* extract performance metrics
-
----
-
-## 5.4 Market Constraints
-
-The system must incorporate A-share market rules such as:
-
-* 100-share lot size
-* stamp duty on sell orders
-* T+1 settlement restrictions (future)
-* daily price limit rules (future)
-
----
-
-## 5.5 Performance Metrics
-
-The system must produce core metrics:
-
-* total return
-* Sharpe ratio
-* maximum drawdown
-* trade statistics
-
-Recommended additional metrics:
-
-* win rate
-* profit factor
-* annualized volatility
-* turnover ratio
-
----
-
-## 5.6 Output and Reporting
-
-Each backtest run should produce:
-
-Console output:
-
-* summary performance metrics
-
-Artifacts:
-
-```
-outputs/
-    equity_curve.csv
-    trades.csv
-    metrics.json
-    plot.png
-```
-
-Logging:
-
-```
-logs/
-    run_YYYYMMDD.log
-```
-
----
-
-# 6. Non-Functional Requirements
-
-## 6.1 Performance
-
-Backtests should complete within seconds for:
-
-* single instrument
-* <5 years of historical data
-* minute or daily resolution
-
----
-
-## 6.2 Reliability
-
-The system must:
-
-* fail fast when data is invalid
-* validate CLI parameters
-* log run metadata
-
----
-
-## 6.3 Maintainability
-
-Architecture must remain:
-
-* modular
-* testable
-* extensible
-
----
-
-# 7. User Workflow
-
-Typical research workflow:
-
-```
-Idea
- ↓
-Implement strategy
- ↓
-Run backtest
- ↓
-Analyze results
- ↓
-Adjust parameters
- ↓
-Run next experiment
-```
-
-The CLI serves as the primary interface.
-
----
-
-# 8. Architecture Alignment
-
-This PRD aligns with the system architecture layers:
-
-| PRD Domain        | Architecture Layer |
-| ----------------- | ------------------ |
-| CLI Interface     | CLI                |
-| Config Management | Configuration      |
-| Data Ingestion    | Data Layer         |
-| Strategy Logic    | Strategy Layer     |
-| Simulation        | Backtest Engine    |
-| Market Rules      | Constraints        |
-| Metrics           | Analyzer Layer     |
-
-This layered architecture ensures clear responsibility boundaries.
-
----
-
-# 9. Future Roadmap
-
-## Phase 1 — Research Infrastructure
-
-Focus:
-
-* stable backtesting
-* reliable market data
-* strategy experimentation
-
----
-
-## Phase 2 — AI-Assisted Research
-
-Introduce AI to enhance research capabilities:
-
-* pattern discovery from historical data
-* strategy parameter optimization
-* feature discovery
-* automated experiment analysis
-
-AI will assist **research**, not replace human decision-making.
-
----
-
-## Phase 3 — Advanced Research Platform
-
-Potential extensions:
-
-* multi-symbol portfolio simulation
-* strategy batch testing
-* experiment tracking
-* walk-forward validation
-* research report generation
-
----
-
-# 10. Success Metrics
-
-The platform is successful if it enables:
-
-* ≥10 strategies implemented
-* reproducible backtests
-* reliable performance metrics
-* efficient research workflow
-
----
-
-# 11. Risks
-
-### Data Quality Risk
-
-External data provider APIs may change or become unreliable.
-
-### Strategy Overfitting
-
-Backtests may overfit historical data without proper validation.
-
-### Metric Misinterpretation
-
-Incorrect performance metrics could lead to misleading conclusions.
-
----
+### Phase D — Platform extension
+- Add additional data providers and stronger data QA layers.
+- Introduce optional parallel experiment execution.
