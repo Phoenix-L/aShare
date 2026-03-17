@@ -2,7 +2,10 @@
 
 import backtrader as bt
 
-from ashare.strategies.core_satellite_mean_reversion import build_mean_reversion_indicators, compute_zscore
+from ashare.strategies.components.indicators import (
+    build_mean_reversion_indicators,
+    compute_zscore,
+)
 
 
 class MeanReversion(bt.Strategy):
