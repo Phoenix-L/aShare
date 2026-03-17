@@ -11,11 +11,14 @@ date_range:
 
 parameters:
   trade_unit: 500
-  z_entry: -1.5
-  z_exit: 0.5
   use_trend_filter: true
-  ma_period: 120
   use_art_filter: true
-  art_period: 14
-  art_threshold: 0.0
-  allow_ladder: false
+
+grid_search:
+  z_entry:
+    - -1.2
+    - -1.5
+    - -1.8
+  z_exit:
+    - 0.3
+    - 0.5

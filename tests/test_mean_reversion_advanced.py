@@ -20,10 +20,10 @@ def _synthetic_df(closes: list[float], spread: float = 1.0) -> pd.DataFrame:
     )
 
 
-def _run(closes: list[float], strategy_params: dict) -> MeanReversionAdvanced:
+def _run(closes: list[float], strategy_params: dict, spread: float = 1.0) -> MeanReversionAdvanced:
     _, strat, _ = run_backtest(
         strategy_cls=MeanReversionAdvanced,
-        data_df=_synthetic_df(closes),
+        data_df=_synthetic_df(closes, spread=spread),
         config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
         strategy_params=strategy_params,
         symbol="SYNTH",
@@ -42,7 +42,6 @@ def test_advanced_mean_reversion_entry_and_exit_trigger() -> None:
             "z_exit": 0.3,
             "use_trend_filter": False,
             "use_art_filter": False,
-            "allow_ladder": False,
         },
     )
 
@@ -61,7 +60,6 @@ def test_advanced_mean_reversion_trend_filter_blocks_entry() -> None:
             "z_entry": -1.0,
             "z_exit": 5.0,
             "use_trend_filter": True,
-            "ma_period": 120,
             "use_art_filter": False,
         },
     )
@@ -70,8 +68,8 @@ def test_advanced_mean_reversion_trend_filter_blocks_entry() -> None:
     assert strat.position.size == 0
 
 
-def test_advanced_mean_reversion_art_filter_blocks_entry() -> None:
-    closes = [100.0] * 180 + [98.0, 98.0]
+def test_advanced_mean_reversion_art_filter_blocks_low_volatility_entry() -> None:
+    closes = [100.0] * 180 + [99.0, 99.0]
 
     strat = _run(
         closes,
@@ -81,9 +79,8 @@ def test_advanced_mean_reversion_art_filter_blocks_entry() -> None:
             "z_exit": 5.0,
             "use_trend_filter": False,
             "use_art_filter": True,
-            "art_period": 14,
-            "art_threshold": 0.1,
         },
+        spread=0.01,
     )
 
     assert strat.buy_events == 0
