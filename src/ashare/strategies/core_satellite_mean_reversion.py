@@ -12,6 +12,7 @@ class CoreSatelliteMeanReversion(bt.Strategy):
         trade_unit=500,
         z_entry=[-1.5, -2.0, -2.5],
         z_exit=[0.8, 1.5],
+        z_entry_mode="ladder",
         trend_filter=True,
         ma_short=20,
         ma_trend=120,
@@ -63,6 +64,9 @@ class CoreSatelliteMeanReversion(bt.Strategy):
         if self.p.trend_filter and close < ma120:
             allow_satellite_buy = False
 
+        # Placeholder for future extension: support multiple z-entry styles
+        # such as "ladder", "single", and "volatility_adaptive".
+        # Phase 2 behavior currently assumes ladder-style entry only.
         if allow_satellite_buy:
             for threshold in self.p.z_entry:
                 if zscore <= threshold and satellite_size < self.p.satellite_max:

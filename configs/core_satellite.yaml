@@ -13,4 +13,6 @@ z_exit:
   - 0.8
   - 1.5
 
+z_entry_mode: ladder
+
 trend_filter: true

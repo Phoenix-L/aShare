@@ -52,3 +52,13 @@ Behavior:
 - `z_entry` is passed as `[-1.5, -2.0, -2.5]`
 - `z_exit` is passed as `[0.8, 1.2, 1.5]`
 - scalar params still expand as standard parameter grids.
+
+## Future Extension: `z_entry_mode`
+A placeholder parameter `z_entry_mode` is included to preserve backward compatibility while enabling future entry mechanism upgrades.
+
+Planned/illustrative modes include:
+- `ladder`
+- `single`
+- `volatility_adaptive`
+
+Current Phase 2 implementation does **not** branch behavior by `z_entry_mode`; ladder-style entry remains the assumed behavior.

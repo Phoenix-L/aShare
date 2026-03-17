@@ -3,6 +3,7 @@ import pandas as pd
 from ashare.config.settings import BacktestConfig
 from ashare.engine.runner import run_backtest
 from ashare.strategies import get_strategy_class
+from ashare.strategies.core_satellite_mean_reversion import CoreSatelliteMeanReversion
 
 
 def _synthetic_df(rows: int = 220) -> pd.DataFrame:
@@ -33,3 +34,18 @@ def test_core_satellite_strategy_runs_on_synthetic_data() -> None:
 
     assert isinstance(metrics, dict)
     assert "final_value" in metrics
+
+
+def test_core_satellite_z_entry_mode_placeholder_default_and_override() -> None:
+    assert CoreSatelliteMeanReversion.params.z_entry_mode == "ladder"
+
+    strategy_cls = get_strategy_class("core_satellite")
+    _, strat, _ = run_backtest(
+        strategy_cls=strategy_cls,
+        data_df=_synthetic_df(),
+        config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+        strategy_params={"z_entry_mode": "ladder"},
+        symbol="SYNTH",
+    )
+
+    assert strat.p.z_entry_mode == "ladder"
