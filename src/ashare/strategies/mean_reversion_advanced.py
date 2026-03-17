@@ -32,6 +32,9 @@ class MeanReversionAdvanced(bt.Strategy):
         )
         self.buy_events = 0
         self.sell_events = 0
+        self.diagnostics: list[dict] = []
+        self.trade_diagnostics: list[dict] = []
+        self.current_trade_reason: dict | None = None
 
     def next(self) -> None:
         close = float(self.data.close[0])
@@ -47,11 +50,49 @@ class MeanReversionAdvanced(bt.Strategy):
         if self.position and zscore >= self.p.z_exit:
             self.close()
             self.sell_events += 1
+            if self.current_trade_reason is not None:
+                self.trade_diagnostics.append(
+                    {
+                        "entry_reason": self.current_trade_reason,
+                        "exit_reason": {
+                            "zscore": float(zscore),
+                        },
+                    }
+                )
+                self.current_trade_reason = None
             return
 
         trend_ok = passes_trend_filter(close, ma120, enabled=self.p.use_trend_filter)
         art_ok = passes_art_filter(art, threshold=ART_MIN_THRESHOLD, enabled=self.p.use_art_filter)
+        entry_signal = zscore <= self.p.z_entry
+        executed = False
+        blocked_by: list[str] = []
 
-        if not self.position and zscore <= self.p.z_entry and trend_ok and art_ok:
+        if entry_signal and not self.position:
+            if not trend_ok:
+                blocked_by.append("trend_filter")
+            if not art_ok:
+                blocked_by.append("art_filter")
+
+        if not self.position and entry_signal and trend_ok and art_ok:
             self.buy(size=self.p.trade_unit)
             self.buy_events += 1
+            executed = True
+            self.current_trade_reason = {
+                "zscore": float(zscore),
+                "trend_ok": bool(trend_ok),
+                "art_ok": bool(art_ok),
+            }
+            blocked_by = []
+
+        self.diagnostics.append(
+            {
+                "datetime": str(self.datas[0].datetime.datetime(0)),
+                "zscore": float(zscore),
+                "trend_ok": bool(trend_ok),
+                "art_ok": bool(art_ok),
+                "entry_signal": bool(entry_signal),
+                "executed": bool(executed),
+                "blocked_by": blocked_by,
+            }
+        )
