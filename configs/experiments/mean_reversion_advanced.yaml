@@ -1,0 +1,24 @@
+experiment_name: mean_reversion_advanced_demo
+
+strategy: mean_reversion_advanced
+
+symbols:
+  - 002850.SZ
+
+date_range:
+  start: 2024-01-01
+  end: 2025-01-01
+
+parameters:
+  trade_unit: 500
+  use_trend_filter: true
+  use_art_filter: true
+
+grid_search:
+  z_entry:
+    - -1.2
+    - -1.5
+    - -1.8
+  z_exit:
+    - 0.3
+    - 0.5
