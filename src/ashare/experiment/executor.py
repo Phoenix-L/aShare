@@ -13,6 +13,9 @@ from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
 from ashare.experiment.grid import generate_parameter_sets
 from ashare.experiment.result import build_summary
+from ashare.utils.logging import get_logger
+
+logger = get_logger("ashare.experiment.executor")
 
 
 def execute_experiment_spec(
@@ -45,6 +48,12 @@ def execute_experiment_spec(
 
         for params in combinations:
             run_index += 1
+            ordered_keys = [*grid.keys(), *[key for key in params if key not in grid]]
+            rendered_params = ", ".join(
+                f"{key}={str(params[key]).lower() if isinstance(params[key], bool) else params[key]}"
+                for key in ordered_keys
+            )
+            logger.info(f"Running: {rendered_params}")
             _, _, metrics = run_backtest(
                 strategy_cls=strategy_cls,
                 data_df=data_df,
@@ -69,6 +78,18 @@ def execute_experiment_spec(
                 yaml.safe_dump(snapshot, sort_keys=False),
                 encoding="utf-8",
             )
+            run_payload = {
+                "params": params,
+                "metrics": metrics,
+                "meta": {
+                    "run_id": f"run_{run_index:03d}",
+                    "strategy": strategy_name,
+                    "symbol": symbol,
+                    "experiment_name": experiment_name,
+                    "date_range": {"start": spec["start"], "end": spec["end"]},
+                },
+            }
+            (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
 
     summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
     return {

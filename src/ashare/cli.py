@@ -219,12 +219,6 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
         }
 
     date_range_overridden = False
-    if start is not None:
-        spec["start"] = start
-        date_range_overridden = True
-    if end is not None:
-        spec["end"] = end
-        date_range_overridden = True
 
     strategy_name = spec["strategy"]
     try:
@@ -239,11 +233,20 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
     for key, values in override_grid.items():
         if len(values) == 1:
             parameters[key] = values[0]
+            grid.pop(key, None)
         else:
             grid[key] = values
+            parameters.pop(key, None)
 
     spec["parameters"] = parameters
     spec["grid"] = grid
+
+    if start is not None:
+        spec["start"] = start
+        date_range_overridden = True
+    if end is not None:
+        spec["end"] = end
+        date_range_overridden = True
 
     execution = spec.get("execution", {})
     run_config = config

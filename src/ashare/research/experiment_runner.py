@@ -57,11 +57,20 @@ def run_experiment(
         encoding="utf-8",
     )
 
+    standardized_results = [
+        {
+            "params": dict(record.get("params") or {}),
+            "metrics": dict(record.get("metrics") or {}),
+            "meta": dict(record.get("meta") or {}),
+        }
+        for record in result["results"]
+    ]
+
     return {
         "experiment_dir": result["output_dir"],
         "config_path": str(notice_path),
         "results_path": result["summary_path"],
         "num_runs": result["num_runs"],
         "num_combinations": len(generate_param_combinations(param_grid)),
-        "results": [{"params": {}, "metrics": r} for r in result["results"]],
+        "results": standardized_results,
     }
