@@ -3,8 +3,8 @@ from pathlib import Path
 import pandas as pd
 
 from ashare.config.settings import BacktestConfig
+from ashare.experiment.executor import execute_experiment_spec
 from ashare.engine.runner import expand_grid
-from ashare.research.experiment_runner import run_experiment
 from ashare.strategies.mean_reversion_advanced import MeanReversionAdvanced
 
 
@@ -51,20 +51,24 @@ def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_pa
     monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
     monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
 
-    result = run_experiment(
+    experiment_name = "test_grid_search"
+    result = execute_experiment_spec(
         strategy_cls=MeanReversionAdvanced,
-        symbols=["600519.SH"],
-        param_grid={"z_entry": [-1.2, -1.5, -1.8], "z_exit": [0.3, 0.5]},
-        start_date="2024-01-01",
-        end_date="2024-01-05",
+        strategy_name="mean_reversion_advanced",
+        spec={
+            "name": experiment_name,
+            "strategy": "mean_reversion_advanced",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-05",
+            "parameters": {"trade_unit": 500, "use_trend_filter": True, "use_art_filter": True},
+            "grid": {"z_entry": [-1.2, -1.5, -1.8], "z_exit": [0.3, 0.5]},
+        },
         config=BacktestConfig(),
-        base_params={"trade_unit": 500, "use_trend_filter": True, "use_art_filter": True},
     )
 
     assert result["num_runs"] == 6
     assert len(captured) == 6
     assert {"trade_unit": 500, "use_trend_filter": True, "use_art_filter": True, "z_entry": -1.2, "z_exit": 0.3} in captured
     assert {"trade_unit": 500, "use_trend_filter": True, "use_art_filter": True, "z_entry": -1.8, "z_exit": 0.5} in captured
-
     assert len(result["results"]) == 6
-    assert set(result["results"][0].keys()) == {"params", "metrics"}

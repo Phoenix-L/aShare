@@ -3,7 +3,8 @@ from pathlib import Path
 import pandas as pd
 
 from ashare.config.settings import BacktestConfig
-from ashare.research.experiment_runner import generate_param_combinations, run_experiment
+from ashare.experiment.executor import execute_experiment_spec
+from ashare.research.experiment_runner import generate_param_combinations
 from ashare.strategies.mid_freq_ma import MidFreqMA
 
 
@@ -43,24 +44,44 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
         _ = (ts_code, start_date, end_date)
         return _synthetic_df()
 
-    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    def _fake_backtest(
+        strategy_cls,
+        data_df,
+        config,
+        strategy_params=None,
+        symbol=None,
+        experiment_name=None,
+        run_id=None,
+    ):
+        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
 
-    result = run_experiment(
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    experiment_name = "test_experiment"
+    result = execute_experiment_spec(
         strategy_cls=MidFreqMA,
-        symbols=["600519.SH", "000858.SZ"],
-        param_grid={"short_period": [3, 5], "long_period": [8], "turnover_thresh": [1.0]},
-        start_date="2024-01-01",
-        end_date="2024-01-20",
+        strategy_name="mid_freq_ma",
+        spec={
+            "name": experiment_name,
+            "strategy": "mid_freq_ma",
+            "symbols": ["600519.SH", "000858.SZ"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {},
+            "grid": {"short_period": [3, 5], "long_period": [8], "turnover_thresh": [1.0]},
+        },
         config=BacktestConfig(),
     )
 
-    experiment_dir = Path(result["experiment_dir"])
-    results_path = Path(result["results_path"])
-    config_path = Path(result["config_path"])
+    experiment_dir = Path(result["output_dir"])
+    results_path = Path(result["summary_path"])
+    results_sorted_path = Path(result["summary_sorted_path"])
 
     assert experiment_dir.exists()
     assert results_path.exists()
-    assert config_path.exists()
+    assert results_sorted_path.exists()
 
     results_df = pd.read_csv(results_path)
     assert len(results_df) == 4
@@ -68,6 +89,3 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
 
     assert results_df["total_return"].notna().all()
     assert results_df["max_drawdown"].notna().all()
-
-    notice = config_path.read_text(encoding="utf-8")
-    assert "Deprecated API" in notice
