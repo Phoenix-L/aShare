@@ -54,6 +54,9 @@ def execute_experiment_spec(
                 for key in ordered_keys
             )
             logger.info(f"Running: {rendered_params}")
+            run_dir = output_root / f"run_{run_index:03d}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+
             _, _, metrics = run_backtest(
                 strategy_cls=strategy_cls,
                 data_df=data_df,
@@ -62,10 +65,8 @@ def execute_experiment_spec(
                 symbol=symbol,
                 experiment_name=experiment_name,
                 run_id=f"run_{run_index:03d}",
+                output_dir=run_dir,
             )
-
-            run_dir = output_root / f"run_{run_index:03d}"
-            run_dir.mkdir(parents=True, exist_ok=True)
             (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
             snapshot = {
