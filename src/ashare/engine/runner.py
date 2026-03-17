@@ -1,7 +1,6 @@
 """Orchestrate: load data, attach strategy, run backtest, return results."""
 
 from datetime import datetime
-from itertools import product
 from typing import Any, Type
 
 import backtrader as bt
@@ -14,17 +13,6 @@ from ashare.data.normalizers import to_backtrader_feed
 from ashare.utils.logging import get_logger, log_backtest_execution, reset_log_context, set_log_context
 
 logger = get_logger("ashare.engine.runner")
-
-
-def expand_grid(grid_dict: dict[str, list[Any]] | None) -> list[dict[str, Any]]:
-    """Expand a parameter grid mapping into full cartesian product combinations."""
-    if not grid_dict:
-        return [{}]
-
-    keys = list(grid_dict.keys())
-    values = list(grid_dict.values())
-
-    return [dict(zip(keys, combo)) for combo in product(*values)]
 
 
 def run_backtest(

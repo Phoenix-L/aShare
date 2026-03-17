@@ -6,21 +6,24 @@ from itertools import product
 from typing import Any
 
 
+def expand_grid(grid_dict: dict[str, list[Any]] | None) -> list[dict[str, Any]]:
+    """Expand a parameter grid mapping into full cartesian product combinations."""
+    if not grid_dict:
+        return [{}]
+
+    keys = list(grid_dict.keys())
+    values = list(grid_dict.values())
+
+    return [
+        dict(zip(keys, combo))
+        for combo in product(*values)
+    ]
+
+
 def generate_parameter_sets(payload: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """Generate merged parameter sets from base parameters + grid dimensions."""
     parameters = dict(payload.get("parameters") or {})
     grid = dict(payload.get("grid") or {})
 
-    if not grid:
-        return [parameters]
-
-    keys = list(grid.keys())
-    value_lists = [grid[key] for key in keys]
-
-    combinations: list[dict[str, Any]] = []
-    for combo in product(*value_lists):
-        merged = dict(parameters)
-        merged.update(dict(zip(keys, combo)))
-        combinations.append(merged)
-
-    return combinations
+    combinations = expand_grid(grid)
+    return [dict(parameters, **combo) for combo in combinations]
