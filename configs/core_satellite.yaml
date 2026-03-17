@@ -1,0 +1,16 @@
+strategy: core_satellite
+
+core_position: 2000
+satellite_max: 2000
+trade_unit: 500
+
+z_entry:
+  - -1.5
+  - -2.0
+  - -2.5
+
+z_exit:
+  - 0.8
+  - 1.5
+
+trend_filter: true
