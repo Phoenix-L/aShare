@@ -78,6 +78,18 @@ def execute_experiment_spec(
                 yaml.safe_dump(snapshot, sort_keys=False),
                 encoding="utf-8",
             )
+            run_payload = {
+                "params": params,
+                "metrics": metrics,
+                "meta": {
+                    "run_id": f"run_{run_index:03d}",
+                    "strategy": strategy_name,
+                    "symbol": symbol,
+                    "experiment_name": experiment_name,
+                    "date_range": {"start": spec["start"], "end": spec["end"]},
+                },
+            }
+            (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
 
     summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
     return {

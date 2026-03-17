@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import pandas as pd
 
@@ -85,7 +86,19 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
 
     results_df = pd.read_csv(results_path)
     assert len(results_df) == 4
-    assert set(["run_id", "total_return", "sharpe", "max_drawdown"]).issubset(results_df.columns)
+    assert list(results_df.columns) == [
+        "z_entry",
+        "z_exit",
+        "use_trend_filter",
+        "use_art_filter",
+        "total_return",
+        "sharpe",
+        "max_drawdown",
+        "num_trades",
+    ]
 
     assert results_df["total_return"].notna().all()
     assert results_df["max_drawdown"].notna().all()
+
+    run_payload = json.loads((experiment_dir / "run_001" / "run_result.json").read_text(encoding="utf-8"))
+    assert set(run_payload.keys()) == {"params", "metrics", "meta"}
