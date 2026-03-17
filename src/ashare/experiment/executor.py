@@ -13,6 +13,9 @@ from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
 from ashare.experiment.grid import generate_parameter_sets
 from ashare.experiment.result import build_summary
+from ashare.utils.logging import get_logger
+
+logger = get_logger("ashare.experiment.executor")
 
 
 def execute_experiment_spec(
@@ -45,6 +48,12 @@ def execute_experiment_spec(
 
         for params in combinations:
             run_index += 1
+            ordered_keys = [*grid.keys(), *[key for key in params if key not in grid]]
+            rendered_params = ", ".join(
+                f"{key}={str(params[key]).lower() if isinstance(params[key], bool) else params[key]}"
+                for key in ordered_keys
+            )
+            logger.info(f"Running: {rendered_params}")
             _, _, metrics = run_backtest(
                 strategy_cls=strategy_cls,
                 data_df=data_df,

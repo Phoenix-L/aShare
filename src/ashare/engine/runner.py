@@ -55,8 +55,9 @@ def run_backtest(
     feed = to_backtrader_feed(data_df, name=symbol)
     cerebro.adddata(feed)
     
+    strategy_params = dict(strategy_params or {})
     logger.debug(f"Adding strategy: {strategy_cls.__name__} with params: {strategy_params}")
-    cerebro.addstrategy(strategy_cls, **(strategy_params or {}))
+    cerebro.addstrategy(strategy_cls, **strategy_params)
     register_analyzers(cerebro)
 
     logger.debug("Starting backtest execution...")
