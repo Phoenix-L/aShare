@@ -1,0 +1,23 @@
+experiment_name: mean_reversion_test
+
+strategy: mean_reversion
+
+symbols:
+  - 002850.SZ
+
+date_range:
+  start: 2024-01-01
+  end: 2025-01-01
+
+parameters:
+  trade_unit: 500
+
+grid_search:
+  z_entry:
+    - -0.8
+    - -1.2
+    - -1.5
+
+  z_exit:
+    - 0.5
+    - 1.0
