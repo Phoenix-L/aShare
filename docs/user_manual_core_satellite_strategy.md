@@ -200,7 +200,34 @@ In other words, CLI `--param` has priority over the original YAML content for th
 
 ---
 
-## 11. Future Extensions (UPDATED)
+
+## 11. Overriding Date Range via CLI (NEW)
+
+You can override YAML `date_range` directly from the command line:
+
+```bash
+ashare experiment configs/experiments/core_satellite_demo.yaml \
+  --start 2025-01-01 \
+  --end 2025-12-31
+```
+
+Priority rule:
+- **CLI > YAML** for `start`/`end`.
+- If no CLI override is provided, the original YAML `date_range` is used.
+
+The effective start/end used by each run is written into that run's `config_snapshot.yaml` under:
+
+```yaml
+date_range:
+  start: <actual_start_used>
+  end: <actual_end_used>
+```
+
+This preserves reproducibility even when CLI overrides are used.
+
+---
+
+## 12. Future Extensions (UPDATED)
 
 Planned/possible next steps:
 - `z_entry_mode` activation beyond placeholder semantics.

@@ -34,11 +34,26 @@ def cli() -> None:
     pass
 
 
+def _validate_date_arg(field_name: str, value: str | None) -> str | None:
+    """Validate optional CLI date arg as strict YYYY-MM-DD."""
+    if value is None:
+        return None
+
+    try:
+        parsed = dt.datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be YYYY-MM-DD") from exc
+
+    if parsed.strftime("%Y-%m-%d") != value:
+        raise ValueError(f"{field_name} must be YYYY-MM-DD")
+    return value
+
+
 @cli.command()
 @click.option("--symbol", required=True, help="Stock symbol (e.g. 600519.SH)")
 @click.option("--strategy", required=True, help="Strategy name (e.g. mid_freq_ma)")
-@click.option("--start", required=False, help="Start date (YYYY-MM-DD)")
-@click.option("--end", required=False, help="End date (YYYY-MM-DD)")
+@click.option("--start", type=str, default=None, help="Override start date")
+@click.option("--end", type=str, default=None, help="Override end date")
 @click.option("--plot", is_flag=False, help="Plot backtest curve after run")
 def backtest(
     symbol: str,
@@ -48,6 +63,12 @@ def backtest(
     plot: bool,
 ) -> None:
     """Run backtest for one stock, one strategy, one time range."""
+    try:
+        start = _validate_date_arg("start", start)
+        end = _validate_date_arg("end", end)
+    except ValueError as e:
+        raise click.UsageError(str(e))
+
     config = load_backtest_config()
     try:
         strategy_cls = get_strategy_class(strategy)
@@ -164,14 +185,28 @@ def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> d
 @click.option("--strategy", required=False, help="Strategy name (e.g. mid_freq_ma)")
 @click.option("--symbols", required=False, help="Comma-separated symbols (e.g. 600519.SH,000858.SZ)")
 @click.option("--param", "param_options", multiple=True, help="Parameter grid entry: key=v1,v2,v3")
-@click.option("--start", required=False, help="Start date (YYYY-MM-DD)")
-@click.option("--end", required=False, help="End date (YYYY-MM-DD)")
+@click.option("--start", type=str, default=None, help="Override start date")
+@click.option("--end", type=str, default=None, help="Override end date")
 def experiment(spec_path: str | None, strategy: str | None, symbols: str | None, param_options: tuple[str, ...], start: str | None, end: str | None) -> None:
     """Run a multi-symbol parameter sweep experiment."""
+    try:
+        start = _validate_date_arg("start", start)
+        end = _validate_date_arg("end", end)
+    except ValueError as e:
+        raise click.UsageError(str(e))
+
     config = load_backtest_config()
 
     if spec_path and spec_path.endswith((".yaml", ".yml")):
         spec = load_experiment_spec(spec_path)
+        date_range_overridden = False
+        if start is not None:
+            spec["start"] = start
+            date_range_overridden = True
+        if end is not None:
+            spec["end"] = end
+            date_range_overridden = True
+
         strategy_name = spec["strategy"]
         try:
             strategy_cls = get_strategy_class(strategy_name)
@@ -204,6 +239,8 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
         output_root.mkdir(parents=True, exist_ok=True)
 
         click.echo(f"Running experiment: {experiment_name}")
+        click.echo(f"Date range: {spec['start']} → {spec['end']} ({'CLI override' if date_range_overridden else 'from config'})")
+        click.echo(f"Symbols: {', '.join(spec['symbols'])}")
 
         symbol_data = {
             symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
@@ -218,6 +255,8 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
             data_df = symbol_data[symbol]
             if data_df.empty:
                 raise click.ClickException(f"No data returned for {symbol}. Check symbol and date range.")
+
+            click.echo(f"Symbol: {symbol}")
 
             for params in combinations:
                 run_index += 1
