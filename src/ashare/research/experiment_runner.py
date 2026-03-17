@@ -1,30 +1,19 @@
-"""Experiment runner for systematic strategy research."""
+"""Deprecated experiment runner wrappers for systematic strategy research."""
 
 from __future__ import annotations
 
-import json
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 from ashare.config.settings import BacktestConfig
-from ashare.data.loaders import load_minute_30
-from ashare.engine.runner import expand_grid, run_backtest
-
-
-RESULT_COLUMNS = [
-    "symbol",
-    "total_return",
-    "sharpe",
-    "max_drawdown",
-]
-
+from ashare.experiment.executor import execute_experiment_spec
+from ashare.experiment.grid import generate_parameter_sets
 
 def generate_param_combinations(param_grid: dict[str, list[Any]]) -> list[dict[str, Any]]:
     """Backward-compatible wrapper for parameter grid expansion."""
-    return expand_grid(param_grid)
+    return generate_parameter_sets({"parameters": {}, "grid": param_grid})
 
 
 
@@ -37,78 +26,42 @@ def run_experiment(
     config: BacktestConfig,
     base_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run a parameter-sweep experiment across symbols and save results."""
+    """Run experiment via canonical YAML-compatible pipeline (deprecated API)."""
+    warnings.warn(
+        "run_experiment() is deprecated; use the CLI YAML pipeline or execute_experiment_spec().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_dir = Path("experiments") / f"experiment_{timestamp}"
-    experiment_dir.mkdir(parents=True, exist_ok=False)
-
-    base_params = dict(base_params or {})
-    combinations = expand_grid(param_grid)
-
-    records: list[dict[str, Any]] = []
-    run_results: list[dict[str, Any]] = []
-    experiment_name = f"experiment_{timestamp}"
-    for symbol in symbols:
-        data_df = load_minute_30(ts_code=symbol, start_date=start_date, end_date=end_date)
-
-        for idx, param_set in enumerate(combinations, start=1):
-            final_params = {**base_params, **param_set}
-            print("Running experiment:\n" + ", ".join(f"{k}={v}" for k, v in final_params.items()))
-
-            _, _, metrics = run_backtest(
-                strategy_cls=strategy_cls,
-                data_df=data_df,
-                config=config,
-                strategy_params=final_params,
-                symbol=symbol,
-                experiment_name=experiment_name,
-                run_id=f"{symbol}#{idx:04d}",
-            )
-
-            run_results.append({"params": dict(final_params), "metrics": dict(metrics)})
-
-            row = {
-                "symbol": symbol,
-                **final_params,
-                "total_return": metrics.get("total_return", metrics.get("rtot")),
-                "sharpe": metrics.get("sharpe"),
-                "max_drawdown": metrics.get("max_drawdown"),
-            }
-            records.append(row)
-
-    results_df = pd.DataFrame(records)
-    if not results_df.empty:
-        param_cols = list(base_params.keys()) + list(param_grid.keys())
-        ordered_cols = ["symbol", *param_cols, "total_return", "sharpe", "max_drawdown"]
-        results_df = results_df[ordered_cols]
-
-    results_path = experiment_dir / "results.csv"
-    results_df.to_csv(results_path, index=False)
-
-    config_payload = {
+    spec = {
+        "name": f"experiment_{timestamp}",
         "strategy": strategy_cls.__name__,
         "symbols": symbols,
-        "parameters": base_params,
-        "param_grid": param_grid,
-        "start_date": start_date,
-        "end_date": end_date,
-        "backtest_config": {
-            "initial_cash": config.initial_cash,
-            "commission": config.commission,
-            "stamp_duty": config.stamp_duty,
-            "slippage_perc": config.slippage_perc,
-        },
-        "combinations": len(combinations),
-        "runs": len(records),
+        "start": start_date,
+        "end": end_date,
+        "parameters": dict(base_params or {}),
+        "grid": dict(param_grid),
     }
-    config_path = experiment_dir / "config.json"
-    config_path.write_text(json.dumps(config_payload, indent=2), encoding="utf-8")
+
+    result = execute_experiment_spec(
+        strategy_cls=strategy_cls,
+        strategy_name=strategy_cls.__name__,
+        spec=spec,
+        config=config,
+    )
+
+    notice_path = Path(result["output_dir"]) / "deprecated_api_notice.txt"
+    notice_path.write_text(
+        "Deprecated API: run_experiment() now delegates to canonical CLI-compatible pipeline.\n",
+        encoding="utf-8",
+    )
 
     return {
-        "experiment_dir": str(experiment_dir),
-        "config_path": str(config_path),
-        "results_path": str(results_path),
-        "num_runs": len(records),
-        "num_combinations": len(combinations),
-        "results": run_results,
+        "experiment_dir": result["output_dir"],
+        "config_path": str(notice_path),
+        "results_path": result["summary_path"],
+        "num_runs": result["num_runs"],
+        "num_combinations": len(generate_param_combinations(param_grid)),
+        "results": [{"params": {}, "metrics": r} for r in result["results"]],
     }

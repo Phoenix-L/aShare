@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pandas as pd
@@ -44,7 +43,7 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
         _ = (ts_code, start_date, end_date)
         return _synthetic_df()
 
-    monkeypatch.setattr("ashare.research.experiment_runner.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
 
     result = run_experiment(
         strategy_cls=MidFreqMA,
@@ -65,11 +64,10 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
 
     results_df = pd.read_csv(results_path)
     assert len(results_df) == 4
-    assert set(["symbol", "short_period", "long_period", "turnover_thresh", "total_return", "sharpe", "max_drawdown"]).issubset(results_df.columns)
+    assert set(["run_id", "total_return", "sharpe", "max_drawdown"]).issubset(results_df.columns)
 
     assert results_df["total_return"].notna().all()
     assert results_df["max_drawdown"].notna().all()
 
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    assert payload["combinations"] == 2
-    assert payload["runs"] == 4
+    notice = config_path.read_text(encoding="utf-8")
+    assert "Deprecated API" in notice

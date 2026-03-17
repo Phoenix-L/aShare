@@ -51,14 +51,10 @@ def test_experiment_yaml_only_uses_config_range(monkeypatch, tmp_path) -> None:
         called["args"] = (ts_code, start_date, end_date)
         return _fake_df()
 
-    monkeypatch.setattr("ashare.cli.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
     monkeypatch.setattr(
-        "ashare.cli.run_backtest",
+        "ashare.experiment.executor.run_backtest",
         lambda *args, **kwargs: (None, None, {"final_value": 1.0, "rtot": 0.01, "max_drawdown": 1.0}),
-    )
-    monkeypatch.setattr(
-        "ashare.cli.build_summary",
-        lambda _: ("outputs/summary.csv", "outputs/summary_sorted.csv", []),
     )
 
     runner = CliRunner()
@@ -137,14 +133,10 @@ def test_experiment_cli_override_takes_precedence(monkeypatch, tmp_path) -> None
         called["args"] = (ts_code, start_date, end_date)
         return _fake_df()
 
-    monkeypatch.setattr("ashare.cli.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
     monkeypatch.setattr(
-        "ashare.cli.run_backtest",
+        "ashare.experiment.executor.run_backtest",
         lambda *args, **kwargs: (None, None, {"final_value": 1.0, "rtot": 0.01, "max_drawdown": 1.0}),
-    )
-    monkeypatch.setattr(
-        "ashare.cli.build_summary",
-        lambda _: ("outputs/summary.csv", "outputs/summary_sorted.csv", []),
     )
 
     runner = CliRunner()
