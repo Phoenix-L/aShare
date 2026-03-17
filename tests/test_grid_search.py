@@ -43,8 +43,17 @@ def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_pa
 
     captured: list[dict] = []
 
-    def _fake_backtest(strategy_cls, data_df, config, strategy_params=None, symbol=None, experiment_name=None, run_id=None):
-        _ = (strategy_cls, data_df, config, symbol, experiment_name, run_id)
+    def _fake_backtest(
+        strategy_cls,
+        data_df,
+        config,
+        strategy_params=None,
+        symbol=None,
+        experiment_name=None,
+        run_id=None,
+        output_dir=None,
+    ):
+        _ = (strategy_cls, data_df, config, symbol, experiment_name, run_id, output_dir)
         captured.append(dict(strategy_params or {}))
         return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1}
 
