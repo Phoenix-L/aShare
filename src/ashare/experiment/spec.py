@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+def _to_date_str(value: Any, field_name: str) -> str:
+    """Normalize date_range.start/end to YYYY-MM-DD string (PyYAML may parse as date)."""
+    if value is None:
+        raise ValueError(f"'{field_name}' is required")
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            raise ValueError(f"'{field_name}' must be a non-empty YYYY-MM-DD string")
+        return s
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%Y-%m-%d")
+    raise ValueError(f"'{field_name}' must be a YYYY-MM-DD string or date")
 
 
 REQUIRED_TOP_LEVEL_FIELDS = ("experiment_name", "strategy", "symbols", "date_range")
@@ -45,12 +60,8 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     if not isinstance(symbols, list) or not symbols or not all(isinstance(s, str) and s.strip() for s in symbols):
         raise ValueError("'symbols' must be a non-empty list of strings")
 
-    start = date_range.get("start")
-    end = date_range.get("end")
-    if not isinstance(start, str) or not start.strip():
-        raise ValueError("'date_range.start' must be a non-empty YYYY-MM-DD string")
-    if not isinstance(end, str) or not end.strip():
-        raise ValueError("'date_range.end' must be a non-empty YYYY-MM-DD string")
+    start = _to_date_str(date_range.get("start"), "date_range.start")
+    end = _to_date_str(date_range.get("end"), "date_range.end")
 
     parameters = _require_mapping(raw.get("parameters"), "parameters")
     grid = _require_mapping(raw.get("grid_search"), "grid_search")
@@ -64,8 +75,8 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
         "name": name.strip(),
         "strategy": strategy.strip(),
         "symbols": [symbol.strip() for symbol in symbols],
-        "start": start.strip(),
-        "end": end.strip(),
+        "start": start,
+        "end": end,
         "parameters": dict(parameters),
         "grid": dict(grid),
         "execution": dict(execution),
