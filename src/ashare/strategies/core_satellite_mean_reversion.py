@@ -1,17 +1,21 @@
-"""Core-Satellite mean reversion strategy skeleton (Phase 1)."""
+"""Core-Satellite mean reversion strategy (Phase 2 parameterized rules)."""
 
 import backtrader as bt
 
 
 class CoreSatelliteMeanReversion(bt.Strategy):
-    """Phase 1 skeleton with indicator initialization and debug output only."""
+    """Core-satellite mean reversion strategy with parameterized entry/exit rules."""
 
-    params = (
-        ("core_size", 2000),
-        ("satellite_max", 2000),
-        ("ma_short", 20),
-        ("ma_trend", 120),
-        ("atr_period", 14),
+    params = dict(
+        core_position=2000,
+        satellite_max=2000,
+        trade_unit=500,
+        z_entry=[-1.5, -2.0, -2.5],
+        z_exit=[0.8, 1.5],
+        trend_filter=True,
+        ma_short=20,
+        ma_trend=120,
+        atr_period=14,
     )
 
     def __init__(self) -> None:
@@ -19,14 +23,64 @@ class CoreSatelliteMeanReversion(bt.Strategy):
         self.ma120 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_trend)
         self.atr14 = bt.indicators.ATR(self.data, period=self.p.atr_period)
 
+        self.core_established = False
+        self.orders_submitted = 0
+        self.buy_events = 0
+        self.sell_events = 0
+
+    def _submit_core_if_needed(self) -> None:
+        if self.core_established:
+            return
+
+        current_size = self.position.size
+        if current_size >= self.p.core_position:
+            self.core_established = True
+            return
+
+        to_buy = self.p.core_position - current_size
+        if to_buy > 0:
+            self.buy(size=to_buy)
+            self.orders_submitted += 1
+        self.core_established = True
+
+    def _satellite_size(self) -> int:
+        return max(0, self.position.size - self.p.core_position)
+
     def next(self) -> None:
+        self._submit_core_if_needed()
+
         close = float(self.data.close[0])
         ma20 = float(self.ma20[0])
+        ma120 = float(self.ma120[0])
         atr = float(self.atr14[0])
-        zscore = (close - ma20) / atr if atr != 0 else 0.0
+        if atr == 0:
+            return
 
-        dt = self.datas[0].datetime.date(0).isoformat()
-        print(
-            f"[CoreSatelliteMeanReversion] date={dt} close={close:.4f} ma20={ma20:.4f} "
-            f"atr={atr:.4f} zscore={zscore:.4f}"
-        )
+        zscore = (close - ma20) / atr
+        satellite_size = self._satellite_size()
+
+        allow_satellite_buy = True
+        if self.p.trend_filter and close < ma120:
+            allow_satellite_buy = False
+
+        if allow_satellite_buy:
+            for threshold in self.p.z_entry:
+                if zscore <= threshold and satellite_size < self.p.satellite_max:
+                    buy_size = min(self.p.trade_unit, self.p.satellite_max - satellite_size)
+                    if buy_size > 0:
+                        self.buy(size=buy_size)
+                        self.orders_submitted += 1
+                        self.buy_events += 1
+                        satellite_size += buy_size
+
+        for threshold in self.p.z_exit:
+            if zscore >= threshold and satellite_size > 0:
+                sell_size = min(self.p.trade_unit, satellite_size)
+                remaining_total = self.position.size - sell_size
+                if remaining_total < self.p.core_position:
+                    sell_size = max(0, self.position.size - self.p.core_position)
+                if sell_size > 0:
+                    self.sell(size=sell_size)
+                    self.orders_submitted += 1
+                    self.sell_events += 1
+                    satellite_size -= sell_size

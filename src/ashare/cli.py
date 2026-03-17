@@ -85,34 +85,62 @@ def backtest(
         cerebro.plot()
 
 
-def _parse_param_options(param_options: tuple[str, ...]) -> dict[str, list[int | float | str]]:
-    """Parse repeated --param key=v1,v2 options into param grid."""
-    param_grid: dict[str, list[int | float | str]] = {}
+def _coerce_scalar(value: str):
+    """Coerce CLI scalar parameter to int/float/bool/str."""
+    stripped = value.strip()
+    if stripped == "":
+        raise click.UsageError("Parameter values cannot be empty")
 
-    def _coerce(value: str):
-        stripped = value.strip()
-        if stripped == "":
-            raise click.UsageError("Parameter values cannot be empty")
-        try:
-            return int(stripped)
-        except ValueError:
-            pass
-        try:
-            return float(stripped)
-        except ValueError:
-            return stripped
+    lowered = stripped.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+
+    try:
+        return int(stripped)
+    except ValueError:
+        pass
+
+    try:
+        return float(stripped)
+    except ValueError:
+        return stripped
+
+
+def _strategy_default_params(strategy_cls) -> dict[str, object]:
+    """Return strategy default params as a dictionary."""
+    defaults = strategy_cls.params
+    if hasattr(defaults, "_getitems"):
+        return dict(defaults._getitems())
+    if isinstance(defaults, dict):
+        return defaults
+    if isinstance(defaults, tuple):
+        return dict(defaults)
+    return {}
+
+
+def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> dict[str, list[int | float | str | bool | list]]:
+    """Parse repeated --param key=v1,v2 options into param grid."""
+    param_grid: dict[str, list[int | float | str | bool | list]] = {}
+    defaults = _strategy_default_params(strategy_cls) if strategy_cls is not None else {}
 
     for option in param_options:
         if "=" not in option:
             raise click.UsageError(f"Invalid --param format: {option}. Use key=v1,v2")
+
         key, raw_values = option.split("=", 1)
         key = key.strip()
         if not key:
             raise click.UsageError(f"Invalid --param key in: {option}")
-        values = [_coerce(v) for v in raw_values.split(",") if v.strip()]
+
+        values = [_coerce_scalar(v) for v in raw_values.split(",") if v.strip()]
         if not values:
             raise click.UsageError(f"No values provided for --param {key}")
-        param_grid[key] = values
+
+        default_value = defaults.get(key)
+        if isinstance(default_value, (list, tuple)):
+            param_grid[key] = [values]
+        else:
+            param_grid[key] = values
 
     return param_grid
 
@@ -135,7 +163,7 @@ def experiment(strategy: str, symbols: str, param_options: tuple[str, ...], star
     if not symbol_list:
         raise click.UsageError("At least one symbol must be provided")
 
-    param_grid = _parse_param_options(param_options)
+    param_grid = _parse_param_options(param_options, strategy_cls=strategy_cls)
 
     result = run_experiment(
         strategy_cls=strategy_cls,
@@ -175,7 +203,7 @@ def walk_forward(
     except KeyError as e:
         raise click.UsageError(str(e))
 
-    param_grid = _parse_param_options(param_options)
+    param_grid = _parse_param_options(param_options, strategy_cls=strategy_cls)
 
     result = run_walk_forward(
         strategy_cls=strategy_cls,
