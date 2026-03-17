@@ -3,6 +3,19 @@
 import backtrader as bt
 
 
+def build_mean_reversion_indicators(data, ma_short: int, ma_trend: int, atr_period: int):
+    """Create and return indicators shared by mean-reversion strategies."""
+    ma20 = bt.indicators.SimpleMovingAverage(data.close, period=ma_short)
+    ma120 = bt.indicators.SimpleMovingAverage(data.close, period=ma_trend)
+    atr14 = bt.indicators.ATR(data, period=atr_period)
+    return ma20, ma120, atr14
+
+
+def compute_zscore(close: float, mean_value: float, atr: float) -> float:
+    """Compute mean-reversion z-score with ATR normalization."""
+    return (close - mean_value) / atr
+
+
 class CoreSatelliteMeanReversion(bt.Strategy):
     """Core-satellite mean reversion strategy with parameterized entry/exit rules."""
 
@@ -20,9 +33,12 @@ class CoreSatelliteMeanReversion(bt.Strategy):
     )
 
     def __init__(self) -> None:
-        self.ma20 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_short)
-        self.ma120 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.ma_trend)
-        self.atr14 = bt.indicators.ATR(self.data, period=self.p.atr_period)
+        self.ma20, self.ma120, self.atr14 = build_mean_reversion_indicators(
+            self.data,
+            ma_short=self.p.ma_short,
+            ma_trend=self.p.ma_trend,
+            atr_period=self.p.atr_period,
+        )
 
         self.core_established = False
         self.orders_submitted = 0
@@ -57,7 +73,7 @@ class CoreSatelliteMeanReversion(bt.Strategy):
         if atr == 0:
             return
 
-        zscore = (close - ma20) / atr
+        zscore = compute_zscore(close, ma20, atr)
         satellite_size = self._satellite_size()
 
         allow_satellite_buy = True
