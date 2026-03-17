@@ -1,13 +1,19 @@
 """CLI entry — backtest command and utility subcommands."""
 
 import datetime as dt
+import json
+from dataclasses import replace
+from pathlib import Path
 
 import click
+import yaml
 
 from ashare import __version__
 from ashare.config.loader import load_backtest_config
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
+from ashare.experiment.grid import generate_parameter_sets
+from ashare.experiment.spec import load_experiment_spec
 from ashare.research.experiment_runner import run_experiment
 from ashare.research.walk_forward import run_walk_forward
 from ashare.sanitytests import sanitycheck_daily, sanitycheck_minute30
@@ -30,8 +36,8 @@ def cli() -> None:
 @cli.command()
 @click.option("--symbol", required=True, help="Stock symbol (e.g. 600519.SH)")
 @click.option("--strategy", required=True, help="Strategy name (e.g. mid_freq_ma)")
-@click.option("--start", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("--end", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--start", required=False, help="Start date (YYYY-MM-DD)")
+@click.option("--end", required=False, help="End date (YYYY-MM-DD)")
 @click.option("--plot", is_flag=False, help="Plot backtest curve after run")
 def backtest(
     symbol: str,
@@ -146,18 +152,108 @@ def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> d
 
 
 @cli.command()
-@click.option("--strategy", required=True, help="Strategy name (e.g. mid_freq_ma)")
-@click.option("--symbols", required=True, help="Comma-separated symbols (e.g. 600519.SH,000858.SZ)")
+@click.argument("spec_path", required=False)
+@click.option("--strategy", required=False, help="Strategy name (e.g. mid_freq_ma)")
+@click.option("--symbols", required=False, help="Comma-separated symbols (e.g. 600519.SH,000858.SZ)")
 @click.option("--param", "param_options", multiple=True, help="Parameter grid entry: key=v1,v2,v3")
-@click.option("--start", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("--end", required=True, help="End date (YYYY-MM-DD)")
-def experiment(strategy: str, symbols: str, param_options: tuple[str, ...], start: str, end: str) -> None:
+@click.option("--start", required=False, help="Start date (YYYY-MM-DD)")
+@click.option("--end", required=False, help="End date (YYYY-MM-DD)")
+def experiment(spec_path: str | None, strategy: str | None, symbols: str | None, param_options: tuple[str, ...], start: str | None, end: str | None) -> None:
     """Run a multi-symbol parameter sweep experiment."""
     config = load_backtest_config()
+
+    if spec_path and spec_path.endswith((".yaml", ".yml")):
+        spec = load_experiment_spec(spec_path)
+        strategy_name = spec["strategy"]
+        try:
+            strategy_cls = get_strategy_class(strategy_name)
+        except KeyError as e:
+            raise click.UsageError(str(e))
+
+        override_grid = _parse_param_options(param_options, strategy_cls=strategy_cls)
+        parameters = dict(spec["parameters"])
+        grid = dict(spec["grid"])
+
+        for key, values in override_grid.items():
+            if len(values) == 1:
+                parameters[key] = values[0]
+            else:
+                grid[key] = values
+
+        combinations = generate_parameter_sets({"parameters": parameters, "grid": grid})
+
+        execution = spec.get("execution", {})
+        run_config = config
+        if execution:
+            run_config = replace(
+                config,
+                initial_cash=float(execution.get("initial_cash", config.initial_cash)),
+                commission=float(execution.get("commission", config.commission)),
+            )
+
+        experiment_name = spec["name"]
+        output_root = Path("outputs") / experiment_name
+        output_root.mkdir(parents=True, exist_ok=True)
+
+        click.echo(f"Running experiment: {experiment_name}")
+
+        symbol_data = {
+            symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
+            for symbol in spec["symbols"]
+        }
+
+        total_runs = len(combinations) * len(spec["symbols"])
+        click.echo(f"Total runs: {total_runs}")
+
+        run_index = 0
+        for symbol in spec["symbols"]:
+            data_df = symbol_data[symbol]
+            if data_df.empty:
+                raise click.ClickException(f"No data returned for {symbol}. Check symbol and date range.")
+
+            for params in combinations:
+                run_index += 1
+                click.echo(f"Run {run_index}/{total_runs} | params: {params}")
+
+                _, _, metrics = run_backtest(
+                    strategy_cls=strategy_cls,
+                    data_df=data_df,
+                    config=run_config,
+                    strategy_params=params,
+                    symbol=symbol,
+                )
+
+                run_dir = output_root / f"run_{run_index:03d}"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+                snapshot = {
+                    "strategy": strategy_name,
+                    "parameters": params,
+                    "symbol": symbol,
+                    "date_range": {"start": spec["start"], "end": spec["end"]},
+                }
+                (run_dir / "config_snapshot.yaml").write_text(
+                    yaml.safe_dump(snapshot, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+        click.echo(f"Experiment completed: {total_runs} runs")
+        click.echo(f"Output directory: {output_root}")
+        return
+
+    if not strategy:
+        raise click.UsageError("--strategy is required unless a YAML experiment spec path is provided")
+
     try:
         strategy_cls = get_strategy_class(strategy)
     except KeyError as e:
         raise click.UsageError(str(e))
+
+    if not symbols:
+        raise click.UsageError("--symbols is required when not using a YAML experiment spec")
+    if not start or not end:
+        raise click.UsageError("--start and --end are required when not using a YAML experiment spec")
 
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     if not symbol_list:
