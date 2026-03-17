@@ -48,8 +48,8 @@ def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_pa
         captured.append(dict(strategy_params or {}))
         return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1}
 
-    monkeypatch.setattr("ashare.research.experiment_runner.load_minute_30", _fake_loader)
-    monkeypatch.setattr("ashare.research.experiment_runner.run_backtest", _fake_backtest)
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
 
     result = run_experiment(
         strategy_cls=MeanReversionAdvanced,

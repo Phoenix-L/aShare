@@ -1,21 +1,17 @@
 """CLI entry — backtest command and utility subcommands."""
 
 import datetime as dt
-import json
 from dataclasses import replace
-from pathlib import Path
 
 import click
-import yaml
 
 from ashare import __version__
 from ashare.config.loader import load_backtest_config
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
+from ashare.experiment.executor import execute_experiment_spec
 from ashare.experiment.grid import generate_parameter_sets
-from ashare.experiment.result import build_summary
 from ashare.experiment.spec import load_experiment_spec
-from ashare.research.experiment_runner import run_experiment
 from ashare.research.walk_forward import run_walk_forward
 from ashare.sanitytests import sanitycheck_daily, sanitycheck_minute30
 from ashare.strategies import get_strategy_class
@@ -199,141 +195,94 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
 
     if spec_path and spec_path.endswith((".yaml", ".yml")):
         spec = load_experiment_spec(spec_path)
-        date_range_overridden = False
-        if start is not None:
-            spec["start"] = start
-            date_range_overridden = True
-        if end is not None:
-            spec["end"] = end
-            date_range_overridden = True
+    else:
+        if not strategy:
+            raise click.UsageError("--strategy is required unless a YAML experiment spec path is provided")
+        if not symbols:
+            raise click.UsageError("--symbols is required when not using a YAML experiment spec")
+        if not start or not end:
+            raise click.UsageError("--start and --end are required when not using a YAML experiment spec")
 
-        strategy_name = spec["strategy"]
-        try:
-            strategy_cls = get_strategy_class(strategy_name)
-        except KeyError as e:
-            raise click.UsageError(str(e))
+        symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        if not symbol_list:
+            raise click.UsageError("At least one symbol must be provided")
 
-        override_grid = _parse_param_options(param_options, strategy_cls=strategy_cls)
-        parameters = dict(spec["parameters"])
-        grid = dict(spec["grid"])
-
-        for key, values in override_grid.items():
-            if len(values) == 1:
-                parameters[key] = values[0]
-            else:
-                grid[key] = values
-
-        combinations = generate_parameter_sets({"parameters": parameters, "grid": grid})
-
-        execution = spec.get("execution", {})
-        run_config = config
-        if execution:
-            run_config = replace(
-                config,
-                initial_cash=float(execution.get("initial_cash", config.initial_cash)),
-                commission=float(execution.get("commission", config.commission)),
-            )
-
-        experiment_name = spec["name"]
-        output_root = Path("outputs") / experiment_name
-        output_root.mkdir(parents=True, exist_ok=True)
-
-        click.echo(f"Running experiment: {experiment_name}")
-        click.echo(f"Date range: {spec['start']} → {spec['end']} ({'CLI override' if date_range_overridden else 'from config'})")
-        click.echo(f"Symbols: {', '.join(spec['symbols'])}")
-
-        symbol_data = {
-            symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
-            for symbol in spec["symbols"]
+        spec = {
+            "name": f"{strategy}_cli_experiment",
+            "strategy": strategy,
+            "symbols": symbol_list,
+            "start": start,
+            "end": end,
+            "parameters": {},
+            "grid": {},
+            "execution": {},
         }
 
-        total_runs = len(combinations) * len(spec["symbols"])
-        click.echo(f"Total runs: {total_runs}")
+    date_range_overridden = False
+    if start is not None:
+        spec["start"] = start
+        date_range_overridden = True
+    if end is not None:
+        spec["end"] = end
+        date_range_overridden = True
 
-        run_index = 0
-        for symbol in spec["symbols"]:
-            data_df = symbol_data[symbol]
-            if data_df.empty:
-                raise click.ClickException(f"No data returned for {symbol}. Check symbol and date range.")
-
-            click.echo(f"Symbol: {symbol}")
-
-            for params in combinations:
-                run_index += 1
-                click.echo(f"Run {run_index}/{total_runs} | params: {params}")
-
-                _, _, metrics = run_backtest(
-                    strategy_cls=strategy_cls,
-                    data_df=data_df,
-                    config=run_config,
-                    strategy_params=params,
-                    symbol=symbol,
-                    experiment_name=experiment_name,
-                    run_id=f"run_{run_index:03d}",
-                )
-
-                run_dir = output_root / f"run_{run_index:03d}"
-                run_dir.mkdir(parents=True, exist_ok=True)
-                (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-
-                snapshot = {
-                    "strategy": strategy_name,
-                    "parameters": params,
-                    "symbol": symbol,
-                    "date_range": {"start": spec["start"], "end": spec["end"]},
-                }
-                (run_dir / "config_snapshot.yaml").write_text(
-                    yaml.safe_dump(snapshot, sort_keys=False),
-                    encoding="utf-8",
-                )
-
-        summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
-
-        click.echo(f"Experiment completed: {total_runs} runs")
-        click.echo(f"Output directory: {output_root}")
-        click.echo(f"Summary CSV: {summary_path}")
-        click.echo(f"Sorted summary CSV: {summary_sorted_path}")
-
-        click.echo("Top 5 results:")
-        for index, row in enumerate(ranked_records[:5], start=1):
-            click.echo(
-                f"{index}  sharpe={row['sharpe']:.2f} "
-                f"return={row['total_return'] * 100:.2f}% "
-                f"z_entry={row.get('z_entry')} z_exit={row.get('z_exit')}"
-            )
-        return
-
-    if not strategy:
-        raise click.UsageError("--strategy is required unless a YAML experiment spec path is provided")
-
+    strategy_name = spec["strategy"]
     try:
-        strategy_cls = get_strategy_class(strategy)
+        strategy_cls = get_strategy_class(strategy_name)
     except KeyError as e:
         raise click.UsageError(str(e))
 
-    if not symbols:
-        raise click.UsageError("--symbols is required when not using a YAML experiment spec")
-    if not start or not end:
-        raise click.UsageError("--start and --end are required when not using a YAML experiment spec")
+    override_grid = _parse_param_options(param_options, strategy_cls=strategy_cls)
+    parameters = dict(spec.get("parameters", {}))
+    grid = dict(spec.get("grid", {}))
 
-    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-    if not symbol_list:
-        raise click.UsageError("At least one symbol must be provided")
+    for key, values in override_grid.items():
+        if len(values) == 1:
+            parameters[key] = values[0]
+        else:
+            grid[key] = values
 
-    param_grid = _parse_param_options(param_options, strategy_cls=strategy_cls)
+    spec["parameters"] = parameters
+    spec["grid"] = grid
 
-    result = run_experiment(
-        strategy_cls=strategy_cls,
-        symbols=symbol_list,
-        param_grid=param_grid,
-        start_date=start,
-        end_date=end,
-        config=config,
-    )
+    execution = spec.get("execution", {})
+    run_config = config
+    if execution:
+        run_config = replace(
+            config,
+            initial_cash=float(execution.get("initial_cash", config.initial_cash)),
+            commission=float(execution.get("commission", config.commission)),
+        )
+
+    total_runs = len(generate_parameter_sets({"parameters": parameters, "grid": grid})) * len(spec["symbols"])
+    click.echo(f"Running experiment: {spec['name']}")
+    click.echo(f"Date range: {spec['start']} → {spec['end']} ({'CLI override' if date_range_overridden else 'from config'})")
+    click.echo(f"Symbols: {', '.join(spec['symbols'])}")
+    click.echo(f"Total runs: {total_runs}")
+
+    try:
+        result = execute_experiment_spec(
+            strategy_cls=strategy_cls,
+            strategy_name=strategy_name,
+            spec=spec,
+            config=run_config,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
 
     click.echo(f"Experiment completed: {result['num_runs']} runs")
-    click.echo(f"Output directory: {result['experiment_dir']}")
-    click.echo(f"Results CSV: {result['results_path']}")
+    click.echo(f"Output directory: {result['output_dir']}")
+    click.echo(f"Summary CSV: {result['summary_path']}")
+    click.echo(f"Sorted summary CSV: {result['summary_sorted_path']}")
+
+    click.echo("Top 5 results:")
+    for index, row in enumerate(result["results"][:5], start=1):
+        click.echo(
+            f"{index}  sharpe={row['sharpe']:.2f} "
+            f"return={row['total_return'] * 100:.2f}% "
+            f"z_entry={row.get('z_entry')} z_exit={row.get('z_exit')}"
+        )
+    return
 
 
 @cli.command(name="walk-forward")
