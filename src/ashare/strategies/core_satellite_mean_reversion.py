@@ -2,18 +2,10 @@
 
 import backtrader as bt
 
-
-def build_mean_reversion_indicators(data, ma_short: int, ma_trend: int, atr_period: int):
-    """Create and return indicators shared by mean-reversion strategies."""
-    ma20 = bt.indicators.SimpleMovingAverage(data.close, period=ma_short)
-    ma120 = bt.indicators.SimpleMovingAverage(data.close, period=ma_trend)
-    atr14 = bt.indicators.ATR(data, period=atr_period)
-    return ma20, ma120, atr14
-
-
-def compute_zscore(close: float, mean_value: float, atr: float) -> float:
-    """Compute mean-reversion z-score with ATR normalization."""
-    return (close - mean_value) / atr
+from ashare.strategies.components.indicators import (
+    build_mean_reversion_indicators,
+    compute_zscore,
+)
 
 
 class CoreSatelliteMeanReversion(bt.Strategy):
@@ -80,9 +72,6 @@ class CoreSatelliteMeanReversion(bt.Strategy):
         if self.p.trend_filter and close < ma120:
             allow_satellite_buy = False
 
-        # Placeholder for future extension: support multiple z-entry styles
-        # such as "ladder", "single", and "volatility_adaptive".
-        # Phase 2 behavior currently assumes ladder-style entry only.
         if allow_satellite_buy:
             for threshold in self.p.z_entry:
                 if zscore <= threshold and satellite_size < self.p.satellite_max:
