@@ -73,7 +73,14 @@ def backtest(
     )
 
     click.echo(f"Initial capital: {config.initial_cash:,.2f} 元")
-    cerebro, strat, metrics = run_backtest(strategy_cls, df, config, symbol=symbol)
+    cerebro, strat, metrics = run_backtest(
+        strategy_cls,
+        df,
+        config,
+        symbol=symbol,
+        experiment_name="cli_backtest",
+        run_id="single",
+    )
 
     # Extract number of trades from metrics (already extracted in extract_results)
     num_trades = metrics.get("num_trades", 0)
@@ -221,6 +228,8 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
                     config=run_config,
                     strategy_params=params,
                     symbol=symbol,
+                    experiment_name=experiment_name,
+                    run_id=f"run_{run_index:03d}",
                 )
 
                 run_dir = output_root / f"run_{run_index:03d}"

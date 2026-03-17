@@ -62,18 +62,25 @@ def _select_best_params(
     train_df: pd.DataFrame,
     param_grid: dict[str, list[Any]],
     config: BacktestConfig,
+    *,
+    experiment_name: str,
+    symbol: str,
+    window_id: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run in-sample optimization and return best params and metrics."""
     best_params: dict[str, Any] = {}
     best_metrics: dict[str, Any] = {}
     best_score = float("-inf")
 
-    for params in generate_param_combinations(param_grid):
+    for idx, params in enumerate(generate_param_combinations(param_grid), start=1):
         _, _, metrics = run_backtest(
             strategy_cls=strategy_cls,
             data_df=train_df,
             config=config,
             strategy_params=params,
+            symbol=symbol,
+            experiment_name=experiment_name,
+            run_id=f"{window_id}/train_opt#{idx:04d}",
         )
 
         sharpe = metrics.get("sharpe")
@@ -105,18 +112,25 @@ def run_walk_forward(
     full_df = load_minute_30(ts_code=symbol, start_date=start_date, end_date=end_date)
 
     results: list[dict[str, Any]] = []
-    for window in windows:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_name = f"walk_forward_{timestamp}"
+
+    for window_idx, window in enumerate(windows, start=1):
         train_df = full_df.loc[window["train_start"]:window["train_end"]]
         test_df = full_df.loc[window["test_start"]:window["test_end"]]
 
         if train_df.empty or test_df.empty:
             continue
 
+        window_id = f"window_{window_idx:03d}"
         best_params, _ = _select_best_params(
             strategy_cls=strategy_cls,
             train_df=train_df,
             param_grid=param_grid,
             config=config,
+            experiment_name=experiment_name,
+            symbol=symbol,
+            window_id=window_id,
         )
 
         _, _, test_metrics = run_backtest(
@@ -125,6 +139,8 @@ def run_walk_forward(
             config=config,
             strategy_params=best_params,
             symbol=symbol,
+            experiment_name=experiment_name,
+            run_id=f"{window_id}/test",
         )
 
         results.append(
@@ -144,8 +160,7 @@ def run_walk_forward(
     if not results:
         raise ValueError("No valid walk-forward windows with data were produced.")
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path("experiments") / f"walk_forward_{timestamp}"
+    output_dir = Path("experiments") / experiment_name
     output_dir.mkdir(parents=True, exist_ok=False)
 
     results_df = pd.DataFrame(results)

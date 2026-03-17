@@ -1,8 +1,57 @@
 """Analyzer registration and result extraction."""
 
+from __future__ import annotations
+
 from typing import Any
 
 import backtrader as bt
+
+
+_SHARPE_NONE_WARNED_KEYS: set[tuple[str, int, str]] = set()
+
+
+def _maybe_log_sharpe_none(
+    *,
+    logger,
+    sharpe_analysis: dict[str, Any],
+    returns_analysis: dict[str, Any],
+    num_trades: int,
+    total_return: float,
+    strategy_name: str,
+) -> None:
+    """
+    Sharpe=None is common for short/flat runs; keep logs concise and deduped.
+
+    Policy:
+    - Always log full analyzer payloads at DEBUG.
+    - Emit at most one INFO line per (strategy, num_trades, sign(total_return)) to avoid spam in experiments.
+    """
+    logger.debug("SharpeRatio is None. sharpe=%s returns=%s", sharpe_analysis, returns_analysis)
+
+    from ashare.utils.logging import get_log_context
+
+    ctx = get_log_context()
+    experiment_name = ctx.get("experiment_name", "")
+    run_id = ctx.get("run_id", "")
+    symbol = ctx.get("symbol", "")
+
+    # Collapse continuous returns into a coarse bucket so dedupe works across many param sets.
+    return_bucket = "pos" if total_return > 0 else ("neg" if total_return < 0 else "zero")
+    key = (experiment_name, symbol, strategy_name, int(num_trades), return_bucket)
+    if key in _SHARPE_NONE_WARNED_KEYS:
+        return
+    _SHARPE_NONE_WARNED_KEYS.add(key)
+
+    # Keep this short and searchable; do not dump large dicts at INFO.
+    logger.info(
+        "sharpe_none experiment_name=%s run_id=%s symbol=%s strategy=%s num_trades=%s total_return=%.6f",
+        experiment_name,
+        run_id,
+        symbol,
+        strategy_name,
+        num_trades,
+        total_return,
+    )
 
 
 def register_analyzers(cerebro: bt.Cerebro) -> None:
@@ -47,6 +96,22 @@ def extract_results(cerebro: bt.Cerebro, strat: bt.Strategy) -> dict[str, Any]:
     # Debug: log what the analyzer returns
     logger.debug(f"SharpeRatio analyzer output: {sharpe_analysis}")
     
+    returns_analysis = {}
+    try:
+        returns_analysis = strat.analyzers.returns.get_analysis()
+    except Exception as e:
+        logger.debug("Could not read returns analyzer: %s", e)
+
+    # Extract number of trades early (used for Sharpe=None noise policy)
+    num_trades = 0
+    try:
+        trade_analysis = strat.analyzers.trade.get_analysis()
+        num_trades = trade_analysis.get("total", {}).get("total", 0) or 0
+    except (AttributeError, KeyError, TypeError):
+        pass
+
+    total_return = returns_analysis.get("rtot", 0.0) if isinstance(returns_analysis, dict) else 0.0
+
     # Try different possible key names for Sharpe ratio
     sharpe_value = (
         sharpe_analysis.get("sharperatio")
@@ -54,43 +119,19 @@ def extract_results(cerebro: bt.Cerebro, strat: bt.Strategy) -> dict[str, Any]:
         or sharpe_analysis.get("sharpe")
     )
     
-    # If still None, try to calculate manually from Returns analyzer as fallback
+    # If still None, log once (deduped) and keep payload at DEBUG.
     if sharpe_value is None:
         try:
-            returns_analysis = strat.analyzers.returns.get_analysis()
-            rtot = returns_analysis.get("rtot", 0.0)
-            rnorm = returns_analysis.get("rnorm", 0.0)
-            rnorm100 = returns_analysis.get("rnorm100", 0.0)
-            
-            # If we have normalized returns, try to calculate Sharpe
-            # Sharpe = (mean return - risk free rate) / std(returns)
-            # For now, if rnorm is available and non-zero, we can estimate
-            # But this is a simplified calculation
-            logger.debug(
-                f"SharpeRatio is None. Returns analysis: rtot={rtot}, rnorm={rnorm}, rnorm100={rnorm100}"
-            )
-            
-            # Log warning about why it might be None
-            logger.warning(
-                f"SharpeRatio returned None. This may indicate: "
-                f"1) Insufficient variance in portfolio returns (all periods have same return), "
-                f"2) Timeframe configuration mismatch, or "
-                f"3) Not enough data points for meaningful calculation. "
-                f"Analyzer output: {sharpe_analysis}, Returns: {returns_analysis}"
+            _maybe_log_sharpe_none(
+                logger=logger,
+                sharpe_analysis=sharpe_analysis if isinstance(sharpe_analysis, dict) else {"sharpe": sharpe_analysis},
+                returns_analysis=returns_analysis if isinstance(returns_analysis, dict) else {"returns": returns_analysis},
+                num_trades=num_trades,
+                total_return=float(total_return or 0.0),
+                strategy_name=str(getattr(strat, "__class__", type(strat)).__name__),
             )
         except Exception as e:
-            logger.warning(f"Could not extract returns for Sharpe fallback: {e}")
-    
-    # Extract number of trades
-    num_trades = 0
-    try:
-        trade_analysis = strat.analyzers.trade.get_analysis()
-        num_trades = trade_analysis.get("total", {}).get("total", 0) or 0
-    except (AttributeError, KeyError, TypeError):
-        # Trade analyzer might not have data or structure is different
-        pass
-    
-    total_return = strat.analyzers.returns.get_analysis().get("rtot", 0.0)
+            logger.debug("Sharpe=None logging failed: %s", e)
 
     return {
         "final_value": cerebro.broker.getvalue(),

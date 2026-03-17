@@ -10,7 +10,7 @@ from ashare.config.settings import BacktestConfig
 from ashare.engine.analyzers import extract_results, register_analyzers
 from ashare.engine.cerebro_builder import build_cerebro
 from ashare.data.normalizers import to_backtrader_feed
-from ashare.utils.logging import get_logger, log_backtest_execution
+from ashare.utils.logging import get_logger, log_backtest_execution, reset_log_context, set_log_context
 
 logger = get_logger("ashare.engine.runner")
 
@@ -21,6 +21,8 @@ def run_backtest(
     config: BacktestConfig,
     strategy_params: dict | None = None,
     symbol: str | None = None,
+    experiment_name: str | None = None,
+    run_id: str | None = None,
 ) -> tuple[bt.Cerebro, bt.Strategy, dict[str, Any]]:
     """
     Build cerebro, add data and strategy, run, return cerebro, strategy instance, and metrics.
@@ -37,8 +39,14 @@ def run_backtest(
         Optional dict of strategy params (e.g. short_period=5)
     symbol : str, optional
         Stock symbol name (for logging and data feed identification)
+    experiment_name : str, optional
+        Experiment name for log correlation (if applicable)
+    run_id : str, optional
+        Run identifier within an experiment for log correlation (if applicable)
     """
     start_time = datetime.now()
+
+    ctx_token = set_log_context(symbol=symbol, experiment_name=experiment_name, run_id=run_id)
     
     logger.debug(f"Building cerebro with config: initial_cash={config.initial_cash}, commission={config.commission + config.stamp_duty}")
     cerebro = build_cerebro(config)
@@ -51,17 +59,22 @@ def run_backtest(
     cerebro.addstrategy(strategy_cls, **(strategy_params or {}))
     register_analyzers(cerebro)
 
-    logger.info("Starting backtest execution...")
-    results = cerebro.run()
-    end_time = datetime.now()
-    duration = (end_time - start_time).total_seconds()
-    
-    strat = results[0]
-    metrics = extract_results(cerebro, strat)
-    
-    # Log execution timing
-    log_backtest_execution(logger, start_time, end_time, duration)
-    
-    logger.debug(f"Backtest completed: final_value={metrics.get('final_value', 0):.2f}, return={metrics.get('rtot', 0) * 100:.2f}%")
-    
-    return cerebro, strat, metrics
+    logger.debug("Starting backtest execution...")
+    try:
+        results = cerebro.run()
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        strat = results[0]
+        metrics = extract_results(cerebro, strat)
+
+        # Log execution timing
+        log_backtest_execution(logger, start_time, end_time, duration)
+
+        logger.debug(
+            f"Backtest completed: final_value={metrics.get('final_value', 0):.2f}, return={metrics.get('rtot', 0) * 100:.2f}%"
+        )
+
+        return cerebro, strat, metrics
+    finally:
+        reset_log_context(ctx_token)

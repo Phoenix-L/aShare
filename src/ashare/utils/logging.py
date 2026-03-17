@@ -1,8 +1,12 @@
 """Structured logging setup and helpers for aShare backtesting."""
 
+from __future__ import annotations
+
 import logging
 import os
+from contextvars import ContextVar
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +16,32 @@ _LOGS_DIR = _PROJECT_ROOT / "logs"
 
 # Ensure logs directory exists
 _LOGS_DIR.mkdir(exist_ok=True)
+
+_LOG_CONTEXT: ContextVar[dict[str, str]] = ContextVar("ashare_log_context", default={})
+
+
+def set_log_context(**fields: str | None):
+    """
+    Set per-run log context (experiment_name/run_id/symbol), returned token can be used to reset.
+
+    This is intentionally lightweight; it is used to enrich a few high-signal log lines
+    (e.g. sharpe_none) without threading metadata everywhere.
+    """
+    current = dict(_LOG_CONTEXT.get() or {})
+    for k, v in fields.items():
+        if v is None:
+            current.pop(k, None)
+        else:
+            current[k] = str(v)
+    return _LOG_CONTEXT.set(current)
+
+
+def reset_log_context(token) -> None:
+    _LOG_CONTEXT.reset(token)
+
+
+def get_log_context() -> dict[str, str]:
+    return dict(_LOG_CONTEXT.get() or {})
 
 
 def setup_logging(level: str | int = None) -> None:
@@ -49,17 +79,29 @@ def setup_logging(level: str | int = None) -> None:
     
     root_logger.setLevel(level)
     
-    # File handler: daily log file
+    # File handler: daily log file (with size-based rotation)
     today = datetime.now().strftime("%Y%m%d")
     log_file = _LOGS_DIR / f"ashare_{today}.log"
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)  # Log everything to file
+    max_bytes = int(os.getenv("ASHARE_LOG_MAX_BYTES", str(10 * 1024 * 1024)))  # 10MB
+    backup_count = int(os.getenv("ASHARE_LOG_BACKUP_COUNT", "5"))
+    file_level = os.getenv("ASHARE_FILE_LOG_LEVEL", "DEBUG")
+    file_level_value = getattr(logging, file_level.upper(), logging.DEBUG)
+
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(file_level_value)
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
     
     # Console handler: INFO+ to console
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_level = os.getenv("ASHARE_CONSOLE_LOG_LEVEL", "WARNING")
+    console_level_value = getattr(logging, str(console_level).upper(), logging.WARNING)
+    console_handler.setLevel(console_level_value)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 

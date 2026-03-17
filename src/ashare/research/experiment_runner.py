@@ -54,16 +54,19 @@ def run_experiment(
     combinations = generate_param_combinations(param_grid)
 
     records: list[dict[str, Any]] = []
+    experiment_name = f"experiment_{timestamp}"
     for symbol in symbols:
         data_df = load_minute_30(ts_code=symbol, start_date=start_date, end_date=end_date)
 
-        for params in combinations:
+        for idx, params in enumerate(combinations, start=1):
             _, _, metrics = run_backtest(
                 strategy_cls=strategy_cls,
                 data_df=data_df,
                 config=config,
                 strategy_params=params,
                 symbol=symbol,
+                experiment_name=experiment_name,
+                run_id=f"{symbol}#{idx:04d}",
             )
 
             row = {
