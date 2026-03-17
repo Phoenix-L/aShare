@@ -1,0 +1,24 @@
+experiment_name: core_satellite_demo
+
+strategy: core_satellite
+
+symbols:
+  - 002850.SZ
+
+date_range:
+  start: 2024-01-01
+  end: 2025-01-01
+
+parameters:
+  core_position: 2000
+  satellite_max: 2000
+  trade_unit: 500
+
+grid_search:
+  z_entry:
+    - [-1.5, -2.0, -2.5]
+    - [-1.8, -2.2, -2.6]
+
+  z_exit:
+    - [0.8, 1.2]
+    - [1.0, 1.5]
