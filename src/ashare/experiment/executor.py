@@ -69,6 +69,16 @@ def execute_experiment_spec(
             )
             (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
+            diagnostics_path = run_dir / "diagnostics.json"
+            diagnostics_summary_path = run_dir / "diagnostics_summary.json"
+            if "diagnostics_summary" in metrics:
+                if not diagnostics_path.exists() or not diagnostics_summary_path.exists():
+                    raise FileNotFoundError(
+                        f"Missing diagnostics artifacts for run_{run_index:03d}: "
+                        f"{diagnostics_path} / {diagnostics_summary_path}"
+                    )
+                logger.info("Diagnostics saved to:\n%s", diagnostics_summary_path.resolve())
+
             snapshot = {
                 "strategy": strategy_name,
                 "parameters": params,

@@ -111,7 +111,9 @@ def run_backtest(
             metrics["diagnostics_summary"] = diagnostics_summary
 
             target_dir = output_dir
-            if target_dir is None and run_id is not None:
+            if target_dir is None and experiment_name is not None and run_id is not None:
+                target_dir = Path("outputs") / experiment_name / run_id
+            elif target_dir is None and run_id is not None:
                 target_dir = Path("outputs") / run_id
 
             if target_dir is not None:
