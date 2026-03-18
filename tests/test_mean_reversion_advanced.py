@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from ashare.config.settings import BacktestConfig
 from ashare.engine.runner import run_backtest
@@ -129,3 +130,43 @@ def test_advanced_mean_reversion_excursion_filter_allows_entry() -> None:
 
     assert strat.buy_events >= 1
     assert strat.position.size > 0
+
+
+
+def test_advanced_mean_reversion_excursion_disabled_with_none_window_does_not_crash() -> None:
+    closes = [100.0] * 180 + [97.0, 101.0, 101.0]
+
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "z_entry": -1.0,
+            "z_exit": 0.3,
+            "use_trend_filter": False,
+            "use_atr_filter": False,
+            "use_multi_day_excursion": False,
+            "excursion_window": None,
+        },
+    )
+
+    assert strat.excursion_ratio is None
+    assert strat.buy_events >= 1
+
+
+
+def test_advanced_mean_reversion_requires_excursion_window_when_enabled() -> None:
+    closes = [100.0] * 180 + [97.0, 97.0]
+
+    with pytest.raises(ValueError, match="Invalid config: excursion_window required"):
+        _run(
+            closes,
+            {
+                "trade_unit": 500,
+                "z_entry": -1.0,
+                "z_exit": 5.0,
+                "use_trend_filter": False,
+                "use_atr_filter": False,
+                "use_multi_day_excursion": True,
+                "excursion_window": None,
+            },
+        )
