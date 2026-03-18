@@ -13,6 +13,9 @@ parameters:
   trade_unit: 500
   use_trend_filter: true
   use_art_filter: true
+  use_multi_day_excursion: false
+  excursion_window: 3
+  excursion_min: 0.01
 
 grid_search:
   z_entry:
@@ -22,3 +25,14 @@ grid_search:
   z_exit:
     - 0.3
     - 0.5
+  use_multi_day_excursion:
+    - false
+    - true
+  excursion_min:
+    - 0.008
+    - 0.01
+    - 0.015
+  excursion_window:
+    - 2
+    - 3
+    - 5

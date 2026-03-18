@@ -25,6 +25,7 @@ def _build_diagnostics_summary(diagnostics: list[dict[str, Any]]) -> dict[str, i
         "executed_trades": 0,
         "blocked_by_trend": 0,
         "blocked_by_art": 0,
+        "blocked_by_excursion": 0,
         "blocked_by_multiple": 0,
     }
 
@@ -40,11 +41,14 @@ def _build_diagnostics_summary(diagnostics: list[dict[str, Any]]) -> dict[str, i
         blocked_by = set(item.get("blocked_by", []))
         has_trend = "trend_filter" in blocked_by
         has_art = "art_filter" in blocked_by
+        has_excursion = "excursion_filter" in blocked_by
         if has_trend:
             summary["blocked_by_trend"] += 1
         if has_art:
             summary["blocked_by_art"] += 1
-        if has_trend and has_art:
+        if has_excursion:
+            summary["blocked_by_excursion"] += 1
+        if sum((has_trend, has_art, has_excursion)) >= 2:
             summary["blocked_by_multiple"] += 1
 
     return summary
@@ -128,11 +132,12 @@ def run_backtest(
                 )
 
             logger.info(
-                "Diagnostics summary:\nSignals: %s\nExecuted: %s\nBlocked by trend: %s\nBlocked by ART: %s",
+                "Diagnostics summary:\nSignals: %s\nExecuted: %s\nBlocked by trend: %s\nBlocked by ART: %s\nBlocked by excursion: %s",
                 diagnostics_summary["entry_signals"],
                 diagnostics_summary["executed_trades"],
                 diagnostics_summary["blocked_by_trend"],
                 diagnostics_summary["blocked_by_art"],
+                diagnostics_summary["blocked_by_excursion"],
             )
 
         # Log execution timing

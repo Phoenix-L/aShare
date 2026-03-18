@@ -85,3 +85,47 @@ def test_advanced_mean_reversion_art_filter_blocks_low_volatility_entry() -> Non
 
     assert strat.buy_events == 0
     assert strat.position.size == 0
+
+
+def test_advanced_mean_reversion_excursion_filter_blocks_entry() -> None:
+    closes = [100.0] * 180 + [99.0, 99.0]
+
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "z_entry": -0.5,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_art_filter": False,
+            "use_multi_day_excursion": True,
+            "excursion_window": 3,
+            "excursion_min": 0.03,
+        },
+        spread=0.01,
+    )
+
+    assert strat.buy_events == 0
+    assert strat.position.size == 0
+
+
+def test_advanced_mean_reversion_excursion_filter_allows_entry() -> None:
+    closes = [100.0] * 180 + [97.0, 97.0]
+
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "z_entry": -1.0,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_art_filter": False,
+            "use_multi_day_excursion": True,
+            "excursion_window": 3,
+            "excursion_min": 0.01,
+        },
+        spread=1.0,
+    )
+
+    assert strat.buy_events >= 1
+    assert strat.position.size > 0

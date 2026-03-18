@@ -87,6 +87,40 @@ def test_diagnostics_output_files_generated(tmp_path: Path) -> None:
     assert summary["blocked_by_art"] >= 1
 
 
+def test_diagnostics_capture_excursion_fields_and_summary(tmp_path: Path) -> None:
+    closes = [100.0] * 180 + [99.0, 99.0]
+    out_dir = tmp_path / "run_excursion"
+
+    _, strat, metrics = run_backtest(
+        strategy_cls=MeanReversionAdvanced,
+        data_df=_synthetic_df(closes, spread=0.01),
+        config=_config(),
+        strategy_params={
+            "trade_unit": 500,
+            "z_entry": -0.5,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_art_filter": False,
+            "use_multi_day_excursion": True,
+            "excursion_window": 3,
+            "excursion_min": 0.03,
+        },
+        symbol="SYNTH",
+        run_id="run_excursion",
+        output_dir=out_dir,
+    )
+
+    summary = metrics["diagnostics_summary"]
+    assert summary["blocked_by_excursion"] >= 1
+    assert any("excursion_ratio" in row and "excursion_ok" in row for row in strat.diagnostics)
+
+    diagnostics = json.loads((out_dir / "diagnostics.json").read_text(encoding="utf-8"))
+    persisted_summary = json.loads((out_dir / "diagnostics_summary.json").read_text(encoding="utf-8"))
+
+    assert any("excursion_ratio" in row and "excursion_ok" in row for row in diagnostics)
+    assert persisted_summary["blocked_by_excursion"] == summary["blocked_by_excursion"]
+
+
 def test_experiment_saves_diagnostics_in_each_run_folder(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 
