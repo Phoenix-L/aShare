@@ -103,10 +103,16 @@ def _build_run_record(run_dir: Path, summary_row: dict[str, Any]) -> dict[str, A
     snapshot = _load_yaml(run_dir / "config_snapshot.yaml")
     params = snapshot.get("parameters") if isinstance(snapshot.get("parameters"), dict) else {}
 
-    def _param(name: str) -> Any:
-        if name in params:
-            return _as_native(params.get(name))
-        return _as_native(summary_row.get(name))
+    def _param(name: str, *fallback_names: str) -> Any:
+        lookup_names = (name, *fallback_names)
+        for lookup_name in lookup_names:
+            if lookup_name in params:
+                return _as_native(params.get(lookup_name))
+            if lookup_name in summary_row:
+                return _as_native(summary_row.get(lookup_name))
+        return None
+
+    blocked_by_atr = _safe_float(diagnostics_summary.get("blocked_by_atr", diagnostics_summary.get("blocked_by_art")))
 
     return {
         "run_id": run_dir.name,
@@ -117,9 +123,12 @@ def _build_run_record(run_dir: Path, summary_row: dict[str, Any]) -> dict[str, A
         "use_multi_day_excursion": _coerce_optional_bool(_param("use_multi_day_excursion")),
         "excursion_min": _safe_float(_param("excursion_min"), default=0.0),
         "excursion_window": _safe_float(_param("excursion_window"), default=0.0),
+        "use_atr_filter": _coerce_optional_bool(_param("use_atr_filter", "use_art_filter")),
+        "atr_ratio_min": _safe_float(_param("atr_ratio_min", "art_threshold"), default=0.0),
         "entry_signals": _safe_float(diagnostics_summary.get("entry_signals")),
         "executed_trades": _safe_float(diagnostics_summary.get("executed_trades")),
-        "blocked_by_art": _safe_float(diagnostics_summary.get("blocked_by_art")),
+        "blocked_by_atr": blocked_by_atr,
+        "blocked_by_art": blocked_by_atr,
         "blocked_by_excursion": _safe_float(diagnostics_summary.get("blocked_by_excursion")),
     }
 
@@ -203,37 +212,42 @@ def analyze_experiment(output_dir: str) -> dict[str, Any]:
                 "use_multi_day_excursion": summary_df.get("use_multi_day_excursion"),
                 "excursion_min": pd.to_numeric(summary_df.get("excursion_min"), errors="coerce").fillna(0.0),
                 "excursion_window": pd.to_numeric(summary_df.get("excursion_window"), errors="coerce").fillna(0.0),
+                "use_atr_filter": summary_df.get("use_atr_filter", summary_df.get("use_art_filter")),
+                "atr_ratio_min": pd.to_numeric(summary_df.get("atr_ratio_min", summary_df.get("art_threshold")), errors="coerce").fillna(0.0),
             }
         )
         if "use_multi_day_excursion" in run_frame.columns:
             run_frame["use_multi_day_excursion"] = run_frame["use_multi_day_excursion"].map(_coerce_optional_bool)
+        if "use_atr_filter" in run_frame.columns:
+            run_frame["use_atr_filter"] = run_frame["use_atr_filter"].map(_coerce_optional_bool)
 
     sharpe_values = run_frame["sharpe"].tolist() if "sharpe" in run_frame.columns else []
     return_values = run_frame["return"].tolist() if "return" in run_frame.columns else []
 
     trade_efficiencies: list[float] = []
-    art_block_rates: list[float] = []
+    atr_block_rates: list[float] = []
     excursion_block_rates: list[float] = []
     if not run_frame.empty:
         for _, row in run_frame.iterrows():
             entry_signals = _safe_float(row.get("entry_signals"))
             executed_trades = _safe_float(row.get("executed_trades"))
-            blocked_by_art = _safe_float(row.get("blocked_by_art"))
+            blocked_by_atr = _safe_float(row.get("blocked_by_atr", row.get("blocked_by_art")))
             blocked_by_excursion = _safe_float(row.get("blocked_by_excursion"))
 
             if entry_signals > 0:
                 trade_efficiencies.append(executed_trades / entry_signals)
-                art_block_rates.append(blocked_by_art / entry_signals)
+                atr_block_rates.append(blocked_by_atr / entry_signals)
                 excursion_block_rates.append(blocked_by_excursion / entry_signals)
             else:
                 trade_efficiencies.append(0.0)
-                art_block_rates.append(0.0)
+                atr_block_rates.append(0.0)
                 excursion_block_rates.append(0.0)
 
     total_runs = len(run_dirs)
     if total_runs == 0 and not summary_df.empty:
         total_runs = int(len(summary_df))
 
+    avg_atr_block_rate = sum(atr_block_rates) / len(atr_block_rates) if atr_block_rates else 0.0
     return {
         "total_runs": int(total_runs),
         "best_sharpe": max(sharpe_values, default=0.0),
@@ -244,7 +258,8 @@ def analyze_experiment(output_dir: str) -> dict[str, Any]:
             "avg": sum(trade_efficiencies) / len(trade_efficiencies) if trade_efficiencies else 0.0,
         },
         "filters": {
-            "blocked_by_art": sum(art_block_rates) / len(art_block_rates) if art_block_rates else 0.0,
+            "blocked_by_atr": avg_atr_block_rate,
+            "blocked_by_art": avg_atr_block_rate,
             "blocked_by_excursion": sum(excursion_block_rates) / len(excursion_block_rates) if excursion_block_rates else 0.0,
         },
         "parameter_analysis": _build_parameter_analysis(run_frame),

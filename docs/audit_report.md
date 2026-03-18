@@ -52,7 +52,7 @@ Implemented behavior:
 - Entry signal: `zscore <= z_entry`
 - Exit signal: `zscore >= z_exit`
 - Trend filter (optional): `close > ma120`
-- ART filter (optional): `art = atr / close`, requires `art >= 0.02`
+- ATR filter (optional): `atr_ratio = atr / close`, requires `atr_ratio >= 0.02`
 - Position model: single long position, fixed-size buys (`trade_unit`), closes entire position on exit.
 
 ### Data layer

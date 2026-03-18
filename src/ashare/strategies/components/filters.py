@@ -8,8 +8,12 @@ def passes_trend_filter(close: float, ma_value: float, enabled: bool) -> bool:
     return close > ma_value
 
 
-def passes_art_filter(art_value: float, threshold: float, enabled: bool) -> bool:
-    """Return whether ART-based volatility filter passes."""
+def passes_atr_filter(atr_ratio: float, threshold: float, enabled: bool) -> bool:
+    """Return whether an ATR-ratio-based volatility filter passes."""
     if not enabled:
         return True
-    return art_value >= threshold
+    return atr_ratio >= threshold
+
+
+# Backward-compatible alias for historical ART typo.
+passes_art_filter = passes_atr_filter

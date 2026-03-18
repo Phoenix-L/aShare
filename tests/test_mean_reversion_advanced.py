@@ -41,7 +41,7 @@ def test_advanced_mean_reversion_entry_and_exit_trigger() -> None:
             "z_entry": -1.0,
             "z_exit": 0.3,
             "use_trend_filter": False,
-            "use_art_filter": False,
+            "use_atr_filter": False,
         },
     )
 
@@ -60,7 +60,7 @@ def test_advanced_mean_reversion_trend_filter_blocks_entry() -> None:
             "z_entry": -1.0,
             "z_exit": 5.0,
             "use_trend_filter": True,
-            "use_art_filter": False,
+            "use_atr_filter": False,
         },
     )
 
@@ -78,7 +78,7 @@ def test_advanced_mean_reversion_art_filter_blocks_low_volatility_entry() -> Non
             "z_entry": -0.5,
             "z_exit": 5.0,
             "use_trend_filter": False,
-            "use_art_filter": True,
+            "use_atr_filter": True,
         },
         spread=0.01,
     )
@@ -97,7 +97,7 @@ def test_advanced_mean_reversion_excursion_filter_blocks_entry() -> None:
             "z_entry": -0.5,
             "z_exit": 5.0,
             "use_trend_filter": False,
-            "use_art_filter": False,
+            "use_atr_filter": False,
             "use_multi_day_excursion": True,
             "excursion_window": 3,
             "excursion_min": 0.03,
@@ -119,7 +119,7 @@ def test_advanced_mean_reversion_excursion_filter_allows_entry() -> None:
             "z_entry": -1.0,
             "z_exit": 5.0,
             "use_trend_filter": False,
-            "use_art_filter": False,
+            "use_atr_filter": False,
             "use_multi_day_excursion": True,
             "excursion_window": 3,
             "excursion_min": 0.01,

@@ -70,7 +70,7 @@ def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_pa
             "symbols": ["600519.SH"],
             "start": "2024-01-01",
             "end": "2024-01-05",
-            "parameters": {"trade_unit": 500, "use_trend_filter": True, "use_art_filter": True},
+            "parameters": {"trade_unit": 500, "use_trend_filter": True, "use_atr_filter": True},
             "grid": {
                 "z_entry": [-1.2, -1.5, -1.8],
                 "z_exit": [0.3, 0.5],
@@ -84,6 +84,6 @@ def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_pa
 
     assert result["num_runs"] == 24
     assert len(captured) == 24
-    assert {"trade_unit": 500, "use_trend_filter": True, "use_art_filter": True, "z_entry": -1.2, "z_exit": 0.3, "use_multi_day_excursion": False, "excursion_window": 2, "excursion_min": 0.008} in captured
-    assert {"trade_unit": 500, "use_trend_filter": True, "use_art_filter": True, "z_entry": -1.8, "z_exit": 0.5, "use_multi_day_excursion": True, "excursion_window": 2, "excursion_min": 0.01} in captured
+    assert {"trade_unit": 500, "use_trend_filter": True, "use_atr_filter": True, "z_entry": -1.2, "z_exit": 0.3, "use_multi_day_excursion": False, "excursion_window": 2, "excursion_min": 0.008} in captured
+    assert {"trade_unit": 500, "use_trend_filter": True, "use_atr_filter": True, "z_entry": -1.8, "z_exit": 0.5, "use_multi_day_excursion": True, "excursion_window": 2, "excursion_min": 0.01} in captured
     assert len(result["results"]) == 24

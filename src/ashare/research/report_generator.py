@@ -18,6 +18,7 @@ def _as_number(value: Any) -> str:
 
 def _sorted_group_items(grouped: dict[Any, dict[str, Any]]) -> list[tuple[Any, dict[str, Any]]]:
     """Sort grouped parameter analysis deterministically for report rendering."""
+
     def _sort_key(item: tuple[Any, dict[str, Any]]) -> tuple[float, str]:
         key, _ = item
         try:
@@ -49,10 +50,10 @@ def _build_parameter_analysis_insights(results: dict[str, Any]) -> list[str]:
         elif abs(true_sharpe - false_sharpe) <= 0.05 and abs(true_return - false_return) <= 0.01:
             insights.append("Excursion filter currently has limited impact.")
 
-    art_block_rate = float(results.get("filters", {}).get("blocked_by_art", 0.0) or 0.0)
+    atr_block_rate = float(results.get("filters", {}).get("blocked_by_atr", results.get("filters", {}).get("blocked_by_art", 0.0)) or 0.0)
     excursion_block_rate = float(results.get("filters", {}).get("blocked_by_excursion", 0.0) or 0.0)
-    if art_block_rate >= max(0.10, excursion_block_rate * 2):
-        insights.append("Strategy dominated by ART filtering.")
+    if atr_block_rate >= max(0.10, excursion_block_rate * 2):
+        insights.append("Strategy dominated by ATR filtering.")
 
     return insights
 
@@ -62,14 +63,14 @@ def _build_insights(results: dict[str, Any]) -> list[str]:
     insights: list[str] = []
 
     trade_efficiency = float(results.get("trade_efficiency", {}).get("avg", 0.0) or 0.0)
-    art_block_rate = float(results.get("filters", {}).get("blocked_by_art", 0.0) or 0.0)
+    atr_block_rate = float(results.get("filters", {}).get("blocked_by_atr", results.get("filters", {}).get("blocked_by_art", 0.0)) or 0.0)
     excursion_block_rate = float(results.get("filters", {}).get("blocked_by_excursion", 0.0) or 0.0)
     avg_sharpe = float(results.get("avg_sharpe", 0.0) or 0.0)
 
     if trade_efficiency < 0.1:
         insights.append("Strategy over-filtered: very few entry signals are converted into executed trades.")
-    if art_block_rate > 0.5:
-        insights.append("ART filter too restrictive: volatility gating is blocking most candidate entries.")
+    if atr_block_rate > 0.5:
+        insights.append("ATR filter too restrictive: volatility gating is blocking most candidate entries.")
     if excursion_block_rate > 0.5:
         insights.append("Excursion filter limiting signals: recent displacement requirements may be too strict.")
     if avg_sharpe > 1.0:
@@ -138,7 +139,7 @@ def _render_sensitivity_table(title: str, grouped: dict[Any, dict[str, Any]], co
         )
 
     if len(lines) == 4:
-        lines.append(f"| - | 0.0000 | 0.0000 | 0 |")
+        lines.append("| - | 0.0000 | 0.0000 | 0 |")
 
     return lines
 
@@ -148,7 +149,10 @@ def _render_excursion_min_insight(grouped: dict[Any, dict[str, Any]]) -> list[st
     if not grouped:
         return []
 
-    best_value, best_group = max(_sorted_group_items(grouped), key=lambda item: (float(item[1].get("avg_sharpe", 0.0) or 0.0), float(item[1].get("avg_return", 0.0) or 0.0)))
+    best_value, best_group = max(
+        _sorted_group_items(grouped),
+        key=lambda item: (float(item[1].get("avg_sharpe", 0.0) or 0.0), float(item[1].get("avg_return", 0.0) or 0.0)),
+    )
     lines = ["", f"Auto insight: Best excursion_min is {best_value} based on average Sharpe {_as_number(best_group.get('avg_sharpe', 0.0))}."]
 
     highest_threshold = _sorted_group_items(grouped)[-1][1]
@@ -179,6 +183,8 @@ def generate_markdown_report(results: dict[str, Any]) -> str:
     trade_efficiency = results.get("trade_efficiency", {}) or {}
     parameter_analysis = results.get("parameter_analysis", {}) or {}
     insights = _build_insights(results)
+
+    atr_block_rate = float(filters.get("blocked_by_atr", filters.get("blocked_by_art", 0.0)) or 0.0)
 
     lines = [
         "# Experiment Analysis Report",
@@ -211,7 +217,7 @@ def generate_markdown_report(results: dict[str, Any]) -> str:
             f"- Avg efficiency: {_as_percent(float(trade_efficiency.get('avg', 0.0) or 0.0))}",
             "",
             "## Filter Impact",
-            f"- ART block rate: {_as_percent(float(filters.get('blocked_by_art', 0.0) or 0.0))}",
+            f"- ATR block rate: {_as_percent(atr_block_rate)}",
             f"- Excursion block rate: {_as_percent(float(filters.get('blocked_by_excursion', 0.0) or 0.0))}",
             "",
             "## Parameter Contribution Analysis",
@@ -237,7 +243,7 @@ def generate_markdown_report(results: dict[str, Any]) -> str:
             "",
             "## Recommendations",
             "- Adjust `z_entry` / `z_exit` to improve signal selectivity and exit timing.",
-            "- Relax ART or excursion filters if diagnostics show heavy signal suppression.",
+            "- Relax ATR or excursion filters if diagnostics show heavy signal suppression.",
             "- Compare `use_multi_day_excursion`, `excursion_min`, and `excursion_window` groups before promoting a configuration.",
             "- Re-run the experiment on the top-ranked configurations to confirm robustness across date ranges and symbols.",
         ]
