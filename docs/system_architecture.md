@@ -145,3 +145,17 @@ Diagnostics are strategy-driven:
 2. Make summary schema dynamic (or include run_id + params JSON column) to preserve all strategy params.
 3. Add `ashare backtest --param key=value` for parity with experiment CLI.
 4. Normalize `--plot` to a true boolean Click flag and keep docs/examples aligned.
+
+
+## Signal Layer
+
+### Multi-Day Excursion Component
+
+The multi-day excursion component is a short-term excursion detector built from a rolling highest high and lowest low window. It complements z-score normalization and ATR/ART-based volatility gating by identifying whether the market has actually displaced enough over the recent lookback window to justify an event-driven mean-reversion entry.
+
+This component is intentionally modeled as a composable signal module instead of a hardcoded branch inside a single strategy. That keeps filter modularity and extensibility intact across the architecture, so YAML experiments, CLI overrides, and grid searches can enable or tune the filter without changing execution or data-loading layers.
+
+## Architecture Principles
+
+- Favor composable signal modules so strategies can mix and match event detectors, normalizers, and gating filters without duplicating logic.
+- Preserve filter modularity and extensibility so new optional constraints can be introduced through parameters, diagnostics, and experiment tooling rather than bespoke strategy forks.
