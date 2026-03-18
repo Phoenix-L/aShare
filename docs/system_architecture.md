@@ -26,7 +26,7 @@ Scope is offline research (data load → backtest → artifacts), not production
 - **Experiment/result layer** (`src/ashare/experiment/*`)
   - parameter expansion, experiment loop execution, run artifact writes, summary ranking.
 - **Research utilities** (`src/ashare/research/*`)
-  - walk-forward logic plus deprecated compatibility wrappers.
+  - walk-forward logic, experiment aggregation, diagnostics analysis, and Markdown report generation.
 
 ## 3) Execution flows
 
@@ -159,3 +159,18 @@ This component is intentionally modeled as a composable signal module instead of
 
 - Favor composable signal modules so strategies can mix and match event detectors, normalizers, and gating filters without duplicating logic.
 - Preserve filter modularity and extensibility so new optional constraints can be introduced through parameters, diagnostics, and experiment tooling rather than bespoke strategy forks.
+
+
+### Research Layer
+
+Responsibilities:
+- experiment aggregation
+- diagnostics analysis
+- report generation
+
+Design principles:
+- deterministic (no LLM dependency)
+- reproducible
+- modular
+
+The research layer consumes canonical experiment artifacts (`summary.csv`, `summary_sorted.csv`, `metrics.json`, `diagnostics_summary.json`) and turns them into reusable aggregate metrics and a structured Markdown report. This keeps post-experiment analysis separate from backtest execution while preserving CLI and script compatibility.

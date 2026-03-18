@@ -106,6 +106,20 @@ ashare walk-forward \
   --param long_period=20,30
 ```
 
+### `ashare analyze`
+
+Analyze a completed experiment output directory and generate a deterministic Markdown report.
+
+```bash
+ashare analyze outputs/mean_reversion_advanced_demo
+```
+
+Primary script entrypoint (recommended for automation):
+
+```bash
+python scripts/analyze_experiment.py outputs/mean_reversion_advanced_demo
+```
+
 ### `ashare sanitytest`
 
 Quick integration checks for data loading.
@@ -235,3 +249,33 @@ ashare walk-forward --symbol 600519.SH --strategy mid_freq_ma --start 2020-01-01
 - Sharpe can be `None` in short/flat runs; ranking fallback still works but interpretation needs caution.
 - `summary.csv` keeps fixed columns focused on mean-reversion parameters, so non-mean-reversion parameter values are retained in per-run `run_result.json` rather than summary columns.
 - Walk-forward outputs are written under `experiments/`, while experiment sweeps write under `outputs/`.
+
+
+## Experiment Analysis
+
+Use the research analysis layer after an experiment has already produced `summary.csv`, `summary_sorted.csv`, and per-run artifacts.
+
+```bash
+python scripts/analyze_experiment.py outputs/xxx
+```
+
+The generated `analysis_report.md` summarizes:
+
+- total runs, best/average Sharpe, and best/average return,
+- top-ranked parameter configurations from `summary_sorted.csv`,
+- trade efficiency = `executed_trades / entry_signals`,
+- filter impact rates such as ART blocking and excursion blocking.
+
+Interpretation guidelines:
+
+- **Trade efficiency** estimates how many candidate entry signals survive all enabled filters and actually execute. Very low values usually mean the strategy is over-filtered.
+- **ART block rate** shows how often the volatility gate rejects entries. A high ART rate suggests the ART threshold is too restrictive for the symbol or period.
+- **Excursion block rate** shows how often the multi-day excursion gate suppresses trades. A high rate suggests the displacement requirement or lookback window may be too strict.
+
+Suggested iteration workflow:
+
+1. Start with the top-ranked configurations in the report.
+2. If trade efficiency is low, relax `z_entry`, `z_exit`, or optional filters incrementally.
+3. If ART blocking dominates, lower the ART strictness or disable the filter for comparison runs.
+4. If excursion blocking dominates, revisit `excursion_window` and `excursion_min`.
+5. Re-run the same experiment spec so comparisons remain reproducible.
