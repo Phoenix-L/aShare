@@ -41,6 +41,8 @@ class MeanReversionAdvanced(bt.Strategy):
             ma_trend=120,
             atr_period=14,
         )
+        # Use a shorter ATR for ATR/price volatility filter (atr_ratio) only.
+        self.atr3 = bt.indicators.ATR(self.data, period=3)
         self.excursion_ratio = MultiDayExcursion(
             self.data,
             window=self.p.excursion_window,
@@ -84,12 +86,12 @@ class MeanReversionAdvanced(bt.Strategy):
         close = float(self.data.close[0])
         ma20 = float(self.ma20[0])
         ma120 = float(self.ma120[0])
-        atr = float(self.atr14[0])
-        if atr == 0:
+        atr14 = float(self.atr14[0])
+        if atr14 == 0:
             return
 
-        zscore = compute_zscore(close, ma20, atr)
-        atr_ratio = compute_atr_ratio(atr, close)
+        zscore = compute_zscore(close, ma20, atr14)
+        atr_ratio = compute_atr_ratio(float(self.atr3[0]), close)
         excursion_ratio = float(self.excursion_ratio[0])
 
         if self.position and zscore >= self.p.z_exit:
