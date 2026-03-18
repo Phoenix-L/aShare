@@ -1,137 +1,237 @@
-# aShare User Manual (Practical)
+# aShare User Manual
 
-## 1) Setup
+## 1) Overview
 
-### Install
+aShare is a **research-oriented A-share backtesting toolkit** built on Backtrader. It is designed for strategy prototyping and parameter studies, not for live trading execution. The current workflow centers on:
+
+- single-symbol backtests (`ashare backtest`),
+- YAML-based parameter sweep experiments (`ashare experiment`),
+- rolling walk-forward validation (`ashare walk-forward`),
+- data integration sanity checks (`ashare sanitytest`).
+
+## 2) Environment and setup
+
+### Install locally
+
 ```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
 pip install -e .
 ```
 
-### Optional provider selection
-Default provider is BaoStock.
+### Data provider selection
 
-Use Tushare explicitly:
+The default data provider is **BaoStock**. To switch provider:
+
 ```bash
 export ASHARE_DATA_PROVIDER=tushare
 export TUSHARE_TOKEN=<your_token>
 ```
 
-## 2) Run your first backtest
+You can also set cache directory:
+
+```bash
+export ASHARE_CACHE_DIR=./data_cache
+```
+
+### Run tests
+
+```bash
+pytest
+```
+
+## 3) CLI commands
+
+### `ashare backtest`
+
+Run one symbol with one strategy over one date range.
 
 ```bash
 ashare backtest \
-  --symbol 000001.SZ \
-  --strategy mean_reversion_advanced \
-  --start 2025-01-01 \
-  --end 2025-12-31
+  --symbol 600519.SH \
+  --strategy mean_reversion \
+  --start 2024-01-01 \
+  --end 2024-12-31
 ```
 
-Notes:
-- `--start` and `--end` must be strict `YYYY-MM-DD`.
-- If no data is returned for the symbol/range, command exits with error.
+Current options:
 
-## 3) Run an experiment (YAML mode, recommended)
+- `--symbol` (required)
+- `--strategy` (required)
+- `--start` / `--end` (optional, strict `YYYY-MM-DD` when provided)
+- `--plot` (CLI currently exposes it as a value option; if truthy it calls `cerebro.plot()`)
+
+### `ashare experiment`
+
+Two modes are supported.
+
+#### A) YAML spec mode (recommended)
 
 ```bash
 ashare experiment configs/experiments/mean_reversion_advanced.yaml
 ```
 
-This mode:
-- loads experiment spec,
-- applies optional CLI overrides,
-- runs all symbol × parameter combinations,
-- writes per-run artifacts under `outputs/<experiment_name>/`.
+#### B) Direct CLI mode (no YAML file)
 
-## 4) Grid search usage
-
-Example YAML:
-```yaml
-experiment_name: mean_reversion_advanced_demo
-strategy: mean_reversion_advanced
-symbols: [002850.SZ]
-date_range:
-  start: 2025-07-01
-  end: 2026-02-28
-parameters:
-  trade_unit: 500
-  use_trend_filter: true
-  use_art_filter: true
-grid_search:
-  z_entry: [-1.2, -1.5, -1.8]
-  z_exit: [0.3, 0.5]
-```
-
-Run count = `len(symbols) * len(z_entry) * len(z_exit)`.
-For the example above: `1 * 3 * 2 = 6` runs.
-
-## 5) CLI overrides (`--start`, `--end`, `--param`)
-
-### Override date range
 ```bash
-ashare experiment configs/experiments/mean_reversion_advanced.yaml \
-  --start 2025-01-01 \
-  --end 2025-12-31
+ashare experiment \
+  --strategy mean_reversion \
+  --symbols 600519.SH,000858.SZ \
+  --start 2024-01-01 \
+  --end 2024-12-31 \
+  --param z_entry=-1.2,-1.5 \
+  --param z_exit=0.5,1.0
 ```
 
-### Override parameters
-Single value => base parameter override:
+Supported overrides in both modes:
+
+- `--start` / `--end`: overrides spec date range.
+- `--param key=v`: sets a fixed parameter.
+- `--param key=v1,v2`: sets a grid dimension.
+
+### `ashare walk-forward`
+
+Run rolling train/test optimization for one symbol.
+
 ```bash
-ashare experiment configs/experiments/mean_reversion_advanced.yaml \
-  --param trade_unit=1000
+ashare walk-forward \
+  --symbol 600519.SH \
+  --strategy mid_freq_ma \
+  --start 2020-01-01 \
+  --end 2021-12-31 \
+  --train-window 180 \
+  --test-window 60 \
+  --param short_period=5,10 \
+  --param long_period=20,30
 ```
 
-Multiple values => grid override:
+### `ashare sanitytest`
+
+Quick integration checks for data loading.
+
 ```bash
-ashare experiment configs/experiments/mean_reversion_advanced.yaml \
-  --param z_entry=-1.0,-1.3,-1.6 \
-  --param z_exit=0.3,0.5
+ashare sanitytest daily --symbol 000001.SZ
+ashare sanitytest minute30 --symbol 000001.SZ
 ```
 
-### Real command example requested
-```bash
-ashare experiment config.yaml \
-  --start 2025-01-01 \
-  --end 2025-12-31
-```
+## 4) Strategy usage
 
-## 6) Understanding outputs
+Registered strategy names are currently:
 
-## A) YAML experiment outputs (`outputs/<experiment_name>/`)
+- `mid_freq_ma`
+- `core_satellite`
+- `mean_reversion`
+- `mean_reversion_advanced`
 
-### `metrics.json`
-Per-run metrics from analyzers, including:
-- `final_value`
-- `rtot` / `total_return`
-- `sharpe`
-- `max_drawdown`
-- `max_drawdown_len`
-- `num_trades`
+### `mean_reversion`
 
-### `config_snapshot.yaml`
-Per-run snapshot including:
-- `strategy`
-- concrete `parameters` used in that run
-- `symbol`
-- effective `date_range` (after CLI override if any)
+Key params:
 
-### `summary.csv` and `summary_sorted.csv`
-Built after experiment completion.
-- `summary.csv`: raw run collection order.
-- `summary_sorted.csv`: ranked by sharpe desc, return desc, drawdown asc.
+- `trade_unit` (default `500`)
+- `z_entry` (default `-1.5`)
+- `z_exit` (default `1.0`)
+- `allow_ladder` (present but not used by current logic)
+- `ma_short` / `ma_trend` / `atr_period`
 
-## B) Direct CLI experiment mode outputs (`experiments/experiment_<timestamp>/`)
+Behavior: enters when ATR-normalized z-score <= `z_entry`; exits full position when z-score >= `z_exit`.
+
+### `mean_reversion_advanced`
+
+Key params:
+
+- `trade_unit` (default `500`)
+- `z_entry` (default `-1.5`)
+- `z_exit` (default `0.5`)
+- `use_trend_filter` (default `true`)
+- `use_art_filter` (default `true`)
+
+Behavior: same mean-reversion core entry/exit, plus optional trend and ART filters, with per-bar diagnostics collection.
+
+## 5) Experiment workflow
+
+YAML experiment spec fields:
+
+- `experiment_name` (required)
+- `strategy` (required)
+- `symbols` (required, non-empty list)
+- `date_range.start` / `date_range.end` (required)
+- `parameters` (optional fixed values)
+- `grid_search` (optional lists for cartesian expansion)
+- `execution` (optional runtime overrides: `initial_cash`, `commission`)
+
+Parameter precedence in experiment execution:
+
+1. Strategy defaults
+2. YAML `parameters`
+3. YAML `grid_search` expansion
+4. CLI `--param` overrides (highest)
+
+Date precedence:
+
+- CLI `--start` / `--end` override YAML dates when provided.
+
+## 6) Output files
+
+### Experiment outputs (`outputs/<experiment_name>/`)
+
+Per run (`run_001`, `run_002`, ...):
+
+- `metrics.json`
+- `config_snapshot.yaml`
+- `run_result.json`
+- `diagnostics.json` *(only when strategy emits diagnostics, e.g. `mean_reversion_advanced`)*
+- `diagnostics_summary.json` *(same condition)*
+
+Experiment-level:
+
+- `summary.csv`
+- `summary_sorted.csv`
+
+`summary.csv`/`summary_sorted.csv` columns are fixed to:
+
+`z_entry, z_exit, use_trend_filter, use_art_filter, total_return, sharpe, max_drawdown, num_trades`
+
+### Walk-forward outputs (`experiments/walk_forward_<timestamp>/`)
+
 - `results.csv`
-- `config.json`
+- `summary.json`
+- `windows.json`
 
-This path does not currently generate the `outputs/<experiment_name>/summary.csv` structure.
+## 7) Diagnostics
 
-## 7) Strategy parameters (mean_reversion_advanced)
+When a strategy has a `diagnostics` attribute (currently `mean_reversion_advanced`):
 
-- `trade_unit` (default `500`): order size on entry.
-- `z_entry` (default `-1.5`): entry threshold for z-score.
-- `z_exit` (default `0.5`): exit threshold for z-score.
-- `use_trend_filter` (default `true`): requires `close > ma120` to allow entry.
-- `use_art_filter` (default `true`): requires `ART >= 0.02` to allow entry.
+- `diagnostics.json` stores per-bar entries such as `zscore`, filter pass flags, signal/execution flags, and `blocked_by` reasons.
+- `diagnostics_summary.json` stores aggregate counters:
+  - `total_bars`
+  - `entry_signals`
+  - `executed_trades`
+  - `blocked_by_trend`
+  - `blocked_by_art`
+  - `blocked_by_multiple`
 
-Tip:
-- If no trades occur, test with looser thresholds or disable one filter to diagnose trade starvation.
+For experiments, diagnostics are under each run folder in `outputs/<experiment_name>/run_xxx/`.
+
+## 8) Runnable examples
+
+```bash
+# 1) Single backtest
+ashare backtest --symbol 002850.SZ --strategy mean_reversion_advanced --start 2025-01-01 --end 2025-12-31
+
+# 2) YAML experiment with CLI date override
+ashare experiment configs/experiments/mean_reversion_advanced.yaml --start 2025-01-01 --end 2025-12-31
+
+# 3) Direct CLI experiment mode
+ashare experiment --strategy mean_reversion --symbols 002850.SZ --start 2025-01-01 --end 2025-12-31 --param z_entry=-1.2,-1.5 --param z_exit=0.5,1.0
+
+# 4) Walk-forward
+ashare walk-forward --symbol 600519.SH --strategy mid_freq_ma --start 2020-01-01 --end 2021-12-31 --train-window 180 --test-window 60 --param short_period=5,10 --param long_period=20,30
+```
+
+## 9) Known caveats
+
+- `mean_reversion_advanced` filters can block most entries on some symbols/date ranges, resulting in very low trade counts.
+- Sharpe can be `None` in short/flat runs; ranking fallback still works but interpretation needs caution.
+- `summary.csv` keeps fixed columns focused on mean-reversion parameters, so non-mean-reversion parameter values are retained in per-run `run_result.json` rather than summary columns.
+- Walk-forward outputs are written under `experiments/`, while experiment sweeps write under `outputs/`.

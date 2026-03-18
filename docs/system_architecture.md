@@ -1,123 +1,147 @@
-# aShare System Architecture (Current Implementation)
+# aShare System Architecture
 
-## 1. High-level architecture (text diagram)
+## 1) System overview
 
-```text
-User CLI
-  ├─ ashare backtest
-  ├─ ashare experiment
-  └─ ashare walk-forward
-        |
-        v
-Config resolution
-  ├─ BacktestConfig defaults/env
-  └─ Experiment YAML + CLI overrides
-        |
-        v
-Data loading
-  ├─ load_minute_30 / load_daily
-  ├─ Provider factory (baostock|tushare)
-  └─ cache read/write + schema validation
-        |
-        v
-Execution engine
-  ├─ run_backtest (Cerebro build/run)
-  ├─ analyzers (returns/sharpe/drawdown/trades)
-  └─ experiment loops (YAML CLI path or research runner)
-        |
-        v
-Artifacts
-  ├─ metrics.json
-  ├─ config_snapshot.yaml
-  ├─ summary.csv / summary_sorted.csv (YAML path)
-  └─ results.csv + config.json (research runner path)
-```
+aShare is currently a **research/backtesting platform** for A-share strategies. It provides a CLI-driven pipeline for:
 
-## 2. Data flow (YAML → runner → strategy → metrics)
+- running single backtests,
+- running multi-symbol parameter experiments,
+- running walk-forward optimization,
+- validating data integrations.
 
-1. `ashare experiment <spec.yaml>` parses and validates YAML spec.
-2. CLI applies `--start/--end` and `--param` overrides.
-3. CLI materializes parameter combinations (base params + grid cartesian product).
-4. For each symbol, minute-30 data is loaded once for the selected date range.
-5. For each parameter set, CLI calls `run_backtest(...)`.
-6. Backtest engine builds broker/env, injects strategy params, executes analyzers.
-7. Metrics are persisted per run and then aggregated to `summary.csv` + ranked summary.
+Scope is offline research (data load → backtest → artifacts), not production live trading.
 
-## 3. Module responsibilities
+## 2) High-level architecture
 
-- `src/ashare/cli.py`
-  - Command parsing, validation, override application, orchestration, user-facing output.
-- `src/ashare/config/*`
-  - Backtest defaults, env loading, lightweight YAML scalar parsing utility.
-- `src/ashare/data/*`
-  - Provider selection, cache-first loading, schema enforcement, feed normalization.
-- `src/ashare/strategies/*`
-  - Strategy registry + strategy logic.
-- `src/ashare/engine/*`
-  - Cerebro construction, analyzer registration, execution and metrics extraction.
-- `src/ashare/experiment/*`
-  - Experiment spec normalization, parameter grid generation, result aggregation/ranking.
-- `src/ashare/research/*`
-  - Alternate experiment runner and walk-forward orchestration.
+- **CLI layer** (`src/ashare/cli.py`)
+  - command routing, argument validation, CLI overrides, orchestration.
+- **Config/spec layer** (`src/ashare/config/*`, `src/ashare/experiment/spec.py`)
+  - backtest defaults, YAML spec normalization, execution overrides.
+- **Data layer** (`src/ashare/data/*`)
+  - provider selection (`baostock`/`tushare`), cache-first loads, schema validation, feed normalization.
+- **Strategy layer** (`src/ashare/strategies/*`)
+  - manual strategy registry + strategy implementations.
+- **Engine layer** (`src/ashare/engine/*`)
+  - Cerebro construction, analyzer registration, run execution, metrics extraction, diagnostics persistence.
+- **Experiment/result layer** (`src/ashare/experiment/*`)
+  - parameter expansion, experiment loop execution, run artifact writes, summary ranking.
+- **Research utilities** (`src/ashare/research/*`)
+  - walk-forward logic plus deprecated compatibility wrappers.
 
-## 4. Parameter flow (critical)
+## 3) Execution flows
 
-### YAML experiment mode
-Input sources:
-1. YAML `parameters` (base)
-2. YAML `grid_search` (dimensions)
-3. CLI `--param` overrides
+### A) Backtest flow
 
-Merge semantics:
-- `--param key=v` (single value) => force base parameter `parameters[key]=v`
-- `--param key=v1,v2,...` (multi value) => force sweep dimension `grid[key]=[v1,v2,...]`
+1. `ashare backtest` parses symbol/strategy/date args.
+2. Strategy class resolved from registry.
+3. `load_minute_30` loads data via provider + cache.
+4. `run_backtest`:
+   - builds Cerebro with broker settings,
+   - adds data + strategy,
+   - registers analyzers,
+   - executes and extracts metrics.
+5. CLI prints metrics; optional plotting when `--plot` is set.
 
-Final run params:
-- `generate_parameter_sets({parameters, grid})` returns merged dict per run.
-- Each run dict is passed to `run_backtest(..., strategy_params=params)`.
+### B) Experiment flow
 
-### Direct CLI experiment mode (`run_experiment`)
-Input sources:
-- `param_grid` from `--param`
-- `base_params` optional (not exposed directly in this CLI path today)
+1. `ashare experiment` loads YAML spec **or** builds spec from direct CLI args.
+2. CLI merges YAML parameters/grid with `--param` overrides.
+3. CLI applies date overrides (`--start`, `--end`) if provided.
+4. `execute_experiment_spec` expands parameter sets (cartesian product).
+5. For each symbol × parameter set:
+   - run backtest,
+   - write per-run artifacts (`metrics.json`, `config_snapshot.yaml`, `run_result.json`, optional diagnostics files).
+6. `build_summary` generates `summary.csv` and `summary_sorted.csv`.
 
-Final run params:
-- `final_params = {**base_params, **param_set}`
-- each `final_params` goes into `run_backtest`.
+### C) Walk-forward flow
 
-## 5. Grid search flow
+1. `ashare walk-forward` parses window and parameter grid args.
+2. Generates rolling train/test windows.
+3. Loads full date-range data once.
+4. Per window:
+   - optimize params in train segment,
+   - apply best params on test segment,
+   - store window result row.
+5. Writes `experiments/walk_forward_<timestamp>/results.csv`, `summary.json`, `windows.json`.
 
-Two active implementations exist:
-1. `experiment.grid.generate_parameter_sets` (YAML CLI path).
-2. `engine.runner.expand_grid` (research runner / walk-forward path).
+## 4) Canonical experiment pipeline
 
-Both implement cartesian expansion of parameter lists.
+The canonical experiment path is now `cli.experiment -> experiment.executor.execute_experiment_spec`.
 
-## 6. CLI override hierarchy
+There is also a legacy compatibility API in `ashare.research.experiment_runner.run_experiment()` that delegates to the same executor and writes a deprecation notice.
 
-### Date precedence
-`CLI --start/--end` > YAML `date_range.start/end`.
+## 5) Parameter flow and precedence
 
-### Parameter precedence (YAML mode)
-`CLI --param` > YAML `parameters` / `grid_search` for same keys.
+Verified precedence for experiment runs:
 
-### Broker runtime (`execution` block)
-In YAML mode only:
-- `execution.initial_cash` and `execution.commission` override loaded defaults.
-- other BacktestConfig fields (e.g., `stamp_duty`, `slippage_perc`) remain from global config unless changed elsewhere.
+1. **Strategy defaults** (Backtrader params)
+2. **YAML `parameters`** (fixed params)
+3. **YAML `grid_search`** (expanded parameter dimensions)
+4. **CLI `--param`** overrides (highest)
 
-## 7. Known limitations
+Date precedence:
 
-1. Two experiment pipelines with different artifact schemas (`outputs/` vs `experiments/`).
-2. Grid search logic duplicated in two modules.
-3. `backtest` command has no direct `--param` strategy injection.
-4. Summary/ranking CSV only generated in YAML experiment path.
-5. Data provider behavior differs by backend quality/coverage, especially minute-level history and turnover mapping.
+- CLI `--start`/`--end` > YAML `date_range.start`/`date_range.end`.
 
-## 8. Extensibility points already present
+Execution overrides:
 
-1. Provider abstraction (`DataProvider`) allows adding new market data sources.
-2. Strategy registry supports incremental strategy additions.
-3. `execution` section in experiment spec is a foothold for richer runtime controls.
-4. `FUTURE_METRICS` placeholder in result module signals planned ranking/analysis extension.
-5. `walk-forward` command pathway exists for phased research expansion.
+- YAML `execution.initial_cash` and `execution.commission` override `BacktestConfig` for experiment runs.
+- `stamp_duty` and `slippage_perc` remain defaults unless changed elsewhere.
+
+## 6) Strategy registry
+
+Strategy registration is manual via `STRATEGY_REGISTRY` in `src/ashare/strategies/__init__.py`.
+
+Current registry keys:
+
+- `mid_freq_ma`
+- `core_satellite`
+- `mean_reversion`
+- `mean_reversion_advanced`
+
+Automatic strategy discovery is **not** implemented.
+
+## 7) Output contract
+
+### Experiment outputs (`outputs/<experiment_name>/`)
+
+Per run folder (`run_###`):
+
+- `metrics.json`
+- `config_snapshot.yaml`
+- `run_result.json`
+- optional `diagnostics.json` + `diagnostics_summary.json` (if strategy emits diagnostics)
+
+Experiment-level:
+
+- `summary.csv`
+- `summary_sorted.csv`
+
+### Walk-forward outputs (`experiments/walk_forward_<timestamp>/`)
+
+- `results.csv`
+- `summary.json`
+- `windows.json`
+
+## 8) Diagnostics architecture
+
+Diagnostics are strategy-driven:
+
+- If strategy instance has `diagnostics`, `run_backtest` computes and stores `diagnostics_summary` counters.
+- Diagnostics files are written when an output target exists (explicit `output_dir`, or derived from `experiment_name/run_id`).
+- `mean_reversion_advanced` currently provides detailed per-bar diagnostics and trade reason tracking.
+
+## 9) Current limitations / technical debt
+
+- Artifact roots are split by workflow (`outputs/` for experiments vs `experiments/` for walk-forward).
+- `summary.csv` uses a fixed mean-reversion-oriented column schema, which is lossy for unrelated strategy params.
+- Backtest CLI has no direct `--param` injection for strategy params.
+- `research.experiment_runner` remains as a deprecated wrapper API.
+- `--plot` is declared as a value option in Click help (not a typical boolean flag UX).
+
+## 10) Recommended next steps
+
+1. Unify artifact root conventions across experiment and walk-forward outputs.
+2. Make summary schema dynamic (or include run_id + params JSON column) to preserve all strategy params.
+3. Add `ashare backtest --param key=value` for parity with experiment CLI.
+4. Normalize `--plot` to a true boolean Click flag and keep docs/examples aligned.
