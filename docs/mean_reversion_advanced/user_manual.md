@@ -32,6 +32,7 @@ Enables the ATR ratio filter.
 
 Current effective behavior:
 
+- the filter uses a 3-bar ATR ratio (`ATR3 / close`) rather than the 14-bar ATR used in the z-score
 - if omitted, ATR filtering is enabled by default
 - legacy `use_art_filter` is still accepted, but deprecated
 
@@ -41,7 +42,7 @@ Minimum ATR ratio required for the ATR filter to pass.
 
 Definition:
 
-- `ATR Ratio = ATR / Price`
+- `ATR Ratio = ATR3 / Price`
 
 Current effective default:
 

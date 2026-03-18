@@ -31,9 +31,9 @@ Because ATR is in the denominator, the z-score scales the deviation from the sho
 
 The strategy also computes an ATR ratio:
 
-- `atr_ratio = ATR14 / close`
+- `atr_ratio = ATR3 / close`
 
-This is used as a volatility gate via the ATR filter.
+This is used as a volatility gate via the ATR filter. The strategy intentionally uses a shorter ATR for this gate than for the z-score calculation.
 
 Current behavior:
 
@@ -44,7 +44,7 @@ Current behavior:
 Purpose:
 
 - reject low-volatility setups where the mean-reversion signal may be too small or noisy
-- require enough realized range for the z-score signal to matter
+- require enough very recent realized range for the z-score signal to matter
 
 Exact pass condition:
 
