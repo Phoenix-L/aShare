@@ -43,7 +43,7 @@ def test_multi_day_excursion_filter_blocks_trade_when_excursion_too_small() -> N
             "z_entry": -0.5,
             "z_exit": 5.0,
             "use_trend_filter": False,
-            "use_art_filter": False,
+            "use_atr_filter": False,
             "use_multi_day_excursion": True,
             "excursion_window": 3,
             "excursion_min": 0.03,
@@ -65,7 +65,7 @@ def test_multi_day_excursion_filter_allows_trade_when_excursion_threshold_is_met
             "z_entry": -1.0,
             "z_exit": 5.0,
             "use_trend_filter": False,
-            "use_art_filter": False,
+            "use_atr_filter": False,
             "use_multi_day_excursion": True,
             "excursion_window": 3,
             "excursion_min": 0.01,
@@ -75,3 +75,33 @@ def test_multi_day_excursion_filter_allows_trade_when_excursion_threshold_is_met
 
     assert strat.buy_events >= 1
     assert any(row["executed"] and row["excursion_ok"] for row in strat.diagnostics)
+
+
+def test_atr_and_legacy_art_filter_params_behave_the_same() -> None:
+    closes = [100.0] * 180 + [99.0, 99.0]
+
+    strat_atr = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "z_entry": -0.5,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_atr_filter": True,
+        },
+        spread=0.01,
+    )
+    strat_art = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "z_entry": -0.5,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_art_filter": True,
+        },
+        spread=0.01,
+    )
+
+    assert strat_atr.buy_events == 0
+    assert strat_art.buy_events == 0

@@ -12,6 +12,7 @@ from ashare.engine.runner import run_backtest
 from ashare.experiment.executor import execute_experiment_spec
 from ashare.experiment.grid import generate_parameter_sets
 from ashare.experiment.spec import load_experiment_spec
+from ashare.research import analyze_experiment, generate_markdown_report
 from ashare.research.walk_forward import run_walk_forward
 from ashare.sanitytests import sanitycheck_daily, sanitycheck_minute30
 from ashare.strategies import get_strategy_class
@@ -286,6 +287,19 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
             f"z_entry={row.get('z_entry')} z_exit={row.get('z_exit')}"
         )
     return
+
+
+@cli.command(name="analyze")
+@click.argument("output_dir")
+def analyze(output_dir: str) -> None:
+    """Analyze a completed experiment output directory and write a Markdown report."""
+    from pathlib import Path
+
+    results = analyze_experiment(output_dir)
+    report = generate_markdown_report(results)
+    report_path = Path(output_dir) / "analysis_report.md"
+    report_path.write_text(report, encoding="utf-8")
+    click.echo(str(report_path))
 
 
 @cli.command(name="walk-forward")

@@ -16,8 +16,12 @@ def build_mean_reversion_indicators(data, ma_short: int, ma_trend: int, atr_peri
     return ma_short_line, ma_trend_line, atr_line
 
 
-def compute_art(atr: float, price: float) -> float:
-    """Compute ART (ATR ratio to current price) as a simple volatility proxy."""
+def compute_atr_ratio(atr: float, price: float) -> float:
+    """Compute ATR ratio as ``ATR / price`` for volatility filtering."""
     if price == 0:
         return 0.0
     return atr / price
+
+
+# Backward-compatible alias for historical ART typo.
+compute_art = compute_atr_ratio

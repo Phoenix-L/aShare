@@ -24,6 +24,7 @@ def _build_diagnostics_summary(diagnostics: list[dict[str, Any]]) -> dict[str, i
         "entry_signals": 0,
         "executed_trades": 0,
         "blocked_by_trend": 0,
+        "blocked_by_atr": 0,
         "blocked_by_art": 0,
         "blocked_by_excursion": 0,
         "blocked_by_multiple": 0,
@@ -40,15 +41,16 @@ def _build_diagnostics_summary(diagnostics: list[dict[str, Any]]) -> dict[str, i
 
         blocked_by = set(item.get("blocked_by", []))
         has_trend = "trend_filter" in blocked_by
-        has_art = "art_filter" in blocked_by
+        has_atr = "atr_filter" in blocked_by or "art_filter" in blocked_by
         has_excursion = "excursion_filter" in blocked_by
         if has_trend:
             summary["blocked_by_trend"] += 1
-        if has_art:
+        if has_atr:
+            summary["blocked_by_atr"] += 1
             summary["blocked_by_art"] += 1
         if has_excursion:
             summary["blocked_by_excursion"] += 1
-        if sum((has_trend, has_art, has_excursion)) >= 2:
+        if sum((has_trend, has_atr, has_excursion)) >= 2:
             summary["blocked_by_multiple"] += 1
 
     return summary
@@ -87,14 +89,14 @@ def run_backtest(
     start_time = datetime.now()
 
     ctx_token = set_log_context(symbol=symbol, experiment_name=experiment_name, run_id=run_id)
-    
+
     logger.debug(f"Building cerebro with config: initial_cash={config.initial_cash}, commission={config.commission + config.stamp_duty}")
     cerebro = build_cerebro(config)
-    
+
     logger.debug(f"Converting DataFrame to Backtrader feed: {len(data_df)} bars")
     feed = to_backtrader_feed(data_df, name=symbol)
     cerebro.adddata(feed)
-    
+
     strategy_params = dict(strategy_params or {})
     logger.debug(f"Adding strategy: {strategy_cls.__name__} with params: {strategy_params}")
     cerebro.addstrategy(strategy_cls, **strategy_params)
@@ -132,15 +134,14 @@ def run_backtest(
                 )
 
             logger.info(
-                "Diagnostics summary:\nSignals: %s\nExecuted: %s\nBlocked by trend: %s\nBlocked by ART: %s\nBlocked by excursion: %s",
+                "Diagnostics summary:\nSignals: %s\nExecuted: %s\nBlocked by trend: %s\nBlocked by ATR: %s\nBlocked by excursion: %s",
                 diagnostics_summary["entry_signals"],
                 diagnostics_summary["executed_trades"],
                 diagnostics_summary["blocked_by_trend"],
-                diagnostics_summary["blocked_by_art"],
+                diagnostics_summary["blocked_by_atr"],
                 diagnostics_summary["blocked_by_excursion"],
             )
 
-        # Log execution timing
         log_backtest_execution(logger, start_time, end_time, duration)
 
         logger.debug(

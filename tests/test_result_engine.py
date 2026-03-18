@@ -42,13 +42,13 @@ def test_collect_and_build_summary_outputs_csv(monkeypatch, tmp_path: Path) -> N
         output_root,
         "run_001",
         metrics={"sharpe": 1.2, "total_return": 0.18, "max_drawdown": 0.12, "num_trades": 8},
-        parameters={"z_entry": -1.5, "z_exit": 1.0, "use_trend_filter": True, "use_art_filter": False, "use_multi_day_excursion": False, "excursion_window": 3, "excursion_min": 0.01},
+        parameters={"z_entry": -1.5, "z_exit": 1.0, "use_trend_filter": True, "use_atr_filter": False, "use_multi_day_excursion": False, "excursion_window": 3, "excursion_min": 0.01},
     )
     _write_run(
         output_root,
         "run_002",
         metrics={"sharpe": 1.8, "total_return": 0.25, "max_drawdown": 0.10, "num_trades": 10},
-        parameters={"z_entry": -2.0, "z_exit": 1.2, "use_trend_filter": False, "use_art_filter": True, "use_multi_day_excursion": True, "excursion_window": 5, "excursion_min": 0.015},
+        parameters={"z_entry": -2.0, "z_exit": 1.2, "use_trend_filter": False, "use_atr_filter": True, "use_multi_day_excursion": True, "excursion_window": 5, "excursion_min": 0.015},
     )
 
     summary_path, sorted_path, ranked = build_summary("demo_experiment")
@@ -59,7 +59,7 @@ def test_collect_and_build_summary_outputs_csv(monkeypatch, tmp_path: Path) -> N
     assert ranked[1]["run_id"] == "run_001"
 
     summary_text = summary_path.read_text(encoding="utf-8")
-    assert "z_entry,z_exit,use_trend_filter,use_art_filter,use_multi_day_excursion,excursion_window,excursion_min,total_return,sharpe,max_drawdown,num_trades" in summary_text
+    assert "z_entry,z_exit,use_trend_filter,use_atr_filter,use_art_filter,use_multi_day_excursion,excursion_window,excursion_min,atr_ratio_min,total_return,sharpe,max_drawdown,num_trades" in summary_text
 
 
 def test_rank_results_handles_missing_metrics() -> None:
