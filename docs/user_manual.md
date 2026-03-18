@@ -264,7 +264,8 @@ The generated `analysis_report.md` summarizes:
 - total runs, best/average Sharpe, and best/average return,
 - top-ranked parameter configurations from `summary_sorted.csv`,
 - trade efficiency = `executed_trades / entry_signals`,
-- filter impact rates such as ART blocking and excursion blocking.
+- filter impact rates such as ART blocking and excursion blocking,
+- grouped parameter contribution analysis for `use_multi_day_excursion`, `excursion_min`, and `excursion_window`.
 
 Interpretation guidelines:
 

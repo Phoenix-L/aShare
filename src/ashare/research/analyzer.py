@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import yaml
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -33,6 +34,14 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _load_yaml(path: Path) -> dict[str, Any]:
+    """Load a YAML object from disk, returning an empty mapping on missing/invalid files."""
+    if not path.exists():
+        return {}
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
 def _read_summary_csv(path: Path) -> pd.DataFrame:
     """Read a summary CSV if present, otherwise return an empty DataFrame."""
     if not path.exists():
@@ -55,6 +64,64 @@ def _as_native(value: Any) -> Any:
         except (ValueError, TypeError):
             return value
     return value
+
+
+def _coerce_optional_bool(value: Any) -> bool | None:
+    """Normalize bool-like values while preserving missing values."""
+    native = _as_native(value)
+    if native is None:
+        return None
+    if isinstance(native, bool):
+        return native
+    if isinstance(native, str):
+        lowered = native.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    return bool(native)
+
+
+def _summary_row_for_run(summary_df: pd.DataFrame, run_dir: Path) -> dict[str, Any]:
+    """Return the summary row aligned to a run directory when available."""
+    if summary_df.empty:
+        return {}
+    try:
+        run_index = int(run_dir.name.split("_")[-1]) - 1
+    except (TypeError, ValueError):
+        return {}
+    if run_index < 0 or run_index >= len(summary_df):
+        return {}
+    row = summary_df.iloc[run_index]
+    return {column: _as_native(row[column]) for column in summary_df.columns}
+
+
+def _build_run_record(run_dir: Path, summary_row: dict[str, Any]) -> dict[str, Any]:
+    """Build a normalized per-run record combining metrics, diagnostics, and parameters."""
+    metrics = _load_json(run_dir / "metrics.json")
+    diagnostics_summary = _load_json(run_dir / "diagnostics_summary.json")
+    snapshot = _load_yaml(run_dir / "config_snapshot.yaml")
+    params = snapshot.get("parameters") if isinstance(snapshot.get("parameters"), dict) else {}
+
+    def _param(name: str) -> Any:
+        if name in params:
+            return _as_native(params.get(name))
+        return _as_native(summary_row.get(name))
+
+    return {
+        "run_id": run_dir.name,
+        "sharpe": _safe_float(metrics.get("sharpe", summary_row.get("sharpe"))),
+        "return": _safe_float(metrics.get("total_return", metrics.get("rtot", summary_row.get("total_return", summary_row.get("rtot"))))),
+        "z_entry": _safe_float(_param("z_entry"), default=0.0),
+        "z_exit": _safe_float(_param("z_exit"), default=0.0),
+        "use_multi_day_excursion": _coerce_optional_bool(_param("use_multi_day_excursion")),
+        "excursion_min": _safe_float(_param("excursion_min"), default=0.0),
+        "excursion_window": _safe_float(_param("excursion_window"), default=0.0),
+        "entry_signals": _safe_float(diagnostics_summary.get("entry_signals")),
+        "executed_trades": _safe_float(diagnostics_summary.get("executed_trades")),
+        "blocked_by_art": _safe_float(diagnostics_summary.get("blocked_by_art")),
+        "blocked_by_excursion": _safe_float(diagnostics_summary.get("blocked_by_excursion")),
+    }
 
 
 def _extract_top_configs(summary_sorted_df: pd.DataFrame, limit: int = 5) -> list[dict[str, Any]]:
@@ -83,6 +150,36 @@ def _extract_top_configs(summary_sorted_df: pd.DataFrame, limit: int = 5) -> lis
     return top_configs
 
 
+def _aggregate_group(frame: pd.DataFrame, column: str) -> dict[Any, dict[str, float | int]]:
+    """Aggregate average Sharpe/return and run counts for a grouping column."""
+    if frame.empty or column not in frame.columns:
+        return {}
+
+    grouped: dict[Any, dict[str, float | int]] = {}
+    valid_frame = frame.dropna(subset=[column])
+    if valid_frame.empty:
+        return grouped
+
+    for group_value, group_frame in valid_frame.groupby(column, dropna=True):
+        native_group_value = _as_native(group_value)
+        grouped[native_group_value] = {
+            "avg_sharpe": float(group_frame["sharpe"].mean()),
+            "avg_return": float(group_frame["return"].mean()),
+            "num_runs": int(len(group_frame)),
+        }
+
+    return grouped
+
+
+def _build_parameter_analysis(run_frame: pd.DataFrame) -> dict[str, dict[Any, dict[str, float | int]]]:
+    """Compute grouped parameter contribution analysis for excursion controls."""
+    return {
+        "excursion_toggle": _aggregate_group(run_frame, "use_multi_day_excursion"),
+        "excursion_min": _aggregate_group(run_frame, "excursion_min"),
+        "excursion_window": _aggregate_group(run_frame, "excursion_window"),
+    }
+
+
 def analyze_experiment(output_dir: str) -> dict[str, Any]:
     """Aggregate experiment outputs into deterministic research metrics."""
     output_path = Path(output_dir)
@@ -91,41 +188,47 @@ def analyze_experiment(output_dir: str) -> dict[str, Any]:
 
     summary_df = _read_summary_csv(output_path / "summary.csv")
     summary_sorted_df = _read_summary_csv(output_path / "summary_sorted.csv")
-
     run_dirs = sorted(path for path in output_path.iterdir() if path.is_dir() and path.name.startswith("run_"))
 
-    sharpe_values: list[float] = []
-    return_values: list[float] = []
+    run_records = [_build_run_record(run_dir, _summary_row_for_run(summary_df, run_dir)) for run_dir in run_dirs]
+    run_frame = pd.DataFrame(run_records)
+
+    if run_frame.empty and not summary_df.empty:
+        run_frame = pd.DataFrame(
+            {
+                "sharpe": pd.to_numeric(summary_df.get("sharpe"), errors="coerce").fillna(0.0),
+                "return": pd.to_numeric(summary_df.get("total_return", summary_df.get("rtot")), errors="coerce").fillna(0.0),
+                "z_entry": pd.to_numeric(summary_df.get("z_entry"), errors="coerce").fillna(0.0),
+                "z_exit": pd.to_numeric(summary_df.get("z_exit"), errors="coerce").fillna(0.0),
+                "use_multi_day_excursion": summary_df.get("use_multi_day_excursion"),
+                "excursion_min": pd.to_numeric(summary_df.get("excursion_min"), errors="coerce").fillna(0.0),
+                "excursion_window": pd.to_numeric(summary_df.get("excursion_window"), errors="coerce").fillna(0.0),
+            }
+        )
+        if "use_multi_day_excursion" in run_frame.columns:
+            run_frame["use_multi_day_excursion"] = run_frame["use_multi_day_excursion"].map(_coerce_optional_bool)
+
+    sharpe_values = run_frame["sharpe"].tolist() if "sharpe" in run_frame.columns else []
+    return_values = run_frame["return"].tolist() if "return" in run_frame.columns else []
+
     trade_efficiencies: list[float] = []
     art_block_rates: list[float] = []
     excursion_block_rates: list[float] = []
+    if not run_frame.empty:
+        for _, row in run_frame.iterrows():
+            entry_signals = _safe_float(row.get("entry_signals"))
+            executed_trades = _safe_float(row.get("executed_trades"))
+            blocked_by_art = _safe_float(row.get("blocked_by_art"))
+            blocked_by_excursion = _safe_float(row.get("blocked_by_excursion"))
 
-    for run_dir in run_dirs:
-        metrics = _load_json(run_dir / "metrics.json")
-        diagnostics_summary = _load_json(run_dir / "diagnostics_summary.json")
-
-        if metrics:
-            sharpe_values.append(_safe_float(metrics.get("sharpe")))
-            return_values.append(_safe_float(metrics.get("total_return", metrics.get("rtot"))))
-
-        entry_signals = _safe_float(diagnostics_summary.get("entry_signals"))
-        executed_trades = _safe_float(diagnostics_summary.get("executed_trades"))
-        blocked_by_art = _safe_float(diagnostics_summary.get("blocked_by_art"))
-        blocked_by_excursion = _safe_float(diagnostics_summary.get("blocked_by_excursion"))
-
-        if entry_signals > 0:
-            trade_efficiencies.append(executed_trades / entry_signals)
-            art_block_rates.append(blocked_by_art / entry_signals)
-            excursion_block_rates.append(blocked_by_excursion / entry_signals)
-        else:
-            trade_efficiencies.append(0.0)
-            art_block_rates.append(0.0)
-            excursion_block_rates.append(0.0)
-
-    if not sharpe_values and not summary_df.empty:
-        sharpe_values = pd.to_numeric(summary_df.get("sharpe"), errors="coerce").fillna(0.0).tolist()
-    if not return_values and not summary_df.empty:
-        return_values = pd.to_numeric(summary_df.get("total_return", summary_df.get("rtot")), errors="coerce").fillna(0.0).tolist()
+            if entry_signals > 0:
+                trade_efficiencies.append(executed_trades / entry_signals)
+                art_block_rates.append(blocked_by_art / entry_signals)
+                excursion_block_rates.append(blocked_by_excursion / entry_signals)
+            else:
+                trade_efficiencies.append(0.0)
+                art_block_rates.append(0.0)
+                excursion_block_rates.append(0.0)
 
     total_runs = len(run_dirs)
     if total_runs == 0 and not summary_df.empty:
@@ -144,5 +247,6 @@ def analyze_experiment(output_dir: str) -> dict[str, Any]:
             "blocked_by_art": sum(art_block_rates) / len(art_block_rates) if art_block_rates else 0.0,
             "blocked_by_excursion": sum(excursion_block_rates) / len(excursion_block_rates) if excursion_block_rates else 0.0,
         },
+        "parameter_analysis": _build_parameter_analysis(run_frame),
         "top_configs": _extract_top_configs(summary_sorted_df),
     }
