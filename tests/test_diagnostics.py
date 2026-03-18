@@ -39,7 +39,7 @@ def test_diagnostics_populated_and_block_reasons_trend() -> None:
             "z_entry": -1.0,
             "z_exit": 5.0,
             "use_trend_filter": True,
-            "use_art_filter": False,
+            "use_atr_filter": False,
         },
         symbol="SYNTH",
     )
@@ -66,7 +66,7 @@ def test_diagnostics_output_files_generated(tmp_path: Path) -> None:
             "z_entry": -0.5,
             "z_exit": 5.0,
             "use_trend_filter": False,
-            "use_art_filter": True,
+            "use_atr_filter": True,
         },
         symbol="SYNTH",
         run_id="run_001",
@@ -84,7 +84,8 @@ def test_diagnostics_output_files_generated(tmp_path: Path) -> None:
 
     assert len(diagnostics) == summary["total_bars"]
     assert summary == metrics["diagnostics_summary"]
-    assert summary["blocked_by_art"] >= 1
+    assert summary["blocked_by_atr"] >= 1
+    assert summary["blocked_by_art"] == summary["blocked_by_atr"]
 
 
 def test_diagnostics_capture_excursion_fields_and_summary(tmp_path: Path) -> None:
@@ -100,7 +101,7 @@ def test_diagnostics_capture_excursion_fields_and_summary(tmp_path: Path) -> Non
             "z_entry": -0.5,
             "z_exit": 5.0,
             "use_trend_filter": False,
-            "use_art_filter": False,
+            "use_atr_filter": False,
             "use_multi_day_excursion": True,
             "excursion_window": 3,
             "excursion_min": 0.03,
@@ -146,7 +147,7 @@ def test_experiment_saves_diagnostics_in_each_run_folder(monkeypatch, tmp_path: 
                 "z_entry": -0.5,
                 "z_exit": 5.0,
                 "use_trend_filter": False,
-                "use_art_filter": True,
+                "use_atr_filter": True,
             },
             "grid": {},
         },

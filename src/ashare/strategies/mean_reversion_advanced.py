@@ -5,25 +5,30 @@ import math
 import backtrader as bt
 
 from ashare.indicators import MultiDayExcursion
-from ashare.strategies.components.filters import passes_art_filter, passes_trend_filter
+from ashare.strategies.components.filters import passes_atr_filter, passes_trend_filter
 from ashare.strategies.components.indicators import (
     build_mean_reversion_indicators,
-    compute_art,
+    compute_atr_ratio,
     compute_zscore,
 )
+from ashare.utils.logging import get_logger
 
-ART_MIN_THRESHOLD = 0.02
+ATR_RATIO_MIN_DEFAULT = 0.02
+logger = get_logger("ashare.strategies.mean_reversion_advanced")
 
 
 class MeanReversionAdvanced(bt.Strategy):
-    """Configurable mean-reversion strategy with optional trend and ART filters."""
+    """Configurable mean-reversion strategy with optional trend and ATR filters."""
 
     params = dict(
         trade_unit=500,
         z_entry=-1.5,
         z_exit=0.5,
         use_trend_filter=True,
-        use_art_filter=True,
+        use_atr_filter=None,
+        atr_ratio_min=None,
+        use_art_filter=None,
+        art_threshold=None,
         use_multi_day_excursion=False,
         excursion_window=3,
         excursion_min=0.01,
@@ -46,6 +51,35 @@ class MeanReversionAdvanced(bt.Strategy):
         self.trade_diagnostics: list[dict] = []
         self.current_trade_reason: dict | None = None
 
+        self.use_atr_filter = self._resolve_use_atr_filter()
+        self.atr_ratio_min = self._resolve_atr_ratio_min()
+
+    def _resolve_use_atr_filter(self) -> bool:
+        """Resolve canonical vs legacy ATR filter params without breaking old configs."""
+        if self.p.use_atr_filter is not None:
+            if self.p.use_art_filter is not None:
+                logger.warning("Warning: 'use_art_filter' is deprecated. Use 'use_atr_filter' instead.")
+            return bool(self.p.use_atr_filter)
+
+        if self.p.use_art_filter is not None:
+            logger.warning("Warning: 'use_art_filter' is deprecated. Use 'use_atr_filter' instead.")
+            return bool(self.p.use_art_filter)
+
+        return True
+
+    def _resolve_atr_ratio_min(self) -> float:
+        """Resolve canonical vs legacy ATR threshold params without breaking old configs."""
+        if self.p.atr_ratio_min is not None:
+            if self.p.art_threshold is not None:
+                logger.warning("Warning: 'art_threshold' is deprecated. Use 'atr_ratio_min' instead.")
+            return float(self.p.atr_ratio_min)
+
+        if self.p.art_threshold is not None:
+            logger.warning("Warning: 'art_threshold' is deprecated. Use 'atr_ratio_min' instead.")
+            return float(self.p.art_threshold)
+
+        return ATR_RATIO_MIN_DEFAULT
+
     def next(self) -> None:
         close = float(self.data.close[0])
         ma20 = float(self.ma20[0])
@@ -55,7 +89,7 @@ class MeanReversionAdvanced(bt.Strategy):
             return
 
         zscore = compute_zscore(close, ma20, atr)
-        art = compute_art(atr, close)
+        atr_ratio = compute_atr_ratio(atr, close)
         excursion_ratio = float(self.excursion_ratio[0])
 
         if self.position and zscore >= self.p.z_exit:
@@ -74,7 +108,7 @@ class MeanReversionAdvanced(bt.Strategy):
             return
 
         trend_ok = passes_trend_filter(close, ma120, enabled=self.p.use_trend_filter)
-        art_ok = passes_art_filter(art, threshold=ART_MIN_THRESHOLD, enabled=self.p.use_art_filter)
+        atr_ok = passes_atr_filter(atr_ratio, threshold=self.atr_ratio_min, enabled=self.use_atr_filter)
         excursion_ready = not math.isnan(excursion_ratio)
         excursion_ok = (
             not self.p.use_multi_day_excursion
@@ -87,15 +121,15 @@ class MeanReversionAdvanced(bt.Strategy):
         if entry_signal and not self.position:
             if not trend_ok:
                 blocked_by.append("trend_filter")
-            if not art_ok:
-                blocked_by.append("art_filter")
+            if not atr_ok:
+                blocked_by.append("atr_filter")
             if not excursion_ok:
                 blocked_by.append("excursion_filter")
 
         entry_condition = (
             zscore <= self.p.z_entry
             and trend_ok
-            and art_ok
+            and atr_ok
             and excursion_ok
         )
 
@@ -106,7 +140,9 @@ class MeanReversionAdvanced(bt.Strategy):
             self.current_trade_reason = {
                 "zscore": float(zscore),
                 "trend_ok": bool(trend_ok),
-                "art_ok": bool(art_ok),
+                "atr_ok": bool(atr_ok),
+                "art_ok": bool(atr_ok),
+                "atr_ratio": float(atr_ratio),
                 "excursion_ratio": float(excursion_ratio),
                 "excursion_ok": bool(excursion_ok),
             }
@@ -117,7 +153,9 @@ class MeanReversionAdvanced(bt.Strategy):
                 "datetime": str(self.datas[0].datetime.datetime(0)),
                 "zscore": float(zscore),
                 "trend_ok": bool(trend_ok),
-                "art_ok": bool(art_ok),
+                "atr_ok": bool(atr_ok),
+                "art_ok": bool(atr_ok),
+                "atr_ratio": float(atr_ratio),
                 "excursion_ratio": float(excursion_ratio),
                 "excursion_ok": bool(excursion_ok),
                 "entry_signal": bool(entry_signal),
