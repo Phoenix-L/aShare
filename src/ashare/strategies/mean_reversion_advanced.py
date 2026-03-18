@@ -35,6 +35,9 @@ class MeanReversionAdvanced(bt.Strategy):
     )
 
     def __init__(self) -> None:
+        if self.p.use_multi_day_excursion and self.p.excursion_window is None:
+            raise ValueError("Invalid config: excursion_window required")
+
         self.ma20, self.ma120, self.atr14 = build_mean_reversion_indicators(
             self.data,
             ma_short=20,
@@ -43,10 +46,14 @@ class MeanReversionAdvanced(bt.Strategy):
         )
         # Use a shorter ATR for ATR/price volatility filter (atr_ratio) only.
         self.atr3 = bt.indicators.ATR(self.data, period=3)
-        self.excursion_ratio = MultiDayExcursion(
-            self.data,
-            window=self.p.excursion_window,
-        ).excursion_ratio
+
+        if self.p.use_multi_day_excursion:
+            self.excursion_ratio = MultiDayExcursion(
+                self.data,
+                window=self.p.excursion_window,
+            ).excursion_ratio
+        else:
+            self.excursion_ratio = None
         self.buy_events = 0
         self.sell_events = 0
         self.diagnostics: list[dict] = []
@@ -92,7 +99,14 @@ class MeanReversionAdvanced(bt.Strategy):
 
         zscore = compute_zscore(close, ma20, atr14)
         atr_ratio = compute_atr_ratio(float(self.atr3[0]), close)
-        excursion_ratio = float(self.excursion_ratio[0])
+
+        if self.p.use_multi_day_excursion:
+            excursion_ratio = float(self.excursion_ratio[0])
+            excursion_ready = not math.isnan(excursion_ratio)
+            excursion_ok = excursion_ready and excursion_ratio >= self.p.excursion_min
+        else:
+            excursion_ratio = None
+            excursion_ok = True
 
         if self.position and zscore >= self.p.z_exit:
             self.close()
@@ -111,11 +125,6 @@ class MeanReversionAdvanced(bt.Strategy):
 
         trend_ok = passes_trend_filter(close, ma120, enabled=self.p.use_trend_filter)
         atr_ok = passes_atr_filter(atr_ratio, threshold=self.atr_ratio_min, enabled=self.use_atr_filter)
-        excursion_ready = not math.isnan(excursion_ratio)
-        excursion_ok = (
-            not self.p.use_multi_day_excursion
-            or (excursion_ready and excursion_ratio >= self.p.excursion_min)
-        )
         entry_signal = zscore <= self.p.z_entry
         executed = False
         blocked_by: list[str] = []
@@ -125,7 +134,7 @@ class MeanReversionAdvanced(bt.Strategy):
                 blocked_by.append("trend_filter")
             if not atr_ok:
                 blocked_by.append("atr_filter")
-            if not excursion_ok:
+            if self.p.use_multi_day_excursion and not excursion_ok:
                 blocked_by.append("excursion_filter")
 
         entry_condition = (
@@ -145,7 +154,7 @@ class MeanReversionAdvanced(bt.Strategy):
                 "atr_ok": bool(atr_ok),
                 "art_ok": bool(atr_ok),
                 "atr_ratio": float(atr_ratio),
-                "excursion_ratio": float(excursion_ratio),
+                "excursion_ratio": excursion_ratio,
                 "excursion_ok": bool(excursion_ok),
             }
             blocked_by = []
@@ -158,7 +167,7 @@ class MeanReversionAdvanced(bt.Strategy):
                 "atr_ok": bool(atr_ok),
                 "art_ok": bool(atr_ok),
                 "atr_ratio": float(atr_ratio),
-                "excursion_ratio": float(excursion_ratio),
+                "excursion_ratio": excursion_ratio,
                 "excursion_ok": bool(excursion_ok),
                 "entry_signal": bool(entry_signal),
                 "executed": bool(executed),
