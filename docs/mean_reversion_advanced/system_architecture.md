@@ -41,8 +41,9 @@ Relevant code paths:
 Current indicator usage:
 
 - `MA20` and `MA120` from `build_mean_reversion_indicators`
-- `ATR14` from `build_mean_reversion_indicators`
-- `atr_ratio = ATR / close` from `compute_atr_ratio`
+- `ATR14` from `build_mean_reversion_indicators` for z-score normalization
+- `ATR3` from a dedicated `bt.indicators.ATR(..., period=3)` for the ATR ratio gate
+- `atr_ratio = ATR3 / close` from `compute_atr_ratio`
 - `MultiDayExcursion(...).excursion_ratio` for rolling displacement
 
 ### Engine
