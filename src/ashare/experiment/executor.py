@@ -11,7 +11,7 @@ import yaml
 from ashare.config.settings import BacktestConfig
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
-from ashare.experiment.grid import generate_parameter_sets
+from ashare.experiment.grid import deduplicate_parameter_sets, expand_grid
 from ashare.experiment.result import build_summary
 from ashare.utils.logging import get_logger
 
@@ -28,7 +28,11 @@ def execute_experiment_spec(
     """Execute an experiment spec and write canonical output artifacts."""
     parameters = dict(spec.get("parameters", {}))
     grid = dict(spec.get("grid", {}))
-    combinations = generate_parameter_sets({"parameters": parameters, "grid": grid})
+    all_combinations = [dict(parameters, **combo) for combo in expand_grid(grid)]
+    final_runs = deduplicate_parameter_sets(all_combinations)
+
+    print(f"Original grid size: {len(all_combinations)}")
+    print(f"Deduplicated runs: {len(final_runs)}")
 
     experiment_name = spec["name"]
     output_root = Path("outputs") / experiment_name
@@ -39,14 +43,14 @@ def execute_experiment_spec(
         for symbol in spec["symbols"]
     }
 
-    total_runs = len(combinations) * len(spec["symbols"])
+    total_runs = len(final_runs) * len(spec["symbols"])
     run_index = 0
     for symbol in spec["symbols"]:
         data_df = symbol_data[symbol]
         if data_df.empty:
             raise ValueError(f"No data returned for {symbol}. Check symbol and date range.")
 
-        for params in combinations:
+        for params in final_runs:
             run_index += 1
             ordered_keys = [*grid.keys(), *[key for key in params if key not in grid]]
             rendered_params = ", ".join(
@@ -111,4 +115,3 @@ def execute_experiment_spec(
         "num_runs": total_runs,
         "results": ranked_records,
     }
-

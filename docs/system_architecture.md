@@ -88,6 +88,12 @@ Execution overrides:
 - YAML `execution.initial_cash` and `execution.commission` override `BacktestConfig` for experiment runs.
 - `stamp_duty` and `slippage_perc` remain defaults unless changed elsewhere.
 
+### Conditional Parameter Handling
+
+- Some parameters depend on feature toggles and are normalized before execution.
+- Example: `excursion_min` and `excursion_window` depend on `use_multi_day_excursion`.
+- When `use_multi_day_excursion` is `False`, the runner normalizes those excursion parameters to `None` and deduplicates equivalent parameter combinations before running the experiment.
+
 ## 6) Strategy registry
 
 Strategy registration is manual via `STRATEGY_REGISTRY` in `src/ashare/strategies/__init__.py`.
