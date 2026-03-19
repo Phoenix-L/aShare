@@ -12,7 +12,7 @@ At a high level:
 2. YAML experiment specs are normalized into an execution spec
 3. the data layer loads 30-minute OHLCV + turnover data into pandas
 4. the engine converts the pandas frame into a Backtrader feed
-5. the strategy computes z-score, ATR ratio, and optional filters bar by bar
+5. the strategy computes z-score, close-based excursion, ATR ratio, and optional filters bar by bar
 6. the engine extracts metrics and diagnostics and writes run artifacts
 7. the research layer aggregates experiment artifacts into quantitative summaries and a Markdown report
 
@@ -42,9 +42,11 @@ Current indicator usage:
 
 - `MA20` and `MA120` from `build_mean_reversion_indicators`
 - `ATR14` from `build_mean_reversion_indicators` for z-score normalization
+- `excursion = (close - highest(close, excursion_lookback_bars)) / highest(close, excursion_lookback_bars)` for optional close-based primary entry triggering
 - `ATR3` from a dedicated `bt.indicators.ATR(..., period=3)` for the ATR ratio gate
 - `atr_ratio = ATR3 / close` from `compute_atr_ratio`
-- `MultiDayExcursion(...).excursion_ratio` for rolling displacement
+- the ATR gate is bypassed in `signal_mode="excursion"` because excursion already acts as the primary volatility-aware trigger
+- `MultiDayExcursion(...).excursion_ratio` for the legacy rolling displacement filter used only in `signal_mode="zscore"`
 
 ### Engine
 
@@ -133,6 +135,7 @@ Notes:
 - `--param key=v1,v2` creates or overrides a grid dimension
 - scalar coercion supports bool, int, float, then fallback string
 - date precedence is separate: CLI `--start` / `--end` override YAML dates when provided
+- grid normalization removes irrelevant excursion-signal params outside `signal_mode="excursion"` and removes legacy excursion-filter params when they are not active
 
 ## 5. Data Flow
 
@@ -181,9 +184,16 @@ outputs/
 Current run-level artifacts relevant to `mean_reversion_advanced`:
 
 - `metrics.json`: analyzer results such as return, Sharpe, drawdown, trade count
-- `diagnostics_summary.json`: aggregated counters for trend / ATR / excursion blocking
+- `diagnostics_summary.json`: aggregated counters for trend / ATR / legacy excursion blocking
 - `config_snapshot.yaml`: the exact params used for that run
 - `run_result.json`: normalized bundle of params, metrics, and metadata
+
+`summary.csv` and `summary_sorted.csv` also include:
+
+- `signal_mode`
+- `excursion_lookback_bars`
+- `excursion_threshold`
+- legacy filter params such as `use_multi_day_excursion`, `excursion_window`, and `excursion_min`
 
 ## 7. Design Principles
 
@@ -193,6 +203,7 @@ The current implementation follows these principles:
 - **reproducible**: experiments write deterministic artifacts that can be re-analyzed later
 - **extensible**: new filters or parameters can be added without rewriting the full pipeline
 - **no hardcoding of experiment results**: research reports are derived from saved artifacts, not manual interpretation
+- **backward compatible by default**: strategy defaults still use z-score entry mode unless an experiment explicitly opts into excursion mode
 
 The system is also explicitly backward-compatible in some areas:
 
