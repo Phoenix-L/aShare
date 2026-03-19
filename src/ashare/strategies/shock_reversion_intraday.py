@@ -4,6 +4,13 @@ import math
 
 import backtrader as bt
 
+from ashare.strategies.components.execution import (
+    create_position_state,
+    evaluate_exit_engine,
+    export_trade_metrics,
+    get_holding_bars,
+    update_trade_metrics,
+)
 from ashare.strategies.components.filters import passes_trend_filter
 from ashare.utils.logging import get_logger
 
@@ -19,7 +26,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         excursion_lookback_bars=3,
         excursion_threshold=0.01,
         trend_ma_period=120,
-        exit_mode="anchor_recovery",
         take_profit_pct=0.02,
         recovery_frac=0.5,
         max_hold_bars=16,
@@ -29,8 +35,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
     def __init__(self) -> None:
         if self.p.excursion_lookback_bars is None:
             raise ValueError("Invalid config: excursion_lookback_bars required")
-        if self.p.exit_mode not in {"max_hold_only", "fixed_tp", "anchor_recovery"}:
-            raise ValueError("Invalid config: exit_mode must be one of max_hold_only, fixed_tp, anchor_recovery")
 
         daily_data = self._get_daily_ma_source()
         self.trend_ma = bt.indicators.SimpleMovingAverage(daily_data.close, period=self.p.trend_ma_period)
@@ -45,10 +49,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.signal_events: list[dict] = []
         self.current_trade_reason: dict | None = None
         self.current_trade_record: dict | None = None
+        self.position_state = None
         self.pending_entry_context: dict | None = None
         self.pending_exit_reason: str | None = None
-        self.entry_bar: int | None = None
-        self.entry_price: float | None = None
         self.active_order = None
 
     def _get_daily_ma_source(self):
@@ -92,77 +95,19 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             return "max_hold"
         return "unknown"
 
-    def _update_trade_excursions(self, close: float) -> None:
-        """Track per-trade favorable/adverse excursion in percent."""
-        if self.current_trade_record is None or self.entry_price is None or not self.position:
-            return
-
-        bars_held = 0 if self.entry_bar is None else max(0, len(self) - self.entry_bar)
-        move_pct = ((close - self.entry_price) / self.entry_price) * 100.0
-        if move_pct > float(self.current_trade_record["mfe_pct"]):
-            self.current_trade_record["mfe_pct"] = move_pct
-            self.current_trade_record["max_favorable_excursion"] = move_pct
-            self.current_trade_record["bars_to_mfe"] = bars_held
-        if move_pct < float(self.current_trade_record["mae_pct"]):
-            self.current_trade_record["mae_pct"] = move_pct
-            self.current_trade_record["max_adverse_excursion"] = move_pct
-            self.current_trade_record["bars_to_mae"] = bars_held
-
     def _clear_trade_state(self) -> None:
         """Reset local state after a completed trade."""
         self.current_trade_record = None
         self.current_trade_reason = None
+        self.position_state = None
         self.pending_entry_context = None
         self.pending_exit_reason = None
-        self.entry_bar = None
-        self.entry_price = None
 
-    def _resolve_exit_reason(self, close: float) -> str | None:
-        """Return the first triggered exit reason for the active trade."""
-        if not self.position or self.entry_price is None:
-            return None
-
-        stop_loss_hit = self.p.stop_loss_pct is not None and close <= self.entry_price * (1.0 - self.p.stop_loss_pct)
-        if stop_loss_hit:
-            return "stop_loss"
-
-        if self.p.exit_mode == "fixed_tp" and self.p.take_profit_pct is not None:
-            if close >= self.entry_price * (1.0 + self.p.take_profit_pct):
-                return "take_profit"
-
-        if self.p.exit_mode == "anchor_recovery" and self.current_trade_record is not None:
-            effective_target = self.current_trade_record.get("effective_target_price")
-            if effective_target is not None and close >= float(effective_target):
-                take_profit_price = self.current_trade_record.get("take_profit_price")
-                if take_profit_price is not None and float(effective_target) == float(take_profit_price):
-                    return "take_profit"
-                return "anchor_recovery"
-
-        if self.p.max_hold_bars is not None and self.entry_bar is not None:
-            if (len(self) - self.entry_bar) >= self.p.max_hold_bars:
-                return "max_hold"
-
-        return None
-
-    def _fallback_exit_reason(self, exit_price: float, holding_bars: int) -> str:
-        """Infer standardized exit reason when order callbacks lack the pending marker."""
-        if self.current_trade_record is None or self.entry_price is None:
-            return "unknown"
-
-        stop_loss_price = self.entry_price * (1.0 - self.p.stop_loss_pct)
-        if self.p.stop_loss_pct is not None and exit_price <= stop_loss_price:
-            return "stop_loss"
-
-        effective_target = self.current_trade_record.get("effective_target_price")
-        take_profit_price = self.current_trade_record.get("take_profit_price")
-        if effective_target is not None and exit_price >= float(effective_target):
-            if take_profit_price is not None and float(effective_target) == float(take_profit_price):
-                return "take_profit"
-            return "recovery"
-
-        if self.p.max_hold_bars is not None and holding_bars >= self.p.max_hold_bars:
-            return "max_hold"
-        return "unknown"
+    def _sync_trade_metrics(self) -> None:
+        """Mirror shared execution metrics onto the export record."""
+        if self.current_trade_record is None or self.position_state is None:
+            return
+        self.current_trade_record.update(export_trade_metrics(self.position_state))
 
     def notify_order(self, order) -> None:
         """Capture executed entry/exit details for trade export."""
@@ -184,50 +129,63 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
         if order.isbuy():
             context = self.pending_entry_context or {}
-            anchor_price = float(context.get("anchor_price_at_entry", order.executed.price))
             entry_price = float(order.executed.price)
-            shock_depth = max(0.0, anchor_price - entry_price)
-            recovery_target = entry_price + (self.p.recovery_frac * shock_depth)
-            take_profit_price = entry_price * (1.0 + self.p.take_profit_pct)
-            effective_target_price = min(recovery_target, take_profit_price)
-            self.entry_bar = len(self)
-            self.entry_price = entry_price
+            anchor_price = float(context.get("anchor_price_at_entry", entry_price))
+            self.position_state = create_position_state(
+                entry_price=entry_price,
+                entry_bar=len(self),
+                anchor_price=anchor_price,
+            )
+            entry_exit_plan = evaluate_exit_engine(
+                close=entry_price,
+                current_bar=len(self),
+                state=self.position_state,
+                recovery_frac=self.p.recovery_frac,
+                take_profit_pct=self.p.take_profit_pct,
+                stop_loss_pct=self.p.stop_loss_pct,
+                max_hold_bars=self.p.max_hold_bars,
+            )
             self.current_trade_record = {
                 "symbol": self._get_symbol(),
                 "entry_datetime": self._current_datetime(),
                 "entry_price": entry_price,
                 "anchor_price_at_entry": anchor_price,
                 "excursion_at_entry": float(context.get("excursion_at_entry", 0.0)),
-                "recovery_target": recovery_target,
-                "take_profit_price": take_profit_price,
-                "effective_target_price": effective_target_price,
-                "mfe_pct": 0.0,
-                "mae_pct": 0.0,
-                "max_favorable_excursion": 0.0,
-                "max_adverse_excursion": 0.0,
-                "bars_to_mfe": 0,
-                "bars_to_mae": 0,
+                "recovery_target": entry_exit_plan.recovery_target,
+                "take_profit_price": entry_exit_plan.take_profit_price,
+                "effective_target_price": entry_exit_plan.effective_target_price,
+                **export_trade_metrics(self.position_state),
             }
             self.pending_entry_context = None
             return
 
-        if not order.issell() or self.current_trade_record is None or self.entry_price is None:
+        if not order.issell() or self.current_trade_record is None or self.position_state is None:
             return
 
         exit_price = float(order.executed.price)
-        holding_bars = 0 if self.entry_bar is None else max(0, len(self) - self.entry_bar)
-        standardized_reason = self._standardize_exit_reason(self.pending_exit_reason)
-        if standardized_reason == "unknown":
-            standardized_reason = self._fallback_exit_reason(exit_price, holding_bars)
+        exit_plan = evaluate_exit_engine(
+            close=exit_price,
+            current_bar=len(self),
+            state=self.position_state,
+            recovery_frac=self.p.recovery_frac,
+            take_profit_pct=self.p.take_profit_pct,
+            stop_loss_pct=self.p.stop_loss_pct,
+            max_hold_bars=self.p.max_hold_bars,
+        )
+        standardized_reason = self.pending_exit_reason or self._standardize_exit_reason(exit_plan.reason)
         trade_record = dict(self.current_trade_record)
         trade_record.update(
             {
                 "exit_datetime": self._current_datetime(),
                 "exit_price": exit_price,
-                "holding_bars": holding_bars,
-                "pnl_pct": ((exit_price - self.entry_price) / self.entry_price) * 100.0,
+                "holding_bars": exit_plan.holding_bars,
+                "pnl_pct": ((exit_price - self.position_state.entry_price) / self.position_state.entry_price) * 100.0,
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,
+                "recovery_target": exit_plan.recovery_target,
+                "take_profit_price": exit_plan.take_profit_price,
+                "effective_target_price": exit_plan.effective_target_price,
+                **export_trade_metrics(self.position_state),
             }
         )
         self.completed_trades.append(trade_record)
@@ -243,15 +201,26 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         if self.p.use_trend_filter and math.isnan(trend_ma):
             return
 
-        self._update_trade_excursions(close)
+        if self.position and self.position_state is not None:
+            update_trade_metrics(self.position_state, close, len(self))
+            self._sync_trade_metrics()
 
         signal_trigger = excursion_value <= -self.p.excursion_threshold
         trend_ok = passes_trend_filter(close, trend_ma, enabled=self.p.use_trend_filter)
         entry_signal = signal_trigger
         in_position = bool(self.position)
-        exit_reason = self._resolve_exit_reason(close)
+        exit_plan = evaluate_exit_engine(
+            close=close,
+            current_bar=len(self),
+            state=self.position_state,
+            recovery_frac=self.p.recovery_frac,
+            take_profit_pct=self.p.take_profit_pct,
+            stop_loss_pct=self.p.stop_loss_pct,
+            max_hold_bars=self.p.max_hold_bars,
+        )
+        exit_reason = exit_plan.reason
 
-        if in_position and exit_reason is not None and self.active_order is None:
+        if in_position and exit_plan.signal and self.active_order is None:
             standardized_reason = self._standardize_exit_reason(exit_reason)
             self.pending_exit_reason = standardized_reason
             self.active_order = self.close()
@@ -263,9 +232,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                         "exit_reason": {
                             "reason": standardized_reason,
                             "exit_subtype": standardized_reason,
-                            "recovery_target": None if self.current_trade_record is None else self.current_trade_record.get("recovery_target"),
-                            "take_profit_price": None if self.current_trade_record is None else self.current_trade_record.get("take_profit_price"),
-                            "effective_target_price": None if self.current_trade_record is None else self.current_trade_record.get("effective_target_price"),
+                            "holding_bars": exit_plan.holding_bars,
+                            "recovery_target": exit_plan.recovery_target,
+                            "take_profit_price": exit_plan.take_profit_price,
+                            "effective_target_price": exit_plan.effective_target_price,
                             "excursion": float(excursion_value),
                         },
                     }
@@ -306,10 +276,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 }
             )
 
-        recovery_target = None if self.current_trade_record is None else self.current_trade_record.get("recovery_target")
-        take_profit_price = None if self.current_trade_record is None else self.current_trade_record.get("take_profit_price")
-        effective_target = None if self.current_trade_record is None else self.current_trade_record.get("effective_target_price")
-
         self.diagnostics.append(
             {
                 "datetime": self._current_datetime(),
@@ -321,9 +287,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "executed": bool(executed),
                 "blocked_by": blocked_by,
                 "in_position": bool(self.position),
-                "recovery_target": recovery_target,
-                "take_profit_price": take_profit_price,
-                "effective_target_price": effective_target,
+                "holding_bars": exit_plan.holding_bars if self.position_state is not None else 0,
+                "recovery_target": exit_plan.recovery_target,
+                "take_profit_price": exit_plan.take_profit_price,
+                "effective_target_price": exit_plan.effective_target_price,
                 "exit_reason": self._standardize_exit_reason(exit_reason),
             }
         )

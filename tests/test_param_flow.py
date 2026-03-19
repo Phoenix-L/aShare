@@ -147,8 +147,6 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
             "--param",
             "use_trend_filter=false",
             "--param",
-            "exit_mode=anchor_recovery",
-            "--param",
             "recovery_frac=0.5",
             "--param",
             "max_hold_bars=10",
