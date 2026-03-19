@@ -15,6 +15,7 @@ from ashare.data.normalizers import to_backtrader_feed
 from ashare.strategies.core_satellite_mean_reversion import CoreSatelliteMeanReversion
 from ashare.strategies.mean_reversion import MeanReversion
 from ashare.strategies.mean_reversion_advanced import MeanReversionAdvanced
+from ashare.strategies.shock_reversion_intraday import ShockReversionIntradayStrategy
 from ashare.utils.logging import get_logger, log_backtest_execution, reset_log_context, set_log_context
 
 logger = get_logger("ashare.engine.runner")
@@ -107,6 +108,7 @@ def run_backtest(
         strategy_cls,
         (
             MeanReversionAdvanced,
+            ShockReversionIntradayStrategy,
             MeanReversion,
             CoreSatelliteMeanReversion,
         ),
