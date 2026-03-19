@@ -29,7 +29,7 @@ def execute_experiment_spec(
     parameters = dict(spec.get("parameters", {}))
     grid = dict(spec.get("grid", {}))
     all_combinations = [dict(parameters, **combo) for combo in expand_grid(grid)]
-    final_runs = deduplicate_parameter_sets(all_combinations)
+    final_runs = deduplicate_parameter_sets(all_combinations, strategy_name=strategy_name)
 
     print(f"Original grid size: {len(all_combinations)}")
     print(f"Deduplicated runs: {len(final_runs)}")
