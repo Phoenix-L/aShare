@@ -158,9 +158,9 @@ Key params:
 - `z_entry` (default `-1.5`)
 - `z_exit` (default `0.5`)
 - `use_trend_filter` (default `true`)
-- `use_art_filter` (default `true`)
+- `use_atr_filter` (default `true`)
 
-Behavior: same mean-reversion core entry/exit, plus optional trend and ART filters, with per-bar diagnostics collection.
+Behavior: same mean-reversion core entry/exit, plus optional trend and ATR filters, with per-bar diagnostics collection. Previously referred to as 'ART' due to a naming typo; this has now been corrected to ATR (Average True Range).
 
 ## 5) Experiment workflow
 
@@ -204,7 +204,7 @@ Experiment-level:
 
 `summary.csv`/`summary_sorted.csv` columns are fixed to:
 
-`z_entry, z_exit, use_trend_filter, use_art_filter, total_return, sharpe, max_drawdown, num_trades`
+`z_entry, z_exit, use_trend_filter, use_atr_filter, use_art_filter, total_return, sharpe, max_drawdown, num_trades`
 
 ### Walk-forward outputs (`experiments/walk_forward_<timestamp>/`)
 
@@ -222,7 +222,7 @@ When a strategy has a `diagnostics` attribute (currently `mean_reversion_advance
   - `entry_signals`
   - `executed_trades`
   - `blocked_by_trend`
-  - `blocked_by_art`
+  - `blocked_by_atr` *(legacy alias: `blocked_by_art`)*
   - `blocked_by_multiple`
 
 For experiments, diagnostics are under each run folder in `outputs/<experiment_name>/run_xxx/`.
@@ -264,19 +264,19 @@ The generated `analysis_report.md` summarizes:
 - total runs, best/average Sharpe, and best/average return,
 - top-ranked parameter configurations from `summary_sorted.csv`,
 - trade efficiency = `executed_trades / entry_signals`,
-- filter impact rates such as ART blocking and excursion blocking,
+- filter impact rates such as ATR blocking and excursion blocking,
 - grouped parameter contribution analysis for `use_multi_day_excursion`, `excursion_min`, and `excursion_window`.
 
 Interpretation guidelines:
 
 - **Trade efficiency** estimates how many candidate entry signals survive all enabled filters and actually execute. Very low values usually mean the strategy is over-filtered.
-- **ART block rate** shows how often the volatility gate rejects entries. A high ART rate suggests the ART threshold is too restrictive for the symbol or period.
+- **ATR block rate** shows how often the volatility gate rejects entries. ATR Ratio = ATR / Price. A high ATR rate suggests the ATR ratio threshold is too restrictive for the symbol or period.
 - **Excursion block rate** shows how often the multi-day excursion gate suppresses trades. A high rate suggests the displacement requirement or lookback window may be too strict.
 
 Suggested iteration workflow:
 
 1. Start with the top-ranked configurations in the report.
 2. If trade efficiency is low, relax `z_entry`, `z_exit`, or optional filters incrementally.
-3. If ART blocking dominates, lower the ART strictness or disable the filter for comparison runs.
+3. If ATR blocking dominates, lower the ATR ratio threshold or disable the filter for comparison runs.
 4. If excursion blocking dominates, revisit `excursion_window` and `excursion_min`.
 5. Re-run the same experiment spec so comparisons remain reproducible.

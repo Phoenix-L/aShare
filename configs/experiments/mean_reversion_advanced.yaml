@@ -12,7 +12,7 @@ date_range:
 parameters:
   trade_unit: 500
   use_trend_filter: true
-  use_art_filter: true
+  use_atr_filter: true
   use_multi_day_excursion: false
   excursion_window: 3
   excursion_min: 0.01

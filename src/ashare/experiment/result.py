@@ -11,13 +11,18 @@ import yaml
 
 
 SUMMARY_COLUMNS = [
+    "signal_mode",
     "z_entry",
     "z_exit",
     "use_trend_filter",
+    "use_atr_filter",
     "use_art_filter",
     "use_multi_day_excursion",
+    "excursion_lookback_bars",
+    "excursion_threshold",
     "excursion_window",
     "excursion_min",
+    "atr_ratio_min",
     "total_return",
     "sharpe",
     "max_drawdown",
@@ -91,19 +96,26 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
         params = run_payload["params"]
         metrics = run_payload["metrics"]
         meta = run_payload["meta"]
+        use_atr_filter = params.get("use_atr_filter", params.get("use_art_filter"))
+        atr_ratio_min = params.get("atr_ratio_min", params.get("art_threshold"))
 
         record = {
             "run_id": str(meta.get("run_id") or run_dir.name),
             "params": params,
             "metrics": metrics,
             "meta": meta,
+            "signal_mode": params.get("signal_mode", "zscore"),
             "z_entry": params.get("z_entry"),
             "z_exit": params.get("z_exit"),
             "use_trend_filter": params.get("use_trend_filter"),
-            "use_art_filter": params.get("use_art_filter"),
+            "use_atr_filter": use_atr_filter,
+            "use_art_filter": use_atr_filter,
             "use_multi_day_excursion": params.get("use_multi_day_excursion"),
+            "excursion_lookback_bars": params.get("excursion_lookback_bars"),
+            "excursion_threshold": params.get("excursion_threshold"),
             "excursion_window": params.get("excursion_window"),
             "excursion_min": params.get("excursion_min"),
+            "atr_ratio_min": atr_ratio_min,
             "total_return": _safe_float(metrics.get("total_return", metrics.get("rtot")), RANKING_DEFAULTS["total_return"]),
             "sharpe": _safe_float(metrics.get("sharpe"), RANKING_DEFAULTS["sharpe"]),
             "max_drawdown": _safe_float(metrics.get("max_drawdown"), RANKING_DEFAULTS["max_drawdown"]),

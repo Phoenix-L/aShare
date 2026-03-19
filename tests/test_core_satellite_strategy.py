@@ -29,6 +29,7 @@ def test_core_satellite_strategy_runs_on_synthetic_data() -> None:
         strategy_cls=strategy_cls,
         data_df=_synthetic_df(),
         config=BacktestConfig(commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+        strategy_params={"ma_short": 2, "ma_trend": 2, "trend_filter": False},
         symbol="SYNTH",
     )
 
@@ -44,7 +45,7 @@ def test_core_satellite_z_entry_mode_placeholder_default_and_override() -> None:
         strategy_cls=strategy_cls,
         data_df=_synthetic_df(),
         config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
-        strategy_params={"z_entry_mode": "ladder"},
+        strategy_params={"z_entry_mode": "ladder", "ma_short": 2, "ma_trend": 2, "trend_filter": False},
         symbol="SYNTH",
     )
 

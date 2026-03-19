@@ -4,7 +4,7 @@
 
 The multi-day excursion filter measures the recent trading range as the rolling highest high minus the rolling lowest low over a configurable lookback window. The raw excursion is then normalized by the current close price to produce an excursion ratio.
 
-This filter is intended to confirm that a mean-reversion setup is happening alongside a meaningful short-term displacement, instead of reacting to very small and noisy moves. In practice it complements the z-score entry trigger and the ART volatility filter without being hardcoded into the core strategy architecture.
+This filter is intended to confirm that a mean-reversion setup is happening alongside a meaningful short-term displacement, instead of reacting to very small and noisy moves. In practice it complements the z-score entry trigger and the ATR volatility filter without being hardcoded into the core strategy architecture.
 
 ### Parameters
 

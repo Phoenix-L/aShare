@@ -25,7 +25,7 @@ def _write_snapshot(path, parameters) -> None:
 def _build_mock_experiment(output_dir) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "summary.csv").write_text(
-        "z_entry,z_exit,use_art_filter,use_multi_day_excursion,excursion_window,excursion_min,total_return,sharpe,max_drawdown,num_trades\n"
+        "z_entry,z_exit,use_atr_filter,use_multi_day_excursion,excursion_window,excursion_min,total_return,sharpe,max_drawdown,num_trades\n"
         "-1.1,0.3,True,False,2,0.008,0.05,1.0,4.0,3\n"
         "-1.2,0.3,True,False,3,0.010,0.07,1.2,4.2,4\n"
         "-1.4,0.5,True,True,3,0.010,0.12,1.8,3.8,6\n"
@@ -33,7 +33,7 @@ def _build_mock_experiment(output_dir) -> None:
         encoding="utf-8",
     )
     (output_dir / "summary_sorted.csv").write_text(
-        "z_entry,z_exit,use_art_filter,use_multi_day_excursion,excursion_window,excursion_min,total_return,sharpe,max_drawdown,num_trades\n"
+        "z_entry,z_exit,use_atr_filter,use_multi_day_excursion,excursion_window,excursion_min,total_return,sharpe,max_drawdown,num_trades\n"
         "-1.4,0.5,True,True,3,0.010,0.12,1.8,3.8,6\n"
         "-1.6,0.5,True,True,5,0.015,0.10,1.6,4.1,5\n"
         "-1.2,0.3,True,False,3,0.010,0.07,1.2,4.2,4\n"
@@ -46,25 +46,25 @@ def _build_mock_experiment(output_dir) -> None:
             "run_001",
             {"z_entry": -1.1, "z_exit": 0.3, "use_multi_day_excursion": False, "excursion_window": 2, "excursion_min": 0.008},
             {"total_return": 0.05, "sharpe": 1.0},
-            {"entry_signals": 10, "executed_trades": 2, "blocked_by_art": 6, "blocked_by_excursion": 1},
+            {"entry_signals": 10, "executed_trades": 2, "blocked_by_atr": 6, "blocked_by_excursion": 1},
         ),
         (
             "run_002",
             {"z_entry": -1.2, "z_exit": 0.3, "use_multi_day_excursion": False, "excursion_window": 3, "excursion_min": 0.010},
             {"total_return": 0.07, "sharpe": 1.2},
-            {"entry_signals": 8, "executed_trades": 2, "blocked_by_art": 4, "blocked_by_excursion": 1},
+            {"entry_signals": 8, "executed_trades": 2, "blocked_by_atr": 4, "blocked_by_excursion": 1},
         ),
         (
             "run_003",
             {"z_entry": -1.4, "z_exit": 0.5, "use_multi_day_excursion": True, "excursion_window": 3, "excursion_min": 0.010},
             {"total_return": 0.12, "sharpe": 1.8},
-            {"entry_signals": 6, "executed_trades": 2, "blocked_by_art": 3, "blocked_by_excursion": 1},
+            {"entry_signals": 6, "executed_trades": 2, "blocked_by_atr": 3, "blocked_by_excursion": 1},
         ),
         (
             "run_004",
             {"z_entry": -1.6, "z_exit": 0.5, "use_multi_day_excursion": True, "excursion_window": 5, "excursion_min": 0.015},
             {"total_return": 0.10, "sharpe": 1.6},
-            {"entry_signals": 4, "executed_trades": 1, "blocked_by_art": 2, "blocked_by_excursion": 1},
+            {"entry_signals": 4, "executed_trades": 1, "blocked_by_atr": 2, "blocked_by_excursion": 1},
         ),
     ]
 
@@ -88,7 +88,7 @@ def test_analyze_experiment_aggregates_metrics_and_grouping_correctly(tmp_path) 
     assert results["avg_sharpe"] == 1.4
     assert results["avg_return"] == pytest.approx(0.085)
     assert results["trade_efficiency"]["avg"] == pytest.approx(0.2583333333333333)
-    assert results["filters"]["blocked_by_art"] == pytest.approx(0.525)
+    assert results["filters"]["blocked_by_atr"] == pytest.approx(0.525)
     assert results["filters"]["blocked_by_excursion"] == pytest.approx(0.16041666666666665)
     assert results["top_configs"][0]["rank"] == 1
     assert results["top_configs"][0]["params"]["use_multi_day_excursion"] is True
@@ -121,7 +121,7 @@ def test_generate_markdown_report_contains_parameter_sections_and_insights() -> 
             "avg_sharpe": 1.4,
             "avg_return": 0.085,
             "trade_efficiency": {"avg": 0.08},
-            "filters": {"blocked_by_art": 0.62, "blocked_by_excursion": 0.20},
+            "filters": {"blocked_by_atr": 0.62, "blocked_by_art": 0.62, "blocked_by_excursion": 0.20},
             "top_configs": [{"rank": 1, "sharpe": 1.8, "return": 0.12, "params": {"z_entry": -1.4}}],
             "parameter_analysis": {
                 "excursion_toggle": {
@@ -150,7 +150,7 @@ def test_generate_markdown_report_contains_parameter_sections_and_insights() -> 
     assert "Excursion filter improves performance" in report
     assert "Best excursion_min is 0.01" in report
     assert "Smaller windows such as 2.0 are more reactive" in report
-    assert "Strategy dominated by ART filtering" in report
+    assert "Strategy dominated by ATR filtering" in report
 
 
 def test_report_and_analysis_handle_missing_fields(tmp_path) -> None:
@@ -189,3 +189,20 @@ def test_cli_analyze_writes_report_with_parameter_analysis(tmp_path) -> None:
     assert "excursion_min Sensitivity" in report
     assert "excursion_window Sensitivity" in report
     assert str(report_path) in result.output
+
+
+def test_analyze_experiment_accepts_legacy_blocked_by_art_alias(tmp_path) -> None:
+    output_dir = tmp_path / "outputs" / "legacy_art"
+    output_dir.mkdir(parents=True)
+    (output_dir / "summary.csv").write_text("z_entry,z_exit,use_art_filter,use_multi_day_excursion,excursion_window,excursion_min,total_return,sharpe\n-1.0,0.5,True,False,3,0.01,0.05,1.0\n", encoding="utf-8")
+    (output_dir / "summary_sorted.csv").write_text("z_entry,z_exit,use_art_filter,use_multi_day_excursion,excursion_window,excursion_min,total_return,sharpe\n-1.0,0.5,True,False,3,0.01,0.05,1.0\n", encoding="utf-8")
+    run_dir = output_dir / "run_001"
+    run_dir.mkdir()
+    _write_json(run_dir / "metrics.json", {"total_return": 0.05, "sharpe": 1.0})
+    _write_json(run_dir / "diagnostics_summary.json", {"entry_signals": 10, "executed_trades": 2, "blocked_by_art": 5, "blocked_by_excursion": 1})
+    _write_snapshot(run_dir / "config_snapshot.yaml", {"z_entry": -1.0, "z_exit": 0.5, "use_art_filter": True, "use_multi_day_excursion": False, "excursion_window": 3, "excursion_min": 0.01})
+
+    results = analyze_experiment(str(output_dir))
+
+    assert results["filters"]["blocked_by_atr"] == pytest.approx(0.5)
+    assert results["filters"]["blocked_by_art"] == pytest.approx(0.5)

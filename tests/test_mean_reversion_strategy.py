@@ -34,7 +34,7 @@ def test_mean_reversion_starts_flat_without_entry_signal() -> None:
         strategy_cls=strategy_cls,
         data_df=_synthetic_df(closes),
         config=_config(),
-        strategy_params={"z_entry": -10.0, "z_exit": 10.0, "trade_unit": 500},
+        strategy_params={"z_entry": -10.0, "z_exit": 10.0, "trade_unit": 500, "ma_short": 2, "ma_trend": 2},
         symbol="SYNTH",
     )
 
@@ -50,7 +50,7 @@ def test_mean_reversion_entry_and_exit_trigger_correctly() -> None:
         strategy_cls=strategy_cls,
         data_df=_synthetic_df(closes),
         config=_config(),
-        strategy_params={"z_entry": -1.0, "z_exit": 1.0, "trade_unit": 500},
+        strategy_params={"z_entry": -1.0, "z_exit": 1.0, "trade_unit": 500, "ma_short": 2, "ma_trend": 2},
         symbol="SYNTH",
     )
 
