@@ -62,7 +62,7 @@ def test_excursion_signal_mode_deduplicates_irrelevant_excursion_filter_and_sign
     } in final_runs
     assert {
         "signal_mode": "excursion",
-        "use_multi_day_excursion": False,
+        "use_multi_day_excursion": True,
         "excursion_min": None,
         "excursion_window": None,
         "excursion_lookback_bars": 2,

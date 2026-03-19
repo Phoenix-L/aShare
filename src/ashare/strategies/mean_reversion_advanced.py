@@ -44,10 +44,7 @@ class MeanReversionAdvanced(bt.Strategy):
     def __init__(self) -> None:
         if self.p.signal_mode not in {"zscore", "excursion"}:
             raise ValueError("Invalid config: signal_mode must be 'zscore' or 'excursion'")
-        # Multi-day excursion is a legacy filter which only applies in zscore mode.
-        # In excursion signal_mode, excursion parameters are different and
-        # excursion_window should not be required.
-        if self.p.signal_mode == "zscore" and self.p.use_multi_day_excursion and self.p.excursion_window is None:
+        if self.p.use_multi_day_excursion and self.p.excursion_window is None:
             raise ValueError("Invalid config: excursion_window required")
         if self.p.excursion_lookback_bars is None:
             raise ValueError("Invalid config: excursion_lookback_bars required")
@@ -155,11 +152,14 @@ class MeanReversionAdvanced(bt.Strategy):
             excursion_ok = True
 
         if self.p.signal_mode == "excursion":
+            # zscore parameters ignored in excursion mode.
             signal_trigger = excursion_trigger
+            exit_signal = excursion_ready and excursion_value >= 0.0
         else:
             signal_trigger = zscore <= self.p.z_entry
+            exit_signal = zscore >= self.p.z_exit
 
-        if self.position and zscore >= self.p.z_exit:
+        if self.position and exit_signal:
             self.close()
             self.sell_events += 1
             if self.current_trade_reason is not None:
@@ -167,7 +167,9 @@ class MeanReversionAdvanced(bt.Strategy):
                     {
                         "entry_reason": self.current_trade_reason,
                         "exit_reason": {
+                            "signal_mode": self.p.signal_mode,
                             "zscore": float(zscore),
+                            "excursion": float(excursion_value),
                         },
                     }
                 )
@@ -175,7 +177,10 @@ class MeanReversionAdvanced(bt.Strategy):
             return
 
         trend_ok = passes_trend_filter(close, ma120, enabled=self.p.use_trend_filter)
-        atr_ok = passes_atr_filter(atr_ratio, threshold=self.atr_ratio_min, enabled=self.use_atr_filter)
+        # Excursion mode already uses a volatility-aware primary trigger, so bypass the ATR gate there.
+        atr_filter_active = self.use_atr_filter and self.p.signal_mode != "excursion"
+        atr_ok = passes_atr_filter(atr_ratio, threshold=self.atr_ratio_min, enabled=atr_filter_active)
+        atr_filter_bypassed = self.p.signal_mode == "excursion"
         entry_signal = signal_trigger
         executed = False
         blocked_by: list[str] = []
@@ -204,6 +209,8 @@ class MeanReversionAdvanced(bt.Strategy):
                 "signal_mode": self.p.signal_mode,
                 "signal_trigger": bool(signal_trigger),
                 "trend_ok": bool(trend_ok),
+                "atr_filter_active": bool(atr_filter_active),
+                "atr_filter_bypassed": bool(atr_filter_bypassed),
                 "atr_ok": bool(atr_ok),
                 "art_ok": bool(atr_ok),
                 "atr_ratio": float(atr_ratio),
@@ -221,6 +228,8 @@ class MeanReversionAdvanced(bt.Strategy):
                 "signal_mode": self.p.signal_mode,
                 "signal_trigger": bool(signal_trigger),
                 "trend_ok": bool(trend_ok),
+                "atr_filter_active": bool(atr_filter_active),
+                "atr_filter_bypassed": bool(atr_filter_bypassed),
                 "atr_ok": bool(atr_ok),
                 "art_ok": bool(atr_ok),
                 "atr_ratio": float(atr_ratio),

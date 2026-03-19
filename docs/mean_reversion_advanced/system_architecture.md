@@ -45,6 +45,7 @@ Current indicator usage:
 - `excursion = (close - highest(close, excursion_lookback_bars)) / highest(close, excursion_lookback_bars)` for optional close-based primary entry triggering
 - `ATR3` from a dedicated `bt.indicators.ATR(..., period=3)` for the ATR ratio gate
 - `atr_ratio = ATR3 / close` from `compute_atr_ratio`
+- the ATR gate is bypassed in `signal_mode="excursion"` because excursion already acts as the primary volatility-aware trigger
 - `MultiDayExcursion(...).excursion_ratio` for the legacy rolling displacement filter used only in `signal_mode="zscore"`
 
 ### Engine

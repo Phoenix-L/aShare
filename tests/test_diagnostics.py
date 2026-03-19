@@ -158,8 +158,15 @@ def test_diagnostics_for_excursion_signal_mode_do_not_count_excursion_blocks(tmp
 
     summary = metrics["diagnostics_summary"]
     assert summary["entry_signals"] >= 1
+    assert summary["blocked_by_atr"] == 0
+    assert summary["blocked_by_art"] == 0
     assert summary["blocked_by_excursion"] == 0
-    assert any(row["signal_mode"] == "excursion" and row["excursion_trigger"] for row in strat.diagnostics)
+    assert any(
+        row["signal_mode"] == "excursion"
+        and row["excursion_trigger"]
+        and row["atr_filter_bypassed"]
+        for row in strat.diagnostics
+    )
 
 
 def test_experiment_saves_diagnostics_in_each_run_folder(monkeypatch, tmp_path: Path) -> None:

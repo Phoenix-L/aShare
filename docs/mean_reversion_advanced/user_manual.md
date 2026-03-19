@@ -33,6 +33,29 @@ Exit threshold for the same z-score.
 
 - lower values exit earlier
 - higher values hold longer waiting for more mean reversion
+- used only when `signal_mode="zscore"`
+
+### `excursion_lookback_bars`
+
+Lookback used by the close-based excursion signal.
+
+Definition:
+
+- `rolling_max_close = highest(close, excursion_lookback_bars)`
+- `excursion = (close - rolling_max_close) / rolling_max_close`
+
+Current behavior:
+
+- uses the intraday execution feed (`self.data.close`)
+- only affects entry triggering when `signal_mode="excursion"`
+
+### `excursion_threshold`
+
+Absolute downside threshold for the close-based excursion signal.
+
+- an entry signal fires when `excursion <= -excursion_threshold`
+- larger values require a deeper pullback from the recent rolling close high
+- smaller values react sooner to shallow dips
 
 ### `excursion_lookback_bars`
 
@@ -65,6 +88,7 @@ Current effective behavior:
 - the filter uses a 3-bar ATR ratio (`ATR3 / close`) rather than the 14-bar ATR used in the z-score
 - if omitted, ATR filtering is enabled by default
 - legacy `use_art_filter` is still accepted, but deprecated
+- the ATR gate is bypassed automatically when `signal_mode="excursion"`
 
 ### `atr_ratio_min`
 
@@ -232,6 +256,7 @@ Useful heuristics:
 - too few trades often means over-filtering
 - strong `blocked_by_atr` counts suggest the ATR gate is too restrictive for the symbol/date range
 - strong `blocked_by_excursion` counts suggest the legacy displacement requirement is too strict in z-score mode
+- in `signal_mode="excursion"`, `blocked_by_atr` should normally remain at zero because the ATR gate is bypassed
 
 ## 7. Common Pitfalls
 

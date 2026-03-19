@@ -15,7 +15,7 @@ The strategy supports two primary entry-trigger modes:
 - `signal_mode = "zscore"` *(default)*: use the ATR-normalized z-score as the primary signal
 - `signal_mode = "excursion"`: use a close-based downside excursion from the rolling maximum close as the primary signal
 
-This switch affects only the entry trigger. The exit rule remains z-score-based in both modes.
+This switch controls both the primary entry trigger and which thresholds remain relevant. The strategy still computes z-score in both modes for diagnostics, but `z_entry` and `z_exit` are ignored when `signal_mode == "excursion"`.
 
 ### 2.2 Z-Score
 
@@ -31,8 +31,8 @@ This is computed every bar using:
 
 Role in the strategy:
 
-- **Entry trigger**: the bar becomes a candidate entry when `zscore <= z_entry`
-- **Exit trigger**: an open position is closed when `zscore >= z_exit`
+- **Entry trigger in `signal_mode == "zscore"`**: the bar becomes a candidate entry when `zscore <= z_entry`
+- **Exit trigger in `signal_mode == "zscore"`**: an open position is closed when `zscore >= z_exit`
 
 Because ATR is in the denominator, the z-score scales the deviation from the short mean by recent volatility rather than by raw price distance.
 
@@ -80,6 +80,7 @@ Purpose:
 Exact pass condition:
 
 - ATR filter passes when either the filter is disabled or `atr_ratio >= atr_ratio_min`
+- when `signal_mode == "excursion"`, the ATR gate is bypassed because excursion already acts as the primary volatility-aware trigger
 
 ### 2.5 Legacy Multi-Day Excursion Filter
 
@@ -140,13 +141,15 @@ Important current details:
 
 - if `ATR14 == 0`, the strategy returns early and performs no signal processing for that bar
 - `entry_signal` reflects whichever primary signal is active for the run
+- `blocked_by_atr` only applies when the ATR gate is active; it should stay at zero in `signal_mode == "excursion"`
 - `blocked_by_excursion` only applies to the legacy multi-day excursion filter path in `signal_mode == "zscore"`
 
 ## 4. Exit Logic
 
-The exit rule is simple and exact:
+The exit rule is mode-aware:
 
-- if the strategy holds a position **and** `zscore >= z_exit`, it closes the full position
+- in `signal_mode == "zscore"`: if the strategy holds a position **and** `zscore >= z_exit`, it closes the full position
+- in `signal_mode == "excursion"`: if the strategy holds a position **and** `excursion >= 0`, it closes the full position
 
 There is no additional stop-loss, trailing exit, or profit-target logic in the current implementation.
 
