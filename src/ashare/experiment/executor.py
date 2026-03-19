@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,29 @@ from ashare.utils.logging import get_logger
 
 logger = get_logger("ashare.experiment.executor")
 
+TRADE_EXPORT_COLUMNS = [
+    "symbol",
+    "entry_datetime",
+    "exit_datetime",
+    "entry_price",
+    "exit_price",
+    "holding_bars",
+    "pnl_pct",
+    "max_favorable_excursion",
+    "max_adverse_excursion",
+    "exit_reason",
+]
+
+
+def _write_trades_csv(path: Path, trade_rows: list[dict[str, Any]]) -> None:
+    """Write completed-trade rows to a stable CSV artifact."""
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=TRADE_EXPORT_COLUMNS)
+        writer.writeheader()
+        for row in trade_rows:
+            writer.writerow({column: row.get(column) for column in TRADE_EXPORT_COLUMNS})
+
+
 
 def execute_experiment_spec(
     *,
@@ -29,7 +53,7 @@ def execute_experiment_spec(
     parameters = dict(spec.get("parameters", {}))
     grid = dict(spec.get("grid", {}))
     all_combinations = [dict(parameters, **combo) for combo in expand_grid(grid)]
-    final_runs = deduplicate_parameter_sets(all_combinations)
+    final_runs = deduplicate_parameter_sets(all_combinations, strategy_name=strategy_name)
 
     print(f"Original grid size: {len(all_combinations)}")
     print(f"Deduplicated runs: {len(final_runs)}")
@@ -42,6 +66,7 @@ def execute_experiment_spec(
         symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
         for symbol in spec["symbols"]
     }
+    experiment_trades: list[dict[str, Any]] = []
 
     total_runs = len(final_runs) * len(spec["symbols"])
     run_index = 0
@@ -61,7 +86,7 @@ def execute_experiment_spec(
             run_dir = output_root / f"run_{run_index:03d}"
             run_dir.mkdir(parents=True, exist_ok=True)
 
-            _, _, metrics = run_backtest(
+            _, strat, metrics = run_backtest(
                 strategy_cls=strategy_cls,
                 data_df=data_df,
                 config=config,
@@ -72,6 +97,10 @@ def execute_experiment_spec(
                 output_dir=run_dir,
             )
             (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+            trade_rows = getattr(strat, "completed_trades", None)
+            if trade_rows:
+                experiment_trades.extend(trade_rows)
 
             diagnostics_path = run_dir / "diagnostics.json"
             diagnostics_summary_path = run_dir / "diagnostics_summary.json"
@@ -106,12 +135,16 @@ def execute_experiment_spec(
             }
             (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
 
+    trades_path = output_root / "trades.csv"
+    _write_trades_csv(trades_path, experiment_trades)
+
     summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
     return {
         "experiment_name": experiment_name,
         "output_dir": str(output_root),
         "summary_path": str(summary_path),
         "summary_sorted_path": str(summary_sorted_path),
+        "trades_path": str(trades_path),
         "num_runs": total_runs,
         "results": ranked_records,
     }

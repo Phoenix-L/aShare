@@ -1,10 +1,10 @@
 from click.testing import CliRunner
+import json
 import pandas as pd
 import yaml
 
 from ashare.cli import cli
 from ashare.config.settings import BacktestConfig
-
 
 class _DummyStrategy:
     params = (
@@ -12,7 +12,6 @@ class _DummyStrategy:
         ("z_exit", 0.2),
         ("use_art_filter", False),
     )
-
 
 def _spec() -> dict:
     return {
@@ -25,7 +24,6 @@ def _spec() -> dict:
         "grid": {"z_entry": [-1.2, -1.3], "z_exit": [0.3, 0.5]},
         "execution": {},
     }
-
 
 def test_cli_param_and_date_overrides_have_highest_precedence(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
@@ -72,7 +70,6 @@ def test_cli_param_and_date_overrides_have_highest_precedence(monkeypatch, tmp_p
     assert snapshot["parameters"]["z_exit"] == 0.3
     assert snapshot["parameters"]["use_art_filter"] is True
 
-
 def test_executor_logs_running_parameters(monkeypatch, caplog, tmp_path) -> None:
     from ashare.experiment.executor import execute_experiment_spec
 
@@ -108,3 +105,69 @@ def test_executor_logs_running_parameters(monkeypatch, caplog, tmp_path) -> None
     )
 
     assert "Running: z_entry=-1.5, z_exit=0.5, use_art_filter=true" in caplog.text
+
+def _shock_df() -> pd.DataFrame:
+    closes = [100.0] * 180 + [97.0, 97.0, 97.0, 97.0, 97.0]
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": closes,
+            "low": closes,
+            "close": closes,
+            "volume": [1000] * len(closes),
+            "turnover_rate": [2.0] * len(closes),
+        },
+        index=pd.date_range("2024-01-01", periods=len(closes), freq="30min"),
+    )
+
+def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0))
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", lambda *args, **kwargs: _shock_df())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "--strategy",
+            "shock_reversion_intraday",
+            "--symbols",
+            "600519.SH",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--param",
+            "excursion_lookback_bars=3,5",
+            "--param",
+            "excursion_threshold=0.01,0.02",
+            "--param",
+            "trend_ma_period=2",
+            "--param",
+            "use_trend_filter=false",
+            "--param",
+            "max_hold_bars=2",
+            "--param",
+            "stop_loss_pct=0.10",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Running experiment: shock_reversion_intraday_cli_experiment" in result.output
+    assert "Total runs: 4" in result.output
+
+    output_root = tmp_path / "outputs" / "shock_reversion_intraday_cli_experiment"
+    run_payload = json.loads((output_root / "run_001" / "run_result.json").read_text(encoding="utf-8"))
+    summary_text = (output_root / "summary.csv").read_text(encoding="utf-8")
+    trades_text = (output_root / "trades.csv").read_text(encoding="utf-8")
+
+    assert run_payload["meta"]["strategy"] == "shock_reversion_intraday"
+    assert run_payload["params"]["excursion_lookback_bars"] == 3
+    assert run_payload["params"]["excursion_threshold"] == 0.01
+    assert run_payload["metrics"]["num_trades"] >= 1
+    assert "excursion_lookback_bars" in summary_text
+    assert "excursion_threshold" in summary_text
+    assert "entry_datetime" in trades_text
+    assert "exit_reason" in trades_text
+    assert len(trades_text.strip().splitlines()) > 1
