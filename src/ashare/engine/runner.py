@@ -97,6 +97,22 @@ def run_backtest(
     feed = to_backtrader_feed(data_df, name=symbol)
     cerebro.adddata(feed)
 
+    # Only enable daily MA/trend computation when the strategy uses it.
+    # This avoids affecting strategies that don't need daily closes and
+    # prevents resampling-related edge cases in Backtrader.
+    needs_daily_ma = strategy_cls.__name__ in {
+        "MeanReversionAdvanced",
+        "MeanReversion",
+        "CoreSatelliteMeanReversion",
+    }
+    if needs_daily_ma:
+        # Add a daily-resampled view of the same feed so strategies can compute
+        # moving averages in units of "trading days" rather than intraday bars.
+        #
+        # Note: this relies on `to_backtrader_feed()` setting correct timeframe/
+        # compression for the primary feed.
+        cerebro.resampledata(feed, timeframe=bt.TimeFrame.Days, compression=1)
+
     strategy_params = dict(strategy_params or {})
     logger.debug(f"Adding strategy: {strategy_cls.__name__} with params: {strategy_params}")
     cerebro.addstrategy(strategy_cls, **strategy_params)

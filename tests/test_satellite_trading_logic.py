@@ -63,6 +63,8 @@ def test_entries_trigger_at_configured_z_entry_thresholds() -> None:
             "z_entry": [-1.0],
             "z_exit": [10.0],
             "trend_filter": False,
+            "ma_short": 2,
+            "ma_trend": 2,
         },
         symbol="SYNTH",
     )
@@ -85,6 +87,8 @@ def test_exits_trigger_at_configured_z_exit_thresholds_without_selling_core() ->
             "z_entry": [-1.0],
             "z_exit": [1.0],
             "trend_filter": False,
+            "ma_short": 2,
+            "ma_trend": 2,
         },
         symbol="SYNTH",
     )
@@ -108,6 +112,8 @@ def test_trend_filter_blocks_new_satellite_buy_below_ma120() -> None:
             "z_entry": [-1.0],
             "z_exit": [10.0],
             "trend_filter": True,
+            "ma_short": 2,
+            "ma_trend": 2,
         },
         symbol="SYNTH",
     )

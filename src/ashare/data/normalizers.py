@@ -1,6 +1,7 @@
 """Pandas DataFrame to Backtrader feed format."""
 
 import pandas as pd
+import re
 
 import backtrader as bt
 
@@ -40,9 +41,50 @@ def to_backtrader_feed(
         if col not in df.columns:
             raise ValueError(f"DataFrame missing column: {col}")
 
-    kwargs = {"dataname": df}
+    def _infer_timeframe_compression(index: pd.DatetimeIndex) -> tuple[bt.TimeFrame | None, int | None]:
+        """Infer Backtrader timeframe/compression from an equally-spaced DatetimeIndex."""
+        if index is None or len(index) < 2:
+            return None, None
+
+        # Prefer inferred_freq when available (e.g. "30min", "D").
+        inferred = getattr(index, "inferred_freq", None)
+        if inferred:
+            # Common cases: "30min", "5min", "D", "1D"
+            m = re.match(r"^(\d+)\s*min", str(inferred), flags=re.IGNORECASE)
+            if m:
+                return bt.TimeFrame.Minutes, int(m.group(1))
+            if str(inferred).upper() in {"D", "1D"}:
+                return bt.TimeFrame.Days, 1
+            # Handle "1440min" etc.
+            m = re.match(r"^(\d+)\s*min$", str(inferred), flags=re.IGNORECASE)
+            if m:
+                minutes = int(m.group(1))
+                if minutes % (24 * 60) == 0:
+                    return bt.TimeFrame.Days, minutes // (24 * 60)
+                return bt.TimeFrame.Minutes, minutes
+
+        # Fallback: estimate delta between first two rows.
+        delta_min = (index[1] - index[0]).total_seconds() / 60.0
+        if delta_min <= 0:
+            return None, None
+
+        # If it matches whole minutes, use Minutes timeframe.
+        rounded = int(round(delta_min))
+        if abs(delta_min - rounded) < 1e-6:
+            if rounded % (24 * 60) == 0:
+                return bt.TimeFrame.Days, rounded // (24 * 60)
+            return bt.TimeFrame.Minutes, rounded
+
+        return None, None
+
+    kwargs: dict[str, object] = {"dataname": df}
     if name:
         kwargs["name"] = name
+
+    timeframe, compression = _infer_timeframe_compression(df.index)  # type: ignore[arg-type]
+    if timeframe is not None and compression is not None:
+        kwargs["timeframe"] = timeframe
+        kwargs["compression"] = compression
 
     if turnover_column in df.columns:
         return PandasDataWithTurnover(**kwargs)

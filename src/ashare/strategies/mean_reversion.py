@@ -1,5 +1,7 @@
 """Satellite-only mean reversion strategy."""
 
+import math
+
 import backtrader as bt
 
 from ashare.strategies.components.indicators import (
@@ -27,17 +29,19 @@ class MeanReversion(bt.Strategy):
             ma_short=self.p.ma_short,
             ma_trend=self.p.ma_trend,
             atr_period=self.p.atr_period,
+            ma_source=self.datas[1],  # daily-resampled close
+            atr_source=self.data,  # keep ATR on intraday data
         )
         self.buy_events = 0
         self.sell_events = 0
 
     def next(self) -> None:
         atr = float(self.atr14[0])
-        if atr == 0:
+        ma20 = float(self.ma20[-1])
+        if atr == 0 or math.isnan(atr) or math.isnan(ma20):
             return
 
         close = float(self.data.close[0])
-        ma20 = float(self.ma20[0])
         zscore = compute_zscore(close, ma20, atr)
 
         if not self.position:

@@ -30,6 +30,10 @@ class MeanReversionAdvanced(bt.Strategy):
         use_art_filter=None,
         art_threshold=None,
         use_multi_day_excursion=False,
+        # Moving-average periods are interpreted as trading days and
+        # are computed from a daily-resampled view of the feed.
+        ma_short=20,
+        ma_trend=120,
         excursion_window=3,
         excursion_min=0.01,
     )
@@ -40,9 +44,11 @@ class MeanReversionAdvanced(bt.Strategy):
 
         self.ma20, self.ma120, self.atr14 = build_mean_reversion_indicators(
             self.data,
-            ma_short=20,
-            ma_trend=120,
+            ma_short=self.p.ma_short,
+            ma_trend=self.p.ma_trend,
             atr_period=14,
+            ma_source=self.datas[1],  # daily-resampled close
+            atr_source=self.data,  # keep ATR on intraday data
         )
         # Use a shorter ATR for ATR/price volatility filter (atr_ratio) only.
         self.atr3 = bt.indicators.ATR(self.data, period=3)
@@ -91,10 +97,15 @@ class MeanReversionAdvanced(bt.Strategy):
 
     def next(self) -> None:
         close = float(self.data.close[0])
-        ma20 = float(self.ma20[0])
-        ma120 = float(self.ma120[0])
+        # Use previous completed daily bar for MA-based decisions.
+        ma20 = float(self.ma20[-1])
+        ma120 = float(self.ma120[-1])
         atr14 = float(self.atr14[0])
-        if atr14 == 0:
+        # MA20 is always required for z-score. MA120 is only required when
+        # the trend filter is enabled.
+        if atr14 == 0 or math.isnan(atr14) or math.isnan(ma20):
+            return
+        if self.p.use_trend_filter and math.isnan(ma120):
             return
 
         zscore = compute_zscore(close, ma20, atr14)

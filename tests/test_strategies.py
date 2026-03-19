@@ -23,6 +23,10 @@ def _synthetic_df(closes: list[float], spread: float = 1.0) -> pd.DataFrame:
 
 
 def _run(closes: list[float], strategy_params: dict, spread: float = 1.0) -> MeanReversionAdvanced:
+    # MeanReversionAdvanced now computes MA20/MA120 from a daily-resampled view
+    # (and uses previous completed daily bars). Keep windows small for the
+    # synthetic horizon used in these tests.
+    strategy_params = {"ma_short": 2, "ma_trend": 2, **strategy_params}
     _, strat, _ = run_backtest(
         strategy_cls=MeanReversionAdvanced,
         data_df=_synthetic_df(closes, spread=spread),

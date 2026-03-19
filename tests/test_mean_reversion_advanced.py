@@ -22,6 +22,10 @@ def _synthetic_df(closes: list[float], spread: float = 1.0) -> pd.DataFrame:
 
 
 def _run(closes: list[float], strategy_params: dict, spread: float = 1.0) -> MeanReversionAdvanced:
+    # These tests run on synthetic 30-min data. After the MA refactor,
+    # MA periods are interpreted as trading days from a daily-resampled feed.
+    # Use small MA windows so SMA(2) is computable within the synthetic horizon.
+    strategy_params = {"ma_short": 2, "ma_trend": 2, **strategy_params}
     _, strat, _ = run_backtest(
         strategy_cls=MeanReversionAdvanced,
         data_df=_synthetic_df(closes, spread=spread),
