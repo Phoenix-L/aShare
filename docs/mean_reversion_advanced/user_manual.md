@@ -12,12 +12,20 @@ This launches a parameter sweep for `mean_reversion_advanced`, writes run artifa
 
 ## 2. Key Parameters
 
+### `signal_mode`
+
+Selects the primary entry signal.
+
+- `"zscore"`: default; use the ATR-normalized z-score trigger
+- `"excursion"`: use the close-based downside excursion trigger
+
 ### `z_entry`
 
 Entry threshold for the ATR-normalized z-score.
 
 - more negative values make entries rarer
 - less negative values make the strategy react sooner
+- used only when `signal_mode="zscore"`
 
 ### `z_exit`
 
@@ -25,6 +33,29 @@ Exit threshold for the same z-score.
 
 - lower values exit earlier
 - higher values hold longer waiting for more mean reversion
+- used only when `signal_mode="zscore"`
+
+### `excursion_lookback_bars`
+
+Lookback used by the close-based excursion signal.
+
+Definition:
+
+- `rolling_max_close = highest(close, excursion_lookback_bars)`
+- `excursion = (close - rolling_max_close) / rolling_max_close`
+
+Current behavior:
+
+- uses the intraday execution feed (`self.data.close`)
+- only affects entry triggering when `signal_mode="excursion"`
+
+### `excursion_threshold`
+
+Absolute downside threshold for the close-based excursion signal.
+
+- an entry signal fires when `excursion <= -excursion_threshold`
+- larger values require a deeper pullback from the recent rolling close high
+- smaller values react sooner to shallow dips
 
 ### `use_atr_filter`
 
@@ -35,6 +66,7 @@ Current effective behavior:
 - the filter uses a 3-bar ATR ratio (`ATR3 / close`) rather than the 14-bar ATR used in the z-score
 - if omitted, ATR filtering is enabled by default
 - legacy `use_art_filter` is still accepted, but deprecated
+- the ATR gate is bypassed automatically when `signal_mode="excursion"`
 
 ### `atr_ratio_min`
 
@@ -52,19 +84,19 @@ Current effective default:
 
 Turns the excursion filter on or off.
 
-- `false`: ignore excursion gating
-- `true`: require sufficient rolling displacement before entry
+- `false`: ignore legacy excursion gating
+- `true`: require sufficient rolling displacement before entry when `signal_mode="zscore"`
 
 ### `excursion_min`
 
-Minimum excursion ratio required when the excursion filter is enabled.
+Minimum excursion ratio required when the legacy excursion filter is enabled.
 
 - higher values are more restrictive
 - lower values allow more candidate reversals through
 
 ### `excursion_window`
 
-Lookback window used to compute the rolling high-low excursion ratio.
+Lookback window used to compute the rolling high-low excursion ratio used by the legacy excursion filter.
 
 - smaller windows react faster
 - larger windows smooth recent displacement and usually require more persistent range expansion
@@ -84,6 +116,16 @@ ashare experiment \
   configs/experiments/mean_reversion_advanced.yaml \
   --param z_entry=-1.5,-2.0 \
   --param use_multi_day_excursion=true,false
+```
+
+Example that switches the primary signal to excursion mode:
+
+```bash
+ashare experiment \
+  configs/experiments/mean_reversion_advanced.yaml \
+  --param signal_mode=excursion \
+  --param excursion_lookback_bars=3,5 \
+  --param excursion_threshold=0.01,0.02
 ```
 
 ### Important override behavior
@@ -114,12 +156,15 @@ This is the unsorted experiment-wide summary table.
 
 Current columns are written from the experiment result layer and include fields such as:
 
+- `signal_mode`
 - `z_entry`
 - `z_exit`
 - `use_trend_filter`
 - `use_atr_filter`
 - `use_art_filter` *(legacy alias column retained for compatibility)*
 - `use_multi_day_excursion`
+- `excursion_lookback_bars`
+- `excursion_threshold`
 - `excursion_window`
 - `excursion_min`
 - `atr_ratio_min`
@@ -177,17 +222,19 @@ The generated `analysis_report.md` currently includes:
 Practical tuning workflow for the current implementation:
 
 1. start with `summary_sorted.csv` to see the best Sharpe / return rows
-2. run the analysis report to compare excursion ON vs OFF behavior
-3. tune `z_entry` and `z_exit` first, because they directly control signal timing
-4. if too many candidate entries are rejected, relax `atr_ratio_min`
-5. if the excursion filter blocks too much, lower `excursion_min` or shorten `excursion_window`
-6. compare grouped results rather than focusing on a single best run
+2. decide whether the run should be driven by `signal_mode=zscore` or `signal_mode=excursion`
+3. if using z-score mode, tune `z_entry` and `z_exit` first, because they directly control signal timing
+4. if using excursion mode, tune `excursion_lookback_bars` and `excursion_threshold` first
+5. if too many candidate entries are rejected, relax `atr_ratio_min`
+6. if the legacy excursion filter blocks too much in z-score mode, lower `excursion_min` or shorten `excursion_window`
+7. compare grouped results rather than focusing on a single best run
 
 Useful heuristics:
 
 - too few trades often means over-filtering
 - strong `blocked_by_atr` counts suggest the ATR gate is too restrictive for the symbol/date range
-- strong `blocked_by_excursion` counts suggest the displacement requirement is too strict
+- strong `blocked_by_excursion` counts suggest the legacy displacement requirement is too strict in z-score mode
+- in `signal_mode="excursion"`, `blocked_by_atr` should normally remain at zero because the ATR gate is bypassed
 
 ## 7. Common Pitfalls
 
@@ -196,9 +243,10 @@ Useful heuristics:
 It is easy to combine:
 
 - strict `z_entry`
+- or a large `excursion_threshold`
 - trend filter enabled
 - ATR filter enabled
-- excursion filter enabled
+- legacy excursion filter enabled
 
 and end up with very few executed trades.
 
@@ -209,6 +257,7 @@ A high Sharpe from a tiny number of trades may not be robust. Always inspect:
 - `num_trades`
 - `entry_signals`
 - `executed_trades`
+- `signal_mode`
 - grouped analysis in `analysis_report.md`
 
 ### Misinterpreting Sharpe
