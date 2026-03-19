@@ -24,12 +24,15 @@ class MeanReversionAdvanced(bt.Strategy):
         trade_unit=500,
         z_entry=-1.5,
         z_exit=0.5,
+        signal_mode="zscore",
         use_trend_filter=True,
         use_atr_filter=None,
         atr_ratio_min=None,
         use_art_filter=None,
         art_threshold=None,
         use_multi_day_excursion=False,
+        excursion_lookback_bars=3,
+        excursion_threshold=0.01,
         # Moving-average periods are interpreted as trading days and
         # are computed from a daily-resampled view of the feed.
         ma_short=20,
@@ -39,8 +42,12 @@ class MeanReversionAdvanced(bt.Strategy):
     )
 
     def __init__(self) -> None:
+        if self.p.signal_mode not in {"zscore", "excursion"}:
+            raise ValueError("Invalid config: signal_mode must be 'zscore' or 'excursion'")
         if self.p.use_multi_day_excursion and self.p.excursion_window is None:
             raise ValueError("Invalid config: excursion_window required")
+        if self.p.excursion_lookback_bars is None:
+            raise ValueError("Invalid config: excursion_lookback_bars required")
 
         daily_data = self._get_daily_ma_source()
         self.ma20, self.ma120, self.atr14 = build_mean_reversion_indicators(
@@ -53,6 +60,9 @@ class MeanReversionAdvanced(bt.Strategy):
         )
         # Use a shorter ATR for ATR/price volatility filter (atr_ratio) only.
         self.atr3 = bt.indicators.ATR(self.data, period=3)
+        # Close-based intraday downside excursion signal.
+        rolling_max_close = bt.indicators.Highest(self.data.close, period=self.p.excursion_lookback_bars)
+        self.excursion = (self.data.close - rolling_max_close) / rolling_max_close
 
         if self.p.use_multi_day_excursion:
             self.excursion_ratio = MultiDayExcursion(
@@ -127,14 +137,23 @@ class MeanReversionAdvanced(bt.Strategy):
 
         zscore = compute_zscore(close, ma20, atr14)
         atr_ratio = compute_atr_ratio(float(self.atr3[0]), close)
+        excursion_value = float(self.excursion[0])
+        excursion_ready = not math.isnan(excursion_value)
+        excursion_trigger = excursion_ready and excursion_value <= -self.p.excursion_threshold
 
-        if self.p.use_multi_day_excursion:
+        legacy_excursion_filter_enabled = self.p.signal_mode == "zscore" and self.p.use_multi_day_excursion
+        if legacy_excursion_filter_enabled:
             excursion_ratio = float(self.excursion_ratio[0])
-            excursion_ready = not math.isnan(excursion_ratio)
-            excursion_ok = excursion_ready and excursion_ratio >= self.p.excursion_min
+            excursion_ratio_ready = not math.isnan(excursion_ratio)
+            excursion_ok = excursion_ratio_ready and excursion_ratio >= self.p.excursion_min
         else:
             excursion_ratio = None
             excursion_ok = True
+
+        if self.p.signal_mode == "excursion":
+            signal_trigger = excursion_trigger
+        else:
+            signal_trigger = zscore <= self.p.z_entry
 
         if self.position and zscore >= self.p.z_exit:
             self.close()
@@ -153,7 +172,7 @@ class MeanReversionAdvanced(bt.Strategy):
 
         trend_ok = passes_trend_filter(close, ma120, enabled=self.p.use_trend_filter)
         atr_ok = passes_atr_filter(atr_ratio, threshold=self.atr_ratio_min, enabled=self.use_atr_filter)
-        entry_signal = zscore <= self.p.z_entry
+        entry_signal = signal_trigger
         executed = False
         blocked_by: list[str] = []
 
@@ -162,11 +181,11 @@ class MeanReversionAdvanced(bt.Strategy):
                 blocked_by.append("trend_filter")
             if not atr_ok:
                 blocked_by.append("atr_filter")
-            if self.p.use_multi_day_excursion and not excursion_ok:
+            if legacy_excursion_filter_enabled and not excursion_ok:
                 blocked_by.append("excursion_filter")
 
         entry_condition = (
-            zscore <= self.p.z_entry
+            signal_trigger
             and trend_ok
             and atr_ok
             and excursion_ok
@@ -178,10 +197,14 @@ class MeanReversionAdvanced(bt.Strategy):
             executed = True
             self.current_trade_reason = {
                 "zscore": float(zscore),
+                "signal_mode": self.p.signal_mode,
+                "signal_trigger": bool(signal_trigger),
                 "trend_ok": bool(trend_ok),
                 "atr_ok": bool(atr_ok),
                 "art_ok": bool(atr_ok),
                 "atr_ratio": float(atr_ratio),
+                "excursion": float(excursion_value),
+                "excursion_trigger": bool(excursion_trigger),
                 "excursion_ratio": excursion_ratio,
                 "excursion_ok": bool(excursion_ok),
             }
@@ -191,10 +214,14 @@ class MeanReversionAdvanced(bt.Strategy):
             {
                 "datetime": str(self.datas[0].datetime.datetime(0)),
                 "zscore": float(zscore),
+                "signal_mode": self.p.signal_mode,
+                "signal_trigger": bool(signal_trigger),
                 "trend_ok": bool(trend_ok),
                 "atr_ok": bool(atr_ok),
                 "art_ok": bool(atr_ok),
                 "atr_ratio": float(atr_ratio),
+                "excursion": float(excursion_value),
+                "excursion_trigger": bool(excursion_trigger),
                 "excursion_ratio": excursion_ratio,
                 "excursion_ok": bool(excursion_ok),
                 "entry_signal": bool(entry_signal),

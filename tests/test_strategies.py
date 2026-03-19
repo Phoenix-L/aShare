@@ -81,6 +81,58 @@ def test_multi_day_excursion_filter_allows_trade_when_excursion_threshold_is_met
     assert any(row["executed"] and row["excursion_ok"] for row in strat.diagnostics)
 
 
+def test_excursion_signal_mode_uses_close_based_downside_trigger() -> None:
+    closes = [100.0] * 180 + [99.0, 96.0]
+
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "signal_mode": "excursion",
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.03,
+            "z_entry": -99.0,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_atr_filter": False,
+            "use_multi_day_excursion": True,
+            "excursion_window": 3,
+            "excursion_min": 0.5,
+        },
+        spread=0.01,
+    )
+
+    assert strat.buy_events >= 1
+    assert any(row["signal_mode"] == "excursion" and row["excursion_trigger"] for row in strat.diagnostics)
+    assert not any("excursion_filter" in row["blocked_by"] for row in strat.diagnostics if row["entry_signal"])
+
+
+def test_excursion_signal_mode_counts_entry_signal_without_excursion_filter_block() -> None:
+    closes = [100.0] * 180 + [99.0, 96.0]
+
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "signal_mode": "excursion",
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.03,
+            "z_entry": -99.0,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_atr_filter": True,
+            "use_multi_day_excursion": True,
+            "excursion_window": 3,
+            "excursion_min": 0.5,
+        },
+        spread=0.01,
+    )
+
+    assert strat.buy_events == 0
+    assert any(row["entry_signal"] and not row["executed"] for row in strat.diagnostics)
+    assert all("excursion_filter" not in row["blocked_by"] for row in strat.diagnostics if row["entry_signal"])
+
+
 def test_atr_and_legacy_art_filter_params_behave_the_same() -> None:
     closes = [100.0] * 180 + [99.0, 99.0]
 

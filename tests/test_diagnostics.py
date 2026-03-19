@@ -128,6 +128,40 @@ def test_diagnostics_capture_excursion_fields_and_summary(tmp_path: Path) -> Non
     assert persisted_summary["blocked_by_excursion"] == summary["blocked_by_excursion"]
 
 
+def test_diagnostics_for_excursion_signal_mode_do_not_count_excursion_blocks(tmp_path: Path) -> None:
+    closes = [100.0] * 180 + [99.0, 96.0]
+    out_dir = tmp_path / "run_excursion_signal"
+
+    _, strat, metrics = run_backtest(
+        strategy_cls=MeanReversionAdvanced,
+        data_df=_synthetic_df(closes, spread=0.01),
+        config=_config(),
+        strategy_params={
+            "trade_unit": 500,
+            "signal_mode": "excursion",
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.03,
+            "z_entry": -99.0,
+            "z_exit": 5.0,
+            "use_trend_filter": False,
+            "use_atr_filter": True,
+            "use_multi_day_excursion": True,
+            "excursion_window": 3,
+            "excursion_min": 0.5,
+            "ma_short": 2,
+            "ma_trend": 2,
+        },
+        symbol="SYNTH",
+        run_id="run_excursion_signal",
+        output_dir=out_dir,
+    )
+
+    summary = metrics["diagnostics_summary"]
+    assert summary["entry_signals"] >= 1
+    assert summary["blocked_by_excursion"] == 0
+    assert any(row["signal_mode"] == "excursion" and row["excursion_trigger"] for row in strat.diagnostics)
+
+
 def test_experiment_saves_diagnostics_in_each_run_folder(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 

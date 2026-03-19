@@ -23,8 +23,15 @@ def expand_grid(grid_dict: dict[str, list[Any]] | None) -> list[dict[str, Any]]:
 def normalize_params(params: dict[str, Any]) -> dict[str, Any]:
     """Normalize dependent parameters so equivalent runs share the same representation."""
     normalized = params.copy()
+    signal_mode = normalized.get("signal_mode", "zscore")
 
-    if not normalized.get("use_multi_day_excursion", False):
+    if signal_mode != "excursion":
+        if "excursion_lookback_bars" in normalized:
+            normalized["excursion_lookback_bars"] = None
+        if "excursion_threshold" in normalized:
+            normalized["excursion_threshold"] = None
+
+    if signal_mode == "excursion" or not normalized.get("use_multi_day_excursion", False):
         if "excursion_min" in normalized:
             normalized["excursion_min"] = None
         if "excursion_window" in normalized:
