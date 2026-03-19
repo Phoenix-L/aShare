@@ -41,6 +41,7 @@ def test_shock_reversion_enters_on_excursion_signal() -> None:
             "use_trend_filter": False,
             "excursion_lookback_bars": 3,
             "excursion_threshold": 0.01,
+            "exit_mode": "max_hold_only",
             "max_hold_bars": 10,
             "stop_loss_pct": 0.10,
         },
@@ -60,6 +61,7 @@ def test_shock_reversion_trend_filter_blocks_entry() -> None:
             "use_trend_filter": True,
             "excursion_lookback_bars": 3,
             "excursion_threshold": 0.01,
+            "exit_mode": "max_hold_only",
             "max_hold_bars": 10,
             "stop_loss_pct": 0.10,
         },
@@ -69,8 +71,8 @@ def test_shock_reversion_trend_filter_blocks_entry() -> None:
     assert strat.position.size == 0
 
 
-def test_shock_reversion_exits_on_max_hold() -> None:
-    closes = [100.0] * 180 + [97.0, 97.0, 97.0, 97.0, 97.0]
+def test_shock_reversion_fixed_take_profit_exit() -> None:
+    closes = [100.0] * 180 + [97.0, 98.0, 100.0, 100.0]
 
     strat = _run(
         closes,
@@ -79,18 +81,66 @@ def test_shock_reversion_exits_on_max_hold() -> None:
             "use_trend_filter": False,
             "excursion_lookback_bars": 3,
             "excursion_threshold": 0.01,
+            "exit_mode": "fixed_tp",
+            "take_profit_pct": 0.02,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+    )
+
+    assert len(strat.completed_trades) == 1
+    assert strat.completed_trades[0]["exit_reason"] == "fixed_tp"
+    assert strat.completed_trades[0]["exit_price"] == 100.0
+
+
+def test_shock_reversion_anchor_recovery_exit_uses_frozen_anchor() -> None:
+    closes = [100.0] * 180 + [97.0, 98.0, 99.0, 99.0]
+
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "use_trend_filter": False,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "exit_mode": "anchor_recovery",
+            "recovery_frac": 0.5,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+    )
+
+    assert len(strat.completed_trades) == 1
+    trade = strat.completed_trades[0]
+    assert trade["anchor_price_at_entry"] == 100.0
+    assert trade["excursion_at_entry"] == -0.03
+    assert trade["exit_reason"] == "anchor_recovery"
+    assert trade["exit_price"] == 99.0
+
+
+def test_shock_reversion_max_hold_remains_safeguard() -> None:
+    closes = [100.0] * 180 + [97.0, 98.0, 98.0, 98.0, 98.0]
+
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "use_trend_filter": False,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "exit_mode": "fixed_tp",
+            "take_profit_pct": 0.05,
             "max_hold_bars": 2,
             "stop_loss_pct": 0.10,
         },
     )
 
-    assert strat.buy_events >= 1
-    assert strat.sell_events >= 1
-    assert strat.position.size == 0
+    assert len(strat.completed_trades) == 1
+    assert strat.completed_trades[0]["exit_reason"] == "max_hold"
 
 
 def test_shock_reversion_records_completed_trade_stats() -> None:
-    closes = [100.0] * 180 + [97.0, 98.0, 99.0, 99.0, 99.0]
+    closes = [100.0] * 180 + [97.0, 98.0, 99.0, 99.0]
 
     strat = _run(
         closes,
@@ -99,7 +149,9 @@ def test_shock_reversion_records_completed_trade_stats() -> None:
             "use_trend_filter": False,
             "excursion_lookback_bars": 3,
             "excursion_threshold": 0.01,
-            "max_hold_bars": 2,
+            "exit_mode": "anchor_recovery",
+            "recovery_frac": 0.5,
+            "max_hold_bars": 10,
             "stop_loss_pct": 0.10,
         },
     )
@@ -107,10 +159,11 @@ def test_shock_reversion_records_completed_trade_stats() -> None:
     assert len(strat.completed_trades) == 1
     trade = strat.completed_trades[0]
     assert trade["symbol"] == "SYNTH"
-    assert trade["holding_bars"] == 3
-    assert trade["exit_reason"] == "max_hold"
+    assert trade["holding_bars"] == 2
     assert trade["entry_price"] == 98.0
     assert trade["exit_price"] == 99.0
     assert trade["pnl_pct"] > 0
     assert trade["max_favorable_excursion"] >= trade["pnl_pct"]
     assert trade["max_adverse_excursion"] <= 0.0
+    assert trade["bars_to_mfe"] >= 1
+    assert trade["bars_to_mae"] == 0

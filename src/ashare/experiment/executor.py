@@ -28,6 +28,10 @@ TRADE_EXPORT_COLUMNS = [
     "pnl_pct",
     "max_favorable_excursion",
     "max_adverse_excursion",
+    "anchor_price_at_entry",
+    "excursion_at_entry",
+    "bars_to_mfe",
+    "bars_to_mae",
     "exit_reason",
 ]
 
