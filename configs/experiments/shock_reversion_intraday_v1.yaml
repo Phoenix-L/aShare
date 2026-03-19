@@ -1,0 +1,35 @@
+experiment_name: shock_reversion_intraday_v1
+
+strategy: shock_reversion_intraday
+
+symbols:
+  - 002850.SZ
+
+date_range:
+  start: 2025-07-01
+  end: 2026-02-28
+
+grid_search:
+  excursion_lookback_bars:
+    - 12
+    - 16
+    - 24
+  excursion_threshold:
+    - 0.03
+    - 0.05
+  trend_ma_period:
+    - 120
+  use_trend_filter:
+    - false
+  recovery_frac:
+    - 0.3
+    - 0.5
+  max_hold_bars:
+    - 40
+  stop_loss_pct:
+    - 0.03
+    - 0.05
+  take_profit_pct:
+    - 0.03
+    - 0.05
+    - 0.07
