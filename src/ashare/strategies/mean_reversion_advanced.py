@@ -42,12 +42,13 @@ class MeanReversionAdvanced(bt.Strategy):
         if self.p.use_multi_day_excursion and self.p.excursion_window is None:
             raise ValueError("Invalid config: excursion_window required")
 
+        daily_data = self._get_daily_ma_source()
         self.ma20, self.ma120, self.atr14 = build_mean_reversion_indicators(
             self.data,
             ma_short=self.p.ma_short,
             ma_trend=self.p.ma_trend,
             atr_period=14,
-            ma_source=self.datas[1],  # daily-resampled close
+            ma_source=daily_data,
             atr_source=self.data,  # keep ATR on intraday data
         )
         # Use a shorter ATR for ATR/price volatility filter (atr_ratio) only.
@@ -68,6 +69,22 @@ class MeanReversionAdvanced(bt.Strategy):
 
         self.use_atr_filter = self._resolve_use_atr_filter()
         self.atr_ratio_min = self._resolve_atr_ratio_min()
+
+    def _get_daily_ma_source(self):
+        """Return the required daily-resampled feed used for MA calculations."""
+        if len(self.datas) < 2:
+            raise ValueError(
+                "MeanReversionAdvanced requires a daily-resampled feed at datas[1] for MA calculations."
+            )
+
+        daily_data = self.datas[1]
+        timeframe = getattr(daily_data, "_timeframe", None)
+        compression = getattr(daily_data, "_compression", None)
+        if timeframe != bt.TimeFrame.Days or compression != 1:
+            raise ValueError(
+                "MeanReversionAdvanced requires datas[1] to be a 1-day resampled feed for MA calculations."
+            )
+        return daily_data
 
     def _resolve_use_atr_filter(self) -> bool:
         """Resolve canonical vs legacy ATR filter params without breaking old configs."""
