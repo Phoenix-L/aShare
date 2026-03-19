@@ -12,8 +12,9 @@ import yaml
 from ashare.config.settings import BacktestConfig
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
-from ashare.experiment.grid import deduplicate_parameter_sets, expand_grid
+from ashare.experiment.grid import expand_grid, generate_parameter_sets
 from ashare.experiment.result import build_summary
+from ashare.strategies.validation import validate_strategy_params
 from ashare.utils.logging import get_logger
 
 logger = get_logger("ashare.experiment.executor")
@@ -26,24 +27,38 @@ TRADE_EXPORT_COLUMNS = [
     "exit_price",
     "holding_bars",
     "pnl_pct",
+    "mfe_pct",
+    "mae_pct",
     "max_favorable_excursion",
     "max_adverse_excursion",
     "anchor_price_at_entry",
     "excursion_at_entry",
+    "recovery_target",
+    "take_profit_price",
+    "effective_target_price",
     "bars_to_mfe",
     "bars_to_mae",
     "exit_reason",
+    "exit_subtype",
+]
+
+SIGNAL_EXPORT_COLUMNS = [
+    "symbol",
+    "datetime",
+    "excursion",
+    "threshold",
+    "trend_ok",
+    "entry_executed",
 ]
 
 
-def _write_trades_csv(path: Path, trade_rows: list[dict[str, Any]]) -> None:
-    """Write completed-trade rows to a stable CSV artifact."""
+def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
+    """Write rows to a stable CSV artifact."""
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=TRADE_EXPORT_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
-        for row in trade_rows:
-            writer.writerow({column: row.get(column) for column in TRADE_EXPORT_COLUMNS})
-
+        for row in rows:
+            writer.writerow({column: row.get(column) for column in columns})
 
 
 def execute_experiment_spec(
@@ -54,10 +69,13 @@ def execute_experiment_spec(
     config: BacktestConfig,
 ) -> dict[str, Any]:
     """Execute an experiment spec and write canonical output artifacts."""
-    parameters = dict(spec.get("parameters", {}))
+    parameters = validate_strategy_params(strategy_name, dict(spec.get("parameters", {})))
     grid = dict(spec.get("grid", {}))
+    for key, values in grid.items():
+        for value in values:
+            validate_strategy_params(strategy_name, {key: value})
     all_combinations = [dict(parameters, **combo) for combo in expand_grid(grid)]
-    final_runs = deduplicate_parameter_sets(all_combinations, strategy_name=strategy_name)
+    final_runs = generate_parameter_sets({"strategy": strategy_name, "parameters": parameters, "grid": grid})
 
     print(f"Original grid size: {len(all_combinations)}")
     print(f"Deduplicated runs: {len(final_runs)}")
@@ -71,6 +89,7 @@ def execute_experiment_spec(
         for symbol in spec["symbols"]
     }
     experiment_trades: list[dict[str, Any]] = []
+    experiment_signals: list[dict[str, Any]] = []
 
     total_runs = len(final_runs) * len(spec["symbols"])
     run_index = 0
@@ -106,6 +125,10 @@ def execute_experiment_spec(
             if trade_rows:
                 experiment_trades.extend(trade_rows)
 
+            signal_rows = getattr(strat, "signal_events", None)
+            if signal_rows:
+                experiment_signals.extend(signal_rows)
+
             diagnostics_path = run_dir / "diagnostics.json"
             diagnostics_summary_path = run_dir / "diagnostics_summary.json"
             if "diagnostics_summary" in metrics:
@@ -140,7 +163,9 @@ def execute_experiment_spec(
             (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
 
     trades_path = output_root / "trades.csv"
-    _write_trades_csv(trades_path, experiment_trades)
+    signals_path = output_root / "signals.csv"
+    _write_csv(trades_path, experiment_trades, TRADE_EXPORT_COLUMNS)
+    _write_csv(signals_path, experiment_signals, SIGNAL_EXPORT_COLUMNS)
 
     summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
     return {
@@ -149,6 +174,7 @@ def execute_experiment_spec(
         "summary_path": str(summary_path),
         "summary_sorted_path": str(summary_sorted_path),
         "trades_path": str(trades_path),
+        "signals_path": str(signals_path),
         "num_runs": total_runs,
         "results": ranked_records,
     }
