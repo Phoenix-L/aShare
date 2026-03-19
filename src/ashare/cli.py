@@ -258,7 +258,7 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
             commission=float(execution.get("commission", config.commission)),
         )
 
-    total_runs = len(generate_parameter_sets({"parameters": parameters, "grid": grid})) * len(spec["symbols"])
+    total_runs = len(generate_parameter_sets({"strategy": strategy_name, "parameters": parameters, "grid": grid})) * len(spec["symbols"])
     click.echo(f"Running experiment: {spec['name']}")
     click.echo(f"Date range: {spec['start']} → {spec['end']} ({'CLI override' if date_range_overridden else 'from config'})")
     click.echo(f"Symbols: {', '.join(spec['symbols'])}")
