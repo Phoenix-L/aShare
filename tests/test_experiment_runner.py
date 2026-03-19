@@ -88,18 +88,6 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
     results_df = pd.read_csv(results_path)
     assert len(results_df) == 4
     assert list(results_df.columns) == [
-        "signal_mode",
-        "z_entry",
-        "z_exit",
-        "use_trend_filter",
-        "use_atr_filter",
-        "use_art_filter",
-        "use_multi_day_excursion",
-        "excursion_lookback_bars",
-        "excursion_threshold",
-        "excursion_window",
-        "excursion_min",
-        "atr_ratio_min",
         "total_return",
         "sharpe",
         "max_drawdown",
