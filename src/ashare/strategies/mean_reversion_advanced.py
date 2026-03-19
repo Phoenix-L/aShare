@@ -4,6 +4,12 @@ import math
 
 import backtrader as bt
 
+from ashare.strategies.components.execution import (
+    create_position_state,
+    export_trade_metrics,
+    get_holding_bars,
+    update_trade_metrics,
+)
 from ashare.strategies.components.filters import passes_atr_filter, passes_trend_filter
 from ashare.strategies.components.indicators import (
     build_mean_reversion_indicators,
@@ -50,6 +56,7 @@ class MeanReversionAdvanced(bt.Strategy):
         self.diagnostics: list[dict] = []
         self.trade_diagnostics: list[dict] = []
         self.current_trade_reason: dict | None = None
+        self.position_state = None
 
         self.use_atr_filter = self._resolve_use_atr_filter()
         self.atr_ratio_min = self._resolve_atr_ratio_min()
@@ -96,6 +103,10 @@ class MeanReversionAdvanced(bt.Strategy):
 
         return ATR_RATIO_MIN_DEFAULT
 
+    def _clear_position_state(self) -> None:
+        self.position_state = None
+        self.current_trade_reason = None
+
     def next(self) -> None:
         close = float(self.data.close[0])
         ma20 = float(self.ma20[-1])
@@ -111,19 +122,26 @@ class MeanReversionAdvanced(bt.Strategy):
         signal_trigger = zscore <= self.p.z_entry
         exit_signal = zscore >= self.p.z_exit
 
+        if self.position and self.position_state is not None:
+            update_trade_metrics(self.position_state, close, len(self))
+
         if self.position and exit_signal:
             self.close()
             self.sell_events += 1
-            if self.current_trade_reason is not None:
+            if self.current_trade_reason is not None and self.position_state is not None:
+                holding_bars = get_holding_bars(self.position_state, len(self))
                 self.trade_diagnostics.append(
                     {
                         "entry_reason": self.current_trade_reason,
                         "exit_reason": {
                             "zscore": float(zscore),
+                            "holding_bars": holding_bars,
+                            "pnl_pct": ((close - self.position_state.entry_price) / self.position_state.entry_price) * 100.0,
+                            **export_trade_metrics(self.position_state),
                         },
                     }
                 )
-                self.current_trade_reason = None
+            self._clear_position_state()
             return
 
         trend_ok = passes_trend_filter(close, ma120, enabled=self.p.use_trend_filter)
@@ -144,6 +162,7 @@ class MeanReversionAdvanced(bt.Strategy):
             self.buy(size=self.p.trade_unit)
             self.buy_events += 1
             executed = True
+            self.position_state = create_position_state(entry_price=close, entry_bar=len(self))
             self.current_trade_reason = {
                 "zscore": float(zscore),
                 "signal_trigger": bool(signal_trigger),
@@ -169,5 +188,6 @@ class MeanReversionAdvanced(bt.Strategy):
                 "entry_signal": bool(entry_signal),
                 "executed": bool(executed),
                 "blocked_by": blocked_by,
+                "holding_bars": None if self.position_state is None else get_holding_bars(self.position_state, len(self)),
             }
         )

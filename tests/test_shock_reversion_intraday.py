@@ -48,7 +48,7 @@ def test_shock_reversion_trend_filter_blocks_entry() -> None:
 
 def test_shock_reversion_take_profit_exit() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 100.0, 100.0]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 1.0, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     assert strat.completed_trades[0]["exit_reason"] == "take_profit"
 
