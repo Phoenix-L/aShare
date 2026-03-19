@@ -25,13 +25,13 @@ def _synthetic_df() -> pd.DataFrame:
 
 
 def test_expand_grid_cross_product() -> None:
-    grid = {"z_entry": [-1.2, -1.5, -1.8], "z_exit": [0.3, 0.5], "use_multi_day_excursion": [False, True]}
+    grid = {"z_entry": [-1.2, -1.5, -1.8], "z_exit": [0.3, 0.5]}
 
     combos = expand_grid(grid)
 
-    assert len(combos) == 12
-    assert {"z_entry": -1.2, "z_exit": 0.3, "use_multi_day_excursion": False} in combos
-    assert {"z_entry": -1.8, "z_exit": 0.5, "use_multi_day_excursion": True} in combos
+    assert len(combos) == 6
+    assert {"z_entry": -1.2, "z_exit": 0.3} in combos
+    assert {"z_entry": -1.8, "z_exit": 0.5} in combos
 
 
 def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_path: Path) -> None:
@@ -74,25 +74,19 @@ def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_pa
             "grid": {
                 "z_entry": [-1.2, -1.5, -1.8],
                 "z_exit": [0.3, 0.5],
-                "use_multi_day_excursion": [False, True],
-                "excursion_window": [2],
-                "excursion_min": [0.008, 0.01],
             },
         },
         config=BacktestConfig(),
     )
 
-    assert result["num_runs"] == 18
-    assert len(captured) == 18
+    assert result["num_runs"] == 6
+    assert len(captured) == 6
     assert {
         "trade_unit": 500,
         "use_trend_filter": True,
         "use_atr_filter": True,
         "z_entry": -1.2,
         "z_exit": 0.3,
-        "use_multi_day_excursion": False,
-        "excursion_window": None,
-        "excursion_min": None,
     } in captured
     assert {
         "trade_unit": 500,
@@ -100,8 +94,5 @@ def test_run_experiment_injects_params_and_executes_all_runs(monkeypatch, tmp_pa
         "use_atr_filter": True,
         "z_entry": -1.8,
         "z_exit": 0.5,
-        "use_multi_day_excursion": True,
-        "excursion_window": 2,
-        "excursion_min": 0.01,
     } in captured
-    assert len(result["results"]) == 18
+    assert len(result["results"]) == 6
