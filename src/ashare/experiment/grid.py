@@ -29,11 +29,6 @@ def expand_grid(grid_dict: dict[str, list[Any]] | None) -> list[dict[str, Any]]:
 
     return [dict(zip(keys, combo)) for combo in product(*values)]
 
-def _uses_mean_reversion_advanced_normalization(params: dict[str, Any], strategy_name: str | None = None) -> bool:
-    """Return True when excursion/zscore dedup rules should apply."""
-    if strategy_name == "mean_reversion_advanced":
-        return True
-    return any(key in params for key in MEAN_REVERSION_ADVANCED_KEYS)
 
 def normalize_params(params: dict[str, Any], strategy_name: str | None = None) -> dict[str, Any]:
     """Normalize dependent parameters so equivalent runs share the same representation."""
@@ -43,6 +38,7 @@ def normalize_params(params: dict[str, Any], strategy_name: str | None = None) -
         # so deduplication is stable even if callers attach unrelated metadata.
         return {key: value for key, value in normalized.items() if key in SHOCK_REVERSION_INTRADAY_KEYS or key == "trade_unit"}
     return normalized
+
 
 def dict_to_key(params: dict[str, Any]) -> tuple[tuple[str, Any], ...]:
     """Convert a parameter mapping into a stable key for deduplication."""
@@ -63,6 +59,7 @@ def deduplicate_parameter_sets(
             unique_map[key] = normalized
 
     return list(unique_map.values())
+
 
 def generate_parameter_sets(payload: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """Generate merged parameter sets from base parameters + grid dimensions."""
