@@ -22,6 +22,27 @@ def _synthetic_df(closes: list[float], spread: float = 1.0) -> pd.DataFrame:
     )
 
 
+def _session_df(start: str, end: str, close: float = 100.0, spread: float = 1.0) -> pd.DataFrame:
+    days = pd.bdate_range(start, end)
+    idx = []
+    for day in days:
+        for time_str in ["10:00", "10:30", "11:00", "11:30", "13:30", "14:00", "14:30", "15:00"]:
+            idx.append(pd.Timestamp(f"{day.date()} {time_str}"))
+
+    closes = [close] * len(idx)
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c + spread for c in closes],
+            "low": [c - spread for c in closes],
+            "close": closes,
+            "volume": [1000] * len(closes),
+            "turnover_rate": [2.0] * len(closes),
+        },
+        index=pd.DatetimeIndex(idx),
+    )
+
+
 def _run(closes: list[float], strategy_params: dict) -> ShockReversionIntradayStrategy:
     _, strat, _ = run_backtest(
         strategy_cls=ShockReversionIntradayStrategy,
@@ -93,3 +114,51 @@ def test_shock_reversion_rejects_zscore_params() -> None:
     closes = [100.0] * 180 + [97.0, 97.0, 97.0]
     with pytest.raises(ValueError, match="does not accept z-score params"):
         _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "z_entry": -1.0})
+
+
+def test_shock_reversion_does_not_require_trend_history_when_filter_disabled() -> None:
+    df = _session_df("2025-10-01", "2026-02-28")
+
+    _, strat, metrics = run_backtest(
+        strategy_cls=ShockReversionIntradayStrategy,
+        data_df=df,
+        config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+        strategy_params={
+            "trade_unit": 500,
+            "use_trend_filter": False,
+            "excursion_lookback_bars": 12,
+            "trend_ma_period": 120,
+            "excursion_threshold": 0.03,
+            "recovery_frac": 0.5,
+            "max_hold_bars": 40,
+            "stop_loss_pct": 0.03,
+            "take_profit_pct": 0.03,
+        },
+        symbol="SYNTH",
+    )
+
+    assert len(strat.diagnostics) > 0
+    assert metrics["diagnostics_summary"]["total_bars"] > 0
+
+
+def test_shock_reversion_fails_fast_when_trend_history_is_insufficient() -> None:
+    df = _session_df("2025-10-01", "2026-02-28")
+
+    with pytest.raises(ValueError, match="requires at least 120 trading days"):
+        run_backtest(
+            strategy_cls=ShockReversionIntradayStrategy,
+            data_df=df,
+            config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+            strategy_params={
+                "trade_unit": 500,
+                "use_trend_filter": True,
+                "excursion_lookback_bars": 12,
+                "trend_ma_period": 120,
+                "excursion_threshold": 0.03,
+                "recovery_frac": 0.5,
+                "max_hold_bars": 40,
+                "stop_loss_pct": 0.03,
+                "take_profit_pct": 0.03,
+            },
+            symbol="SYNTH",
+        )
