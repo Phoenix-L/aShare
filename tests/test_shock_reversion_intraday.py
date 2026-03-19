@@ -89,7 +89,7 @@ def test_shock_reversion_fixed_take_profit_exit() -> None:
     )
 
     assert len(strat.completed_trades) == 1
-    assert strat.completed_trades[0]["exit_reason"] == "fixed_tp"
+    assert strat.completed_trades[0]["exit_reason"] == "take_profit"
     assert strat.completed_trades[0]["exit_price"] == 100.0
 
 
@@ -115,6 +115,8 @@ def test_shock_reversion_anchor_recovery_exit_uses_frozen_anchor() -> None:
     assert trade["anchor_price_at_entry"] == 100.0
     assert trade["excursion_at_entry"] == -0.03
     assert trade["exit_reason"] == "anchor_recovery"
+    assert strat.trade_diagnostics[0]["exit_reason"]["recovery_target"] == 99.0
+    assert round(strat.trade_diagnostics[0]["exit_reason"]["take_profit_price"], 2) == 99.96
     assert trade["exit_price"] == 99.0
 
 
@@ -167,3 +169,5 @@ def test_shock_reversion_records_completed_trade_stats() -> None:
     assert trade["max_adverse_excursion"] <= 0.0
     assert trade["bars_to_mfe"] >= 1
     assert trade["bars_to_mae"] == 0
+    assert any(row["recovery_target"] is not None for row in strat.diagnostics)
+    assert any(row["take_profit_price"] is not None for row in strat.diagnostics)

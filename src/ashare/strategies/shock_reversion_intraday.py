@@ -113,12 +113,18 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
         if self.p.exit_mode == "fixed_tp" and self.p.take_profit_pct is not None:
             if close >= self.entry_price * (1.0 + self.p.take_profit_pct):
-                return "fixed_tp"
+                return "take_profit"
 
         if self.p.exit_mode == "anchor_recovery" and self.current_trade_record is not None:
             recovery_target = self.current_trade_record.get("recovery_target")
-            if recovery_target is not None and close >= float(recovery_target):
-                return "anchor_recovery"
+            take_profit_price = self.current_trade_record.get("take_profit_price")
+            targets = [float(value) for value in (recovery_target, take_profit_price) if value is not None]
+            if targets:
+                effective_target = min(targets)
+                if close >= effective_target:
+                    if take_profit_price is not None and effective_target == float(take_profit_price):
+                        return "take_profit"
+                    return "anchor_recovery"
 
         if self.p.max_hold_bars is not None and self.entry_bar is not None:
             if (len(self) - self.entry_bar) >= self.p.max_hold_bars:
@@ -150,6 +156,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             entry_price = float(order.executed.price)
             shock_depth = max(0.0, anchor_price - entry_price)
             recovery_target = entry_price + (self.p.recovery_frac * shock_depth)
+            take_profit_price = entry_price * (1.0 + self.p.take_profit_pct)
             self.entry_bar = len(self)
             self.entry_price = entry_price
             self.current_trade_record = {
@@ -163,6 +170,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "bars_to_mfe": 0,
                 "bars_to_mae": 0,
                 "recovery_target": recovery_target,
+                "take_profit_price": take_profit_price,
             }
             self.pending_entry_context = None
             return
@@ -217,6 +225,8 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                         "entry_reason": self.current_trade_reason,
                         "exit_reason": {
                             "reason": exit_reason,
+                            "recovery_target": None if self.current_trade_record is None else self.current_trade_record.get("recovery_target"),
+                            "take_profit_price": None if self.current_trade_record is None else self.current_trade_record.get("take_profit_price"),
                             "excursion": float(excursion_value),
                         },
                     }
@@ -245,6 +255,13 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             }
             blocked_by = []
 
+        recovery_target = None if self.current_trade_record is None else self.current_trade_record.get("recovery_target")
+        take_profit_price = None if self.current_trade_record is None else self.current_trade_record.get("take_profit_price")
+        if recovery_target is not None and take_profit_price is not None:
+            effective_target = min(float(recovery_target), float(take_profit_price))
+        else:
+            effective_target = recovery_target if recovery_target is not None else take_profit_price
+
         self.diagnostics.append(
             {
                 "datetime": self._current_datetime(),
@@ -255,6 +272,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "executed": bool(executed),
                 "blocked_by": blocked_by,
                 "in_position": bool(self.position),
+                "recovery_target": recovery_target,
+                "take_profit_price": take_profit_price,
+                "effective_target": effective_target,
                 "exit_reason": exit_reason,
             }
         )
