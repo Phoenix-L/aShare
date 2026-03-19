@@ -59,7 +59,7 @@ def test_collect_and_build_summary_outputs_csv(monkeypatch, tmp_path: Path) -> N
     assert ranked[1]["run_id"] == "run_001"
 
     summary_text = summary_path.read_text(encoding="utf-8")
-    assert "z_entry,z_exit,use_trend_filter,use_atr_filter,use_art_filter,use_multi_day_excursion,excursion_window,excursion_min,atr_ratio_min,total_return,sharpe,max_drawdown,num_trades" in summary_text
+    assert "signal_mode,z_entry,z_exit,use_trend_filter,use_atr_filter,use_art_filter,use_multi_day_excursion,excursion_lookback_bars,excursion_threshold,excursion_window,excursion_min,atr_ratio_min,total_return,sharpe,max_drawdown,num_trades" in summary_text
 
 
 def test_rank_results_handles_missing_metrics() -> None:
