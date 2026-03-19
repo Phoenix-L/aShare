@@ -99,3 +99,72 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
 
     run_payload = json.loads((experiment_dir / "run_001" / "run_result.json").read_text(encoding="utf-8"))
     assert set(run_payload.keys()) == {"params", "metrics", "meta"}
+
+
+def test_execute_experiment_does_not_print_grid_diagnostics_when_not_deduplicated(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    def _fake_backtest(strategy_cls, data_df, config, strategy_params=None, symbol=None, experiment_name=None, run_id=None, output_dir=None):
+        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id, output_dir)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec={
+            "name": "no_dedup_report",
+            "strategy": "mid_freq_ma",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {},
+            "grid": {"short_period": [3, 5], "long_period": [8]},
+        },
+        config=BacktestConfig(),
+    )
+
+    output = capsys.readouterr().out
+    assert "Original grid size:" not in output
+    assert "Deduplicated runs:" not in output
+
+
+def test_execute_experiment_prints_grid_diagnostics_when_deduplicated(monkeypatch, tmp_path: Path, capsys) -> None:
+
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    def _fake_backtest(strategy_cls, data_df, config, strategy_params=None, symbol=None, experiment_name=None, run_id=None, output_dir=None):
+        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id, output_dir)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec={
+            "name": "dedup_report",
+            "strategy": "mid_freq_ma",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {},
+            "grid": {"short_period": [3, 3], "long_period": [8]},
+        },
+        config=BacktestConfig(),
+    )
+
+    output = capsys.readouterr().out
+    assert "Original grid size: 2" in output
+    assert "Deduplicated runs: 1" in output
