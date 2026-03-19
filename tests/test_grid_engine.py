@@ -2,11 +2,9 @@ import pytest
 
 from ashare.experiment.grid import deduplicate_parameter_sets, generate_parameter_sets
 
-
 def test_generate_parameter_sets_returns_single_when_no_grid() -> None:
     result = generate_parameter_sets({"parameters": {"short_period": 5}, "grid": {}})
     assert result == [{"short_period": 5}]
-
 
 def test_generate_parameter_sets_merges_base_with_grid_product() -> None:
     payload = {"parameters": {"turnover_thresh": 1.0}, "grid": {"short_period": [5, 10], "long_period": [20, 30]}}
