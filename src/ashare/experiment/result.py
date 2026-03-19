@@ -9,8 +9,28 @@ from typing import Any
 
 import yaml
 
-
-SUMMARY_COLUMNS = [
+METRIC_COLUMNS = ["total_return", "sharpe", "max_drawdown", "num_trades"]
+PARAMETER_COLUMN_PREFERENCE = {
+    "mean_reversion_advanced": [
+        "z_entry",
+        "z_exit",
+        "use_trend_filter",
+        "use_atr_filter",
+        "use_art_filter",
+        "atr_ratio_min",
+    ],
+    "shock_reversion_intraday": [
+        "use_trend_filter",
+        "excursion_lookback_bars",
+        "excursion_threshold",
+        "trend_ma_period",
+        "take_profit_pct",
+        "recovery_frac",
+        "max_hold_bars",
+        "stop_loss_pct",
+    ],
+}
+DEFAULT_PARAMETER_COLUMN_PREFERENCE = [
     "signal_mode",
     "z_entry",
     "z_exit",
@@ -23,21 +43,11 @@ SUMMARY_COLUMNS = [
     "excursion_window",
     "excursion_min",
     "atr_ratio_min",
-    "total_return",
-    "sharpe",
-    "max_drawdown",
-    "num_trades",
 ]
-
-RANKING_DEFAULTS = {
-    "sharpe": -999.0,
-    "total_return": -999.0,
-    "max_drawdown": 999.0,
-}
+RANKING_DEFAULTS = {"sharpe": -999.0, "total_return": -999.0, "max_drawdown": 999.0}
 
 
 def _safe_float(value: Any, fallback: float) -> float:
-    """Return float value or fallback when value is missing/non-numeric."""
     if value is None:
         return fallback
     try:
@@ -47,7 +57,6 @@ def _safe_float(value: Any, fallback: float) -> float:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    """Load JSON payload from file; return empty payload on failure."""
     if not path.exists():
         return {}
     try:
@@ -58,7 +67,6 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-    """Load YAML payload from file; return empty payload on failure."""
     if not path.exists():
         return {}
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -66,7 +74,6 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _normalize_run_payload(run_dir: Path) -> dict[str, Any]:
-    """Load canonical per-run payload and support legacy fallback files."""
     run_payload = _load_json(run_dir / "run_result.json")
     if run_payload:
         params = run_payload.get("params") if isinstance(run_payload.get("params"), dict) else {}
@@ -87,7 +94,6 @@ def _normalize_run_payload(run_dir: Path) -> dict[str, Any]:
 
 
 def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
-    """Collect one standardized record per run directory under an experiment output path."""
     records: list[dict[str, Any]] = []
 
     run_dirs = sorted(path for path in output_root.iterdir() if path.is_dir() and path.name.startswith("run_"))
@@ -115,6 +121,11 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "excursion_threshold": params.get("excursion_threshold"),
             "excursion_window": params.get("excursion_window"),
             "excursion_min": params.get("excursion_min"),
+            "trend_ma_period": params.get("trend_ma_period"),
+            "take_profit_pct": params.get("take_profit_pct"),
+            "recovery_frac": params.get("recovery_frac"),
+            "max_hold_bars": params.get("max_hold_bars"),
+            "stop_loss_pct": params.get("stop_loss_pct"),
             "atr_ratio_min": atr_ratio_min,
             "total_return": _safe_float(metrics.get("total_return", metrics.get("rtot")), RANKING_DEFAULTS["total_return"]),
             "sharpe": _safe_float(metrics.get("sharpe"), RANKING_DEFAULTS["sharpe"]),
@@ -126,17 +137,35 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _summary_columns(records: list[dict[str, Any]]) -> list[str]:
+    if not records:
+        return DEFAULT_PARAMETER_COLUMN_PREFERENCE + METRIC_COLUMNS
+
+    strategy_name = records[0].get("meta", {}).get("strategy")
+    preferred = PARAMETER_COLUMN_PREFERENCE.get(strategy_name, DEFAULT_PARAMETER_COLUMN_PREFERENCE)
+    columns = []
+    for column in preferred:
+        if any(
+            column in (record.get("params") or {})
+            or (column == "use_atr_filter" and any(key in (record.get("params") or {}) for key in {"use_atr_filter", "use_art_filter"}))
+            or (column == "use_art_filter" and any(key in (record.get("params") or {}) for key in {"use_atr_filter", "use_art_filter"}))
+            or (column == "atr_ratio_min" and any(key in (record.get("params") or {}) for key in {"atr_ratio_min", "art_threshold"}))
+            for record in records
+        ):
+            columns.append(column)
+    return columns + METRIC_COLUMNS
+
+
 def _write_summary(path: Path, records: list[dict[str, Any]]) -> None:
-    """Write records to CSV with fixed column order."""
+    columns = _summary_columns(records)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=SUMMARY_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
         for record in records:
-            writer.writerow({column: record.get(column) for column in SUMMARY_COLUMNS})
+            writer.writerow({column: record.get(column) for column in columns})
 
 
 def rank_results(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Sort records by sharpe desc, then total return desc."""
     return sorted(
         records,
         key=lambda row: (
@@ -147,7 +176,6 @@ def rank_results(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def build_summary(experiment_name: str) -> tuple[Path, Path, list[dict[str, Any]]]:
-    """Build summary.csv + summary_sorted.csv for an experiment and return ranked records."""
     output_root = Path("outputs") / experiment_name
     output_root.mkdir(parents=True, exist_ok=True)
 

@@ -16,6 +16,7 @@ from ashare.strategies.core_satellite_mean_reversion import CoreSatelliteMeanRev
 from ashare.strategies.mean_reversion import MeanReversion
 from ashare.strategies.mean_reversion_advanced import MeanReversionAdvanced
 from ashare.strategies.shock_reversion_intraday import ShockReversionIntradayStrategy
+from ashare.strategies.validation import validate_strategy_params
 from ashare.utils.logging import get_logger, log_backtest_execution, reset_log_context, set_log_context
 
 logger = get_logger("ashare.engine.runner")
@@ -25,6 +26,21 @@ def _safe_avg(values: list[float]) -> float:
     """Return average or 0.0 when no values are present."""
     return sum(values) / len(values) if values else 0.0
 
+
+
+
+def _resolve_strategy_name(strategy_cls: Type[bt.Strategy]) -> str | None:
+    """Return the registry name for strategies that require explicit param validation."""
+    strategy_map = {
+        "core_satellite": CoreSatelliteMeanReversion,
+        "mean_reversion": MeanReversion,
+        "mean_reversion_advanced": MeanReversionAdvanced,
+        "shock_reversion_intraday": ShockReversionIntradayStrategy,
+    }
+    for name, candidate in strategy_map.items():
+        if issubclass(strategy_cls, candidate):
+            return name
+    return None
 
 
 def _build_diagnostics_summary(
@@ -160,6 +176,9 @@ def run_backtest(
         cerebro.resampledata(feed, timeframe=bt.TimeFrame.Days, compression=1)
 
     strategy_params = dict(strategy_params or {})
+    strategy_name = _resolve_strategy_name(strategy_cls)
+    if strategy_name is not None:
+        strategy_params = validate_strategy_params(strategy_name, strategy_params)
     logger.debug(f"Adding strategy: {strategy_cls.__name__} with params: {strategy_params}")
     cerebro.addstrategy(strategy_cls, **strategy_params)
     register_analyzers(cerebro)
