@@ -159,6 +159,30 @@ def test_advanced_mean_reversion_excursion_disabled_with_none_window_does_not_cr
     assert strat.buy_events >= 1
 
 
+def test_excursion_signal_mode_does_not_require_excursion_window_even_if_param_set() -> None:
+    closes = [100.0] * 180 + [99.0, 99.0]
+
+    # In signal_mode="excursion", multi-day excursion is not used and should not
+    # require excursion_window (grid normalization may null it out).
+    strat = _run(
+        closes,
+        {
+            "signal_mode": "excursion",
+            "trade_unit": 500,
+            "z_entry": -10.0,
+            "z_exit": 10.0,
+            "use_trend_filter": False,
+            "use_atr_filter": False,
+            "use_multi_day_excursion": True,
+            "excursion_window": None,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+        },
+    )
+
+    assert strat.excursion_ratio is None
+
+
 
 def test_advanced_mean_reversion_requires_excursion_window_when_enabled() -> None:
     closes = [100.0] * 180 + [97.0, 97.0]
