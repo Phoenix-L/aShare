@@ -38,3 +38,33 @@ def test_excursion_deduplication() -> None:
         "excursion_min": None,
         "excursion_window": None,
     } in final_runs
+
+
+def test_excursion_signal_mode_deduplicates_irrelevant_excursion_filter_and_signal_params() -> None:
+    grid = {
+        "signal_mode": ["zscore", "excursion"],
+        "use_multi_day_excursion": [True, False],
+        "excursion_min": [0.008, 0.01],
+        "excursion_window": [2, 3],
+        "excursion_lookback_bars": [2, 4],
+        "excursion_threshold": [0.01, 0.02],
+    }
+
+    final_runs = deduplicate_parameter_sets(generate_parameter_sets({"parameters": {}, "grid": grid}))
+
+    assert {
+        "signal_mode": "zscore",
+        "use_multi_day_excursion": False,
+        "excursion_min": None,
+        "excursion_window": None,
+        "excursion_lookback_bars": None,
+        "excursion_threshold": None,
+    } in final_runs
+    assert {
+        "signal_mode": "excursion",
+        "use_multi_day_excursion": True,
+        "excursion_min": None,
+        "excursion_window": None,
+        "excursion_lookback_bars": 2,
+        "excursion_threshold": 0.01,
+    } in final_runs
