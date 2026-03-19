@@ -19,7 +19,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         excursion_lookback_bars=3,
         excursion_threshold=0.01,
         trend_ma_period=120,
-        exit_mode="anchor_recovery",
         take_profit_pct=0.02,
         recovery_frac=0.5,
         max_hold_bars=16,
@@ -29,8 +28,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
     def __init__(self) -> None:
         if self.p.excursion_lookback_bars is None:
             raise ValueError("Invalid config: excursion_lookback_bars required")
-        if self.p.exit_mode not in {"max_hold_only", "fixed_tp", "anchor_recovery"}:
-            raise ValueError("Invalid config: exit_mode must be one of max_hold_only, fixed_tp, anchor_recovery")
 
         daily_data = self._get_daily_ma_source()
         self.trend_ma = bt.indicators.SimpleMovingAverage(daily_data.close, period=self.p.trend_ma_period)
@@ -122,15 +119,13 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         if not self.position or self.entry_price is None:
             return None
 
-        stop_loss_hit = self.p.stop_loss_pct is not None and close <= self.entry_price * (1.0 - self.p.stop_loss_pct)
-        if stop_loss_hit:
+        if self.p.stop_loss_pct is not None and close <= self.entry_price * (1.0 - self.p.stop_loss_pct):
             return "stop_loss"
 
-        if self.p.exit_mode == "fixed_tp" and self.p.take_profit_pct is not None:
-            if close >= self.entry_price * (1.0 + self.p.take_profit_pct):
-                return "take_profit"
+        if self.p.take_profit_pct is not None and close >= self.entry_price * (1.0 + self.p.take_profit_pct):
+            return "take_profit"
 
-        if self.p.exit_mode == "anchor_recovery" and self.current_trade_record is not None:
+        if self.current_trade_record is not None:
             effective_target = self.current_trade_record.get("effective_target_price")
             if effective_target is not None and close >= float(effective_target):
                 take_profit_price = self.current_trade_record.get("take_profit_price")
