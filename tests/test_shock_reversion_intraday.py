@@ -3,6 +3,7 @@ import pytest
 
 from ashare.config.settings import BacktestConfig
 from ashare.engine.runner import run_backtest
+from ashare.strategies.components.execution import create_position_state, evaluate_exit_engine
 from ashare.strategies.shock_reversion_intraday import ShockReversionIntradayStrategy
 
 
@@ -51,6 +52,24 @@ def test_shock_reversion_take_profit_exit() -> None:
     strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 1.0, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     assert strat.completed_trades[0]["exit_reason"] == "take_profit"
+
+
+def test_shock_reversion_profit_exit_uses_first_target_hit() -> None:
+    state = create_position_state(entry_price=97.0, entry_bar=10, anchor_price=100.0)
+    exit_plan = evaluate_exit_engine(
+        close=99.0,
+        current_bar=11,
+        state=state,
+        recovery_frac=1.0,
+        take_profit_pct=0.02,
+        stop_loss_pct=0.10,
+        max_hold_bars=10,
+    )
+    assert exit_plan.take_profit_price < exit_plan.recovery_target
+    assert exit_plan.effective_target_price == exit_plan.take_profit_price
+    assert exit_plan.reason == "take_profit"
+    assert exit_plan.signal is True
+
 
 
 def test_shock_reversion_recovery_exit_uses_frozen_anchor() -> None:

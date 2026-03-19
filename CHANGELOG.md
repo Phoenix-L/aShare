@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-19
+
+### Added
+
+- Standardized research documentation for `mean_reversion_advanced` into dedicated strategy, system architecture, and user manual documents.
+- Added a parallel three-document research set for `shock_reversion_intraday`.
+- Added release notes for `v0.5.0`.
+
+### Changed
+
+- Promoted the standardized strategy research docs under `research/` so both strategies share the same documentation layout.
+- Bumped package version metadata to `0.5.0`.
+
+
 ## [0.3.0] - 2025-03-17
 
 ### Added
@@ -33,5 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - (None in this release.)
 
-[Unreleased]: https://github.com/Phoenix-L/aShare/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Phoenix-L/aShare/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Phoenix-L/aShare/compare/v0.3.0...v0.5.0
 [0.3.0]: https://github.com/Phoenix-L/aShare/compare/v0.2.0...v0.3.0
