@@ -1,7 +1,9 @@
+import backtrader as bt
 import pandas as pd
 import pytest
 
 from ashare.config.settings import BacktestConfig
+from ashare.data.normalizers import to_backtrader_feed
 from ashare.engine.runner import run_backtest
 from ashare.strategies.mean_reversion_advanced import MeanReversionAdvanced
 
@@ -174,3 +176,49 @@ def test_advanced_mean_reversion_requires_excursion_window_when_enabled() -> Non
                 "excursion_window": None,
             },
         )
+
+
+def test_advanced_mean_reversion_runner_resamples_for_subclasses() -> None:
+    class DerivedMeanReversionAdvanced(MeanReversionAdvanced):
+        pass
+
+    _, strat, _ = run_backtest(
+        strategy_cls=DerivedMeanReversionAdvanced,
+        data_df=_synthetic_df([100.0] * 180 + [97.0, 101.0, 101.0]),
+        config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+        strategy_params={
+            "trade_unit": 500,
+            "z_entry": -1.0,
+            "z_exit": 0.3,
+            "use_trend_filter": False,
+            "use_atr_filter": False,
+            "ma_short": 2,
+            "ma_trend": 2,
+        },
+        symbol="SYNTH",
+    )
+
+    assert len(strat.datas) == 2
+    assert strat.datas[1]._timeframe == bt.TimeFrame.Days
+    assert strat.datas[1]._compression == 1
+
+
+def test_advanced_mean_reversion_requires_daily_resampled_feed() -> None:
+    cerebro = bt.Cerebro()
+    cerebro.adddata(to_backtrader_feed(_synthetic_df([100.0] * 200), name="SYNTH"))
+    cerebro.addstrategy(
+        MeanReversionAdvanced,
+        trade_unit=500,
+        z_entry=-1.0,
+        z_exit=0.3,
+        use_trend_filter=False,
+        use_atr_filter=False,
+        ma_short=2,
+        ma_trend=2,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="daily-resampled feed at datas\\[1\\]",
+    ):
+        cerebro.run()

@@ -12,6 +12,9 @@ from ashare.config.settings import BacktestConfig
 from ashare.engine.analyzers import extract_results, register_analyzers
 from ashare.engine.cerebro_builder import build_cerebro
 from ashare.data.normalizers import to_backtrader_feed
+from ashare.strategies.core_satellite_mean_reversion import CoreSatelliteMeanReversion
+from ashare.strategies.mean_reversion import MeanReversion
+from ashare.strategies.mean_reversion_advanced import MeanReversionAdvanced
 from ashare.utils.logging import get_logger, log_backtest_execution, reset_log_context, set_log_context
 
 logger = get_logger("ashare.engine.runner")
@@ -100,11 +103,14 @@ def run_backtest(
     # Only enable daily MA/trend computation when the strategy uses it.
     # This avoids affecting strategies that don't need daily closes and
     # prevents resampling-related edge cases in Backtrader.
-    needs_daily_ma = strategy_cls.__name__ in {
-        "MeanReversionAdvanced",
-        "MeanReversion",
-        "CoreSatelliteMeanReversion",
-    }
+    needs_daily_ma = issubclass(
+        strategy_cls,
+        (
+            MeanReversionAdvanced,
+            MeanReversion,
+            CoreSatelliteMeanReversion,
+        ),
+    )
     if needs_daily_ma:
         # Add a daily-resampled view of the same feed so strategies can compute
         # moving averages in units of "trading days" rather than intraday bars.
