@@ -165,6 +165,7 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     run_payload = json.loads((output_root / "run_001" / "run_result.json").read_text(encoding="utf-8"))
     summary_text = (output_root / "summary.csv").read_text(encoding="utf-8")
     trades_text = (output_root / "trades.csv").read_text(encoding="utf-8")
+    signals_text = (output_root / "signals.csv").read_text(encoding="utf-8")
 
     assert run_payload["meta"]["strategy"] == "shock_reversion_intraday"
     assert run_payload["params"]["excursion_lookback_bars"] == 3
@@ -174,7 +175,15 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert "excursion_threshold" in summary_text
     assert "entry_datetime" in trades_text
     assert "anchor_price_at_entry" in trades_text
+    assert "recovery_target" in trades_text
+    assert "take_profit_price" in trades_text
+    assert "effective_target_price" in trades_text
     assert "bars_to_mfe" in trades_text
+    assert "mfe_pct" in trades_text
     assert "exit_reason" in trades_text
-    assert "anchor_recovery" in trades_text
+    assert "recovery" in trades_text
     assert len(trades_text.strip().splitlines()) > 1
+    assert "datetime" in signals_text
+    assert "threshold" in signals_text
+    assert "entry_executed" in signals_text
+    assert len(signals_text.strip().splitlines()) > 1

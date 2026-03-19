@@ -21,9 +21,18 @@ from ashare.utils.logging import get_logger, log_backtest_execution, reset_log_c
 logger = get_logger("ashare.engine.runner")
 
 
-def _build_diagnostics_summary(diagnostics: list[dict[str, Any]]) -> dict[str, int]:
-    """Aggregate per-bar diagnostics into high-level signal/execution counts."""
-    summary = {
+def _safe_avg(values: list[float]) -> float:
+    """Return average or 0.0 when no values are present."""
+    return sum(values) / len(values) if values else 0.0
+
+
+
+def _build_diagnostics_summary(
+    diagnostics: list[dict[str, Any]],
+    completed_trades: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Aggregate per-bar and per-trade diagnostics into high-level metrics."""
+    summary: dict[str, Any] = {
         "total_bars": len(diagnostics),
         "entry_signals": 0,
         "executed_trades": 0,
@@ -57,6 +66,35 @@ def _build_diagnostics_summary(diagnostics: list[dict[str, Any]]) -> dict[str, i
         if sum((has_trend, has_atr, has_excursion)) >= 2:
             summary["blocked_by_multiple"] += 1
 
+    completed_trades = list(completed_trades or [])
+    mfe_values = [float(trade.get("mfe_pct", trade.get("max_favorable_excursion", 0.0))) for trade in completed_trades]
+    mae_values = [float(trade.get("mae_pct", trade.get("max_adverse_excursion", 0.0))) for trade in completed_trades]
+    pnl_values = [float(trade.get("pnl_pct", 0.0)) for trade in completed_trades]
+
+    avg_mfe = _safe_avg(mfe_values)
+    avg_mae = _safe_avg(mae_values)
+    avg_pnl = _safe_avg(pnl_values)
+    summary["avg_mfe"] = avg_mfe
+    summary["avg_mae"] = avg_mae
+    summary["avg_pnl"] = avg_pnl
+    summary["mfe_pnl_gap"] = avg_mfe - avg_pnl
+    summary["pnl_capture_ratio"] = avg_pnl / avg_mfe if avg_mfe > 0 else 0.0
+
+    exit_reasons = ["recovery", "take_profit", "stop_loss", "max_hold"]
+    win_rate_by_exit_reason: dict[str, float] = {}
+    avg_holding_bars_by_exit_reason: dict[str, float] = {}
+    for reason in exit_reasons:
+        subset = [trade for trade in completed_trades if trade.get("exit_reason") == reason]
+        win_rate_by_exit_reason[reason] = (
+            sum(1 for trade in subset if float(trade.get("pnl_pct", 0.0)) > 0) / len(subset)
+            if subset else 0.0
+        )
+        avg_holding_bars_by_exit_reason[reason] = _safe_avg(
+            [float(trade.get("holding_bars", 0.0)) for trade in subset]
+        )
+
+    summary["win_rate_by_exit_reason"] = win_rate_by_exit_reason
+    summary["avg_holding_bars_by_exit_reason"] = avg_holding_bars_by_exit_reason
     return summary
 
 
@@ -137,7 +175,8 @@ def run_backtest(
 
         diagnostics = getattr(strat, "diagnostics", None)
         if diagnostics is not None:
-            diagnostics_summary = _build_diagnostics_summary(diagnostics)
+            completed_trades = getattr(strat, "completed_trades", None)
+            diagnostics_summary = _build_diagnostics_summary(diagnostics, completed_trades=completed_trades)
             metrics["diagnostics_summary"] = diagnostics_summary
 
             target_dir = output_dir

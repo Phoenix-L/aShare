@@ -7,6 +7,7 @@ from ashare.config.settings import BacktestConfig
 from ashare.engine.runner import run_backtest
 from ashare.experiment.executor import execute_experiment_spec
 from ashare.strategies.mean_reversion_advanced import MeanReversionAdvanced
+from ashare.strategies.shock_reversion_intraday import ShockReversionIntradayStrategy
 
 
 def _synthetic_df(closes: list[float], spread: float = 1.0) -> pd.DataFrame:
@@ -207,3 +208,35 @@ def test_experiment_saves_diagnostics_in_each_run_folder(monkeypatch, tmp_path: 
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "diagnostics.json").exists()
     assert (run_dir / "diagnostics_summary.json").exists()
+
+
+
+def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() -> None:
+    closes = [100.0] * 180 + [97.0, 98.0, 99.0, 99.0] * 2
+
+    _, _, metrics = run_backtest(
+        strategy_cls=ShockReversionIntradayStrategy,
+        data_df=_synthetic_df(closes),
+        config=_config(),
+        strategy_params={
+            "trade_unit": 500,
+            "use_trend_filter": False,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "trend_ma_period": 2,
+            "exit_mode": "anchor_recovery",
+            "recovery_frac": 0.5,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+        symbol="SYNTH",
+    )
+
+    summary = metrics["diagnostics_summary"]
+    assert summary["avg_mfe"] > 0
+    assert summary["avg_mae"] <= 0
+    assert summary["avg_pnl"] > 0
+    assert summary["mfe_pnl_gap"] >= 0
+    assert summary["pnl_capture_ratio"] > 0
+    assert summary["win_rate_by_exit_reason"]["recovery"] == 1.0
+    assert summary["avg_holding_bars_by_exit_reason"]["recovery"] > 0
