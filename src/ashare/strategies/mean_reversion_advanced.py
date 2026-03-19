@@ -44,7 +44,10 @@ class MeanReversionAdvanced(bt.Strategy):
     def __init__(self) -> None:
         if self.p.signal_mode not in {"zscore", "excursion"}:
             raise ValueError("Invalid config: signal_mode must be 'zscore' or 'excursion'")
-        if self.p.use_multi_day_excursion and self.p.excursion_window is None:
+        # Multi-day excursion is a legacy filter which only applies in zscore mode.
+        # In excursion signal_mode, excursion parameters are different and
+        # excursion_window should not be required.
+        if self.p.signal_mode == "zscore" and self.p.use_multi_day_excursion and self.p.excursion_window is None:
             raise ValueError("Invalid config: excursion_window required")
         if self.p.excursion_lookback_bars is None:
             raise ValueError("Invalid config: excursion_lookback_bars required")
