@@ -12,8 +12,9 @@ import yaml
 from ashare.config.settings import BacktestConfig
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
-from ashare.experiment.grid import deduplicate_parameter_sets, expand_grid
+from ashare.experiment.grid import expand_grid, generate_parameter_sets
 from ashare.experiment.result import build_summary
+from ashare.strategies.validation import validate_strategy_params
 from ashare.utils.logging import get_logger
 
 logger = get_logger("ashare.experiment.executor")
@@ -68,10 +69,13 @@ def execute_experiment_spec(
     config: BacktestConfig,
 ) -> dict[str, Any]:
     """Execute an experiment spec and write canonical output artifacts."""
-    parameters = dict(spec.get("parameters", {}))
+    parameters = validate_strategy_params(strategy_name, dict(spec.get("parameters", {})))
     grid = dict(spec.get("grid", {}))
+    for key, values in grid.items():
+        for value in values:
+            validate_strategy_params(strategy_name, {key: value})
     all_combinations = [dict(parameters, **combo) for combo in expand_grid(grid)]
-    final_runs = deduplicate_parameter_sets(all_combinations, strategy_name=strategy_name)
+    final_runs = generate_parameter_sets({"strategy": strategy_name, "parameters": parameters, "grid": grid})
 
     print(f"Original grid size: {len(all_combinations)}")
     print(f"Deduplicated runs: {len(final_runs)}")
