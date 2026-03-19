@@ -2,6 +2,8 @@
 
 import math
 
+import pandas as pd
+
 import backtrader as bt
 
 from ashare.strategies.components.execution import (
@@ -11,11 +13,7 @@ from ashare.strategies.components.execution import (
     update_trade_metrics,
 )
 from ashare.strategies.components.filters import passes_atr_filter, passes_trend_filter
-from ashare.strategies.components.indicators import (
-    build_mean_reversion_indicators,
-    compute_atr_ratio,
-    compute_zscore,
-)
+from ashare.strategies.components.indicators import compute_atr_ratio, compute_zscore
 from ashare.utils.logging import get_logger
 
 ATR_RATIO_MIN_DEFAULT = 0.02
@@ -40,16 +38,50 @@ class MeanReversionAdvanced(bt.Strategy):
         ma_trend=120,
     )
 
+    @classmethod
+    def validate_data_history(cls, data_df: pd.DataFrame, params: dict | None = None) -> None:
+        """Fail fast when the requested window cannot satisfy indicator warm-up."""
+        defaults = cls.params
+        if hasattr(defaults, "_getitems"):
+            resolved = dict(defaults._getitems())
+        else:
+            resolved = dict(defaults)
+        resolved.update(params or {})
+
+        intraday_bars = len(data_df)
+        required_intraday_bars = 14
+        if intraday_bars < required_intraday_bars:
+            raise ValueError(
+                "MeanReversionAdvanced requires at least "
+                f"{required_intraday_bars} intraday bars for ATR warm-up, got {intraday_bars}."
+            )
+
+        trading_days = int(data_df.index.normalize().nunique())
+        required_trading_days = int(resolved["ma_short"])
+        if trading_days < required_trading_days:
+            raise ValueError(
+                "MeanReversionAdvanced requires at least "
+                f"{required_trading_days} trading days for ma_short warm-up, got {trading_days}."
+            )
+
+        if not bool(resolved.get("use_trend_filter", True)):
+            return
+
+        required_trend_days = int(resolved["ma_trend"])
+        if trading_days < required_trend_days:
+            raise ValueError(
+                "MeanReversionAdvanced requires at least "
+                f"{required_trend_days} trading days when use_trend_filter=True, got {trading_days}. "
+                "Expand the date range or disable the trend filter."
+            )
+
     def __init__(self) -> None:
         daily_data = self._get_daily_ma_source()
-        self.ma20, self.ma120, self.atr14 = build_mean_reversion_indicators(
-            self.data,
-            ma_short=self.p.ma_short,
-            ma_trend=self.p.ma_trend,
-            atr_period=14,
-            ma_source=daily_data,
-            atr_source=self.data,
-        )
+        self.ma20 = bt.indicators.SimpleMovingAverage(daily_data.close, period=self.p.ma_short)
+        self.ma120 = None
+        if self.p.use_trend_filter:
+            self.ma120 = bt.indicators.SimpleMovingAverage(daily_data.close, period=self.p.ma_trend)
+        self.atr14 = bt.indicators.ATR(self.data, period=14)
         self.atr3 = bt.indicators.ATR(self.data, period=3)
         self.buy_events = 0
         self.sell_events = 0
@@ -110,7 +142,7 @@ class MeanReversionAdvanced(bt.Strategy):
     def next(self) -> None:
         close = float(self.data.close[0])
         ma20 = float(self.ma20[-1])
-        ma120 = float(self.ma120[-1])
+        ma120 = float("nan") if self.ma120 is None else float(self.ma120[-1])
         atr14 = float(self.atr14[0])
         if atr14 == 0 or math.isnan(atr14) or math.isnan(ma20):
             return

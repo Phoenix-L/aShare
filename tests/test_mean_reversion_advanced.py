@@ -23,6 +23,27 @@ def _synthetic_df(closes: list[float], spread: float = 1.0) -> pd.DataFrame:
     )
 
 
+def _session_df(start: str, end: str, close: float = 100.0, spread: float = 1.0) -> pd.DataFrame:
+    days = pd.bdate_range(start, end)
+    idx = []
+    for day in days:
+        for time_str in ["10:00", "10:30", "11:00", "11:30", "13:30", "14:00", "14:30", "15:00"]:
+            idx.append(pd.Timestamp(f"{day.date()} {time_str}"))
+
+    closes = [close] * len(idx)
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c + spread for c in closes],
+            "low": [c - spread for c in closes],
+            "close": closes,
+            "volume": [1000] * len(closes),
+            "turnover_rate": [2.0] * len(closes),
+        },
+        index=pd.DatetimeIndex(idx),
+    )
+
+
 def _run(closes: list[float], strategy_params: dict, spread: float = 1.0) -> MeanReversionAdvanced:
     strategy_params = {"ma_short": 2, "ma_trend": 2, **strategy_params}
     _, strat, _ = run_backtest(
@@ -96,3 +117,47 @@ def test_advanced_mean_reversion_requires_daily_resampled_feed() -> None:
     )
     with pytest.raises(ValueError, match="daily-resampled feed"):
         cerebro.run()
+
+
+def test_advanced_mean_reversion_does_not_require_trend_history_when_filter_disabled() -> None:
+    df = _session_df("2025-10-01", "2026-02-28")
+
+    _, strat, metrics = run_backtest(
+        strategy_cls=MeanReversionAdvanced,
+        data_df=df,
+        config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+        strategy_params={
+            "trade_unit": 500,
+            "z_entry": -1.0,
+            "z_exit": 0.5,
+            "use_trend_filter": False,
+            "use_atr_filter": False,
+            "ma_short": 20,
+            "ma_trend": 120,
+        },
+        symbol="SYNTH",
+    )
+
+    assert len(strat.diagnostics) > 0
+    assert metrics["diagnostics_summary"]["total_bars"] > 0
+
+
+def test_advanced_mean_reversion_fails_fast_when_trend_history_is_insufficient() -> None:
+    df = _session_df("2025-10-01", "2026-02-28")
+
+    with pytest.raises(ValueError, match="requires at least 120 trading days"):
+        run_backtest(
+            strategy_cls=MeanReversionAdvanced,
+            data_df=df,
+            config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+            strategy_params={
+                "trade_unit": 500,
+                "z_entry": -1.0,
+                "z_exit": 0.5,
+                "use_trend_filter": True,
+                "use_atr_filter": False,
+                "ma_short": 20,
+                "ma_trend": 120,
+            },
+            symbol="SYNTH",
+        )

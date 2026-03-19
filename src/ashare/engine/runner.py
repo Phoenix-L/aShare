@@ -43,6 +43,17 @@ def _resolve_strategy_name(strategy_cls: Type[bt.Strategy]) -> str | None:
     return None
 
 
+def _validate_strategy_history_requirements(
+    strategy_cls: Type[bt.Strategy],
+    data_df: pd.DataFrame,
+    strategy_params: dict[str, Any],
+) -> None:
+    """Fail fast when a strategy declares unmet history requirements."""
+    validator = getattr(strategy_cls, "validate_data_history", None)
+    if callable(validator):
+        validator(data_df, strategy_params)
+
+
 def _build_diagnostics_summary(
     diagnostics: list[dict[str, Any]],
     completed_trades: list[dict[str, Any]] | None = None,
@@ -179,6 +190,7 @@ def run_backtest(
     strategy_name = _resolve_strategy_name(strategy_cls)
     if strategy_name is not None:
         strategy_params = validate_strategy_params(strategy_name, strategy_params)
+    _validate_strategy_history_requirements(strategy_cls, data_df, strategy_params)
     logger.debug(f"Adding strategy: {strategy_cls.__name__} with params: {strategy_params}")
     cerebro.addstrategy(strategy_cls, **strategy_params)
     register_analyzers(cerebro)

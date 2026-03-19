@@ -2,6 +2,8 @@
 
 import math
 
+import pandas as pd
+
 import backtrader as bt
 
 from ashare.strategies.components.execution import (
@@ -32,12 +34,44 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         stop_loss_pct=0.02,
     )
 
+    @classmethod
+    def validate_data_history(cls, data_df: pd.DataFrame, params: dict | None = None) -> None:
+        """Fail fast when the requested window cannot satisfy required warm-up."""
+        defaults = cls.params
+        if hasattr(defaults, "_getitems"):
+            resolved = dict(defaults._getitems())
+        else:
+            resolved = dict(defaults)
+        resolved.update(params or {})
+
+        intraday_bars = len(data_df)
+        required_intraday_bars = int(resolved["excursion_lookback_bars"])
+        if intraday_bars < required_intraday_bars:
+            raise ValueError(
+                "ShockReversionIntradayStrategy requires at least "
+                f"{required_intraday_bars} intraday bars for excursion warm-up, got {intraday_bars}."
+            )
+
+        if not bool(resolved.get("use_trend_filter", True)):
+            return
+
+        trading_days = int(data_df.index.normalize().nunique())
+        required_trading_days = int(resolved["trend_ma_period"])
+        if trading_days < required_trading_days:
+            raise ValueError(
+                "ShockReversionIntradayStrategy requires at least "
+                f"{required_trading_days} trading days when use_trend_filter=True, got {trading_days}. "
+                "Expand the date range or disable the trend filter."
+            )
+
     def __init__(self) -> None:
         if self.p.excursion_lookback_bars is None:
             raise ValueError("Invalid config: excursion_lookback_bars required")
 
-        daily_data = self._get_daily_ma_source()
-        self.trend_ma = bt.indicators.SimpleMovingAverage(daily_data.close, period=self.p.trend_ma_period)
+        self.trend_ma = None
+        if self.p.use_trend_filter:
+            daily_data = self._get_daily_ma_source()
+            self.trend_ma = bt.indicators.SimpleMovingAverage(daily_data.close, period=self.p.trend_ma_period)
         self.rolling_max_close = bt.indicators.Highest(self.data.close, period=self.p.excursion_lookback_bars)
         self.excursion = (self.data.close - self.rolling_max_close) / self.rolling_max_close
 
@@ -193,7 +227,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
     def next(self) -> None:
         close = float(self.data.close[0])
-        trend_ma = float(self.trend_ma[-1])
+        trend_ma = float("nan") if self.trend_ma is None else float(self.trend_ma[-1])
         rolling_max_close = float(self.rolling_max_close[0])
         excursion_value = float(self.excursion[0])
         if math.isnan(excursion_value):
