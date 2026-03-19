@@ -107,7 +107,7 @@ def test_executor_logs_running_parameters(monkeypatch, caplog, tmp_path) -> None
     assert "Running: z_entry=-1.5, z_exit=0.5, use_art_filter=true" in caplog.text
 
 def _shock_df() -> pd.DataFrame:
-    closes = [100.0] * 180 + [97.0, 97.0, 97.0, 97.0]
+    closes = [100.0] * 180 + [97.0, 97.0, 97.0, 97.0, 97.0]
     return pd.DataFrame(
         {
             "open": closes,
@@ -160,6 +160,7 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     output_root = tmp_path / "outputs" / "shock_reversion_intraday_cli_experiment"
     run_payload = json.loads((output_root / "run_001" / "run_result.json").read_text(encoding="utf-8"))
     summary_text = (output_root / "summary.csv").read_text(encoding="utf-8")
+    trades_text = (output_root / "trades.csv").read_text(encoding="utf-8")
 
     assert run_payload["meta"]["strategy"] == "shock_reversion_intraday"
     assert run_payload["params"]["excursion_lookback_bars"] == 3
@@ -167,3 +168,6 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert run_payload["metrics"]["num_trades"] >= 1
     assert "excursion_lookback_bars" in summary_text
     assert "excursion_threshold" in summary_text
+    assert "entry_datetime" in trades_text
+    assert "exit_reason" in trades_text
+    assert len(trades_text.strip().splitlines()) > 1
