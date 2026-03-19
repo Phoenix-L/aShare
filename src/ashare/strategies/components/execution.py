@@ -79,7 +79,11 @@ def _build_exit_targets(
     recovery_frac: float | None,
     take_profit_pct: float | None,
 ) -> tuple[float | None, float | None, float | None]:
-    """Return recovery, take-profit, and effective exit targets."""
+    """Return recovery, take-profit, and the earliest profit target to hit.
+
+    When both recovery and take-profit are configured, the effective target is the
+    lower of the two so profit exits behave as recovery OR take-profit.
+    """
     recovery_target = None
     if anchor_price is not None and recovery_frac is not None:
         shock_depth = max(0.0, float(anchor_price) - float(entry_price))

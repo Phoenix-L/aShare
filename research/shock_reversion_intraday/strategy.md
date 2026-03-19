@@ -71,7 +71,7 @@ The trade is forcibly closed once `holding_bars >= max_hold_bars`.
 
 The exit engine closes the position when the first of these conditions is met:
 
-- price reaches the effective profit target derived from recovery and take-profit;
+- price reaches the effective profit target derived from recovery OR take-profit (whichever is reached first);
 - price hits the stop-loss threshold;
 - holding time reaches `max_hold_bars`.
 
