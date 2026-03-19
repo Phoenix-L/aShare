@@ -147,8 +147,6 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
             "--param",
             "use_trend_filter=false",
             "--param",
-            "exit_mode=anchor_recovery",
-            "--param",
             "recovery_frac=0.5",
             "--param",
             "max_hold_bars=10",
@@ -187,3 +185,116 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert "threshold" in signals_text
     assert "entry_executed" in signals_text
     assert len(signals_text.strip().splitlines()) > 1
+
+
+class _ShockStrategy:
+    params = (
+        ("excursion_lookback_bars", 3),
+        ("excursion_threshold", 0.01),
+        ("recovery_frac", 0.5),
+        ("take_profit_pct", 0.02),
+        ("max_hold_bars", 8),
+        ("stop_loss_pct", 0.05),
+        ("use_trend_filter", False),
+    )
+
+
+def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig())
+    monkeypatch.setattr("ashare.cli.get_strategy_class", lambda _: _ShockStrategy)
+    monkeypatch.setattr(
+        "ashare.cli.execute_experiment_spec",
+        lambda **kwargs: {
+            "num_runs": 1,
+            "output_dir": "outputs/demo",
+            "summary_path": "outputs/demo/summary.csv",
+            "summary_sorted_path": "outputs/demo/summary_sorted.csv",
+            "results": [
+                {
+                    "sharpe": 2.02,
+                    "total_return": 0.1334,
+                    "params": {
+                        "excursion_lookback_bars": 5,
+                        "excursion_threshold": 0.05,
+                        "recovery_frac": 0.5,
+                        "take_profit_pct": 0.05,
+                        "max_hold_bars": 8,
+                        "stop_loss_pct": 0.02,
+                        "use_trend_filter": False,
+                        "z_entry": None,
+                        "z_exit": None,
+                    },
+                }
+            ],
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "--strategy",
+            "shock_reversion_intraday",
+            "--symbols",
+            "600519.SH",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "excursion_threshold=0.05" in result.output
+    assert "recovery_frac=0.5" in result.output
+    assert "tp=0.05" in result.output
+    assert "hold=8" in result.output
+    assert "z_entry=None" not in result.output
+    assert "z_exit=None" not in result.output
+
+
+def test_cli_ranking_output_falls_back_to_non_null_params_for_unknown_strategy(monkeypatch) -> None:
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig())
+    monkeypatch.setattr("ashare.cli.get_strategy_class", lambda _: _DummyStrategy)
+    monkeypatch.setattr(
+        "ashare.cli.execute_experiment_spec",
+        lambda **kwargs: {
+            "num_runs": 1,
+            "output_dir": "outputs/demo",
+            "summary_path": "outputs/demo/summary.csv",
+            "summary_sorted_path": "outputs/demo/summary_sorted.csv",
+            "results": [
+                {
+                    "sharpe": 1.11,
+                    "total_return": 0.05,
+                    "params": {
+                        "alpha": 3,
+                        "beta": None,
+                        "flag": True,
+                    },
+                }
+            ],
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "--strategy",
+            "dummy",
+            "--symbols",
+            "002850.SZ",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "alpha=3" in result.output
+    assert "flag=true" in result.output
+    assert "beta=None" not in result.output

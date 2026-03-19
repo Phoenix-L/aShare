@@ -31,6 +31,52 @@ def cli() -> None:
     pass
 
 
+
+def _format_param_value(value) -> str:
+    """Render ranking parameter values concisely for CLI output."""
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value)
+
+
+def _ranking_param_items(strategy_name: str, row: dict) -> list[tuple[str, object]]:
+    """Return strategy-aware parameter items for ranked CLI output."""
+    params = dict(row.get("params") or {})
+    strategy_specific = {
+        "mean_reversion_advanced": [("z_entry", "z_entry"), ("z_exit", "z_exit")],
+        "shock_reversion_intraday": [
+            ("excursion_lookback_bars", "lookback"),
+            ("excursion_threshold", "excursion_threshold"),
+            ("recovery_frac", "recovery_frac"),
+            ("take_profit_pct", "tp"),
+            ("max_hold_bars", "hold"),
+            ("stop_loss_pct", "stop"),
+            ("use_trend_filter", "use_trend_filter"),
+        ],
+    }
+    if strategy_name in strategy_specific:
+        return [
+            (label, params[key])
+            for key, label in strategy_specific[strategy_name]
+            if params.get(key) is not None
+        ]
+
+    return [
+        (key, value)
+        for key, value in params.items()
+        if value is not None
+    ]
+
+
+def _format_ranked_result(strategy_name: str, row: dict) -> str:
+    """Format one ranked result line with strategy-aware params."""
+    prefix = f"sharpe={row['sharpe']:.2f} return={row['total_return'] * 100:.2f}%"
+    param_items = _ranking_param_items(strategy_name, row)
+    if not param_items:
+        return prefix
+    rendered = " ".join(f"{label}={_format_param_value(value)}" for label, value in param_items)
+    return f"{prefix} {rendered}"
+
 def _validate_date_arg(field_name: str, value: str | None) -> str | None:
     """Validate optional CLI date arg as strict YYYY-MM-DD."""
     if value is None:
@@ -281,11 +327,7 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
 
     click.echo("Top 5 results:")
     for index, row in enumerate(result["results"][:5], start=1):
-        click.echo(
-            f"{index}  sharpe={row['sharpe']:.2f} "
-            f"return={row['total_return'] * 100:.2f}% "
-            f"z_entry={row.get('z_entry')} z_exit={row.get('z_exit')}"
-        )
+        click.echo(f"{index}  {_format_ranked_result(strategy_name, row)}")
     return
 
 
