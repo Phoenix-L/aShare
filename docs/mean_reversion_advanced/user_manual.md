@@ -57,6 +57,28 @@ Absolute downside threshold for the close-based excursion signal.
 - larger values require a deeper pullback from the recent rolling close high
 - smaller values react sooner to shallow dips
 
+### `excursion_lookback_bars`
+
+Lookback used by the close-based excursion signal.
+
+Definition:
+
+- `rolling_max_close = highest(close, excursion_lookback_bars)`
+- `excursion = (close - rolling_max_close) / rolling_max_close`
+
+Current behavior:
+
+- uses the intraday execution feed (`self.data.close`)
+- only affects entry triggering when `signal_mode="excursion"`
+
+### `excursion_threshold`
+
+Absolute downside threshold for the close-based excursion signal.
+
+- an entry signal fires when `excursion <= -excursion_threshold`
+- larger values require a deeper pullback from the recent rolling close high
+- smaller values react sooner to shallow dips
+
 ### `use_atr_filter`
 
 Enables the ATR ratio filter.

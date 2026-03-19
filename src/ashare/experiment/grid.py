@@ -31,6 +31,12 @@ def normalize_params(params: dict[str, Any]) -> dict[str, Any]:
         if "excursion_threshold" in normalized:
             normalized["excursion_threshold"] = None
 
+    # Multi-day excursion is only meaningful in zscore mode. In excursion mode,
+    # force it off so it can't conflict with validation inside the strategy.
+    if signal_mode == "excursion":
+        if "use_multi_day_excursion" in normalized:
+            normalized["use_multi_day_excursion"] = False
+
     if signal_mode == "excursion" or not normalized.get("use_multi_day_excursion", False):
         if "excursion_min" in normalized:
             normalized["excursion_min"] = None

@@ -32,3 +32,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+filterwarnings = [
+  # Backtrader (third-party) uses datetime.datetime.utcnow() internally.
+  # This is noisy under Python 3.12+; keep CI output clean while still
+  # surfacing deprecations from our own code.
+  "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated.*:DeprecationWarning:backtrader\\..*",
+]
