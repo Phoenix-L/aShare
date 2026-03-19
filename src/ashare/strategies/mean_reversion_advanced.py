@@ -64,7 +64,8 @@ class MeanReversionAdvanced(bt.Strategy):
         rolling_max_close = bt.indicators.Highest(self.data.close, period=self.p.excursion_lookback_bars)
         self.excursion = (self.data.close - rolling_max_close) / rolling_max_close
 
-        if self.p.use_multi_day_excursion:
+        legacy_excursion_filter_enabled = self.p.signal_mode == "zscore" and self.p.use_multi_day_excursion
+        if legacy_excursion_filter_enabled:
             self.excursion_ratio = MultiDayExcursion(
                 self.data,
                 window=self.p.excursion_window,
