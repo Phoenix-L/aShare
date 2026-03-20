@@ -103,7 +103,7 @@ def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() 
         strategy_cls=ShockReversionIntradayStrategy,
         data_df=_synthetic_df(closes),
         config=_config(),
-        strategy_params={"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "trend_ma_period": 2, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10},
+        strategy_params={"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10},
         symbol="SYNTH",
     )
     summary = metrics["diagnostics_summary"]

@@ -48,7 +48,7 @@ def _run(closes: list[float], strategy_params: dict) -> ShockReversionIntradaySt
         strategy_cls=ShockReversionIntradayStrategy,
         data_df=_synthetic_df(closes),
         config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
-        strategy_params={"trend_ma_period": 2, **strategy_params},
+        strategy_params=strategy_params,
         symbol="SYNTH",
     )
     return strat
@@ -56,21 +56,21 @@ def _run(closes: list[float], strategy_params: dict) -> ShockReversionIntradaySt
 
 def test_shock_reversion_enters_on_excursion_signal() -> None:
     closes = [100.0] * 180 + [97.0, 97.0, 97.0]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert strat.buy_events >= 1
     assert strat.position.size > 0
 
 
-def test_shock_reversion_trend_filter_blocks_entry() -> None:
+def test_shock_reversion_entry_depends_only_on_excursion_signal() -> None:
     closes = [100.0] * 180 + [95.0, 95.0, 95.0]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": True, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
-    assert strat.buy_events == 0
-    assert strat.position.size == 0
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+    assert strat.buy_events >= 1
+    assert all("trend_ok" not in row for row in strat.diagnostics)
 
 
 def test_shock_reversion_take_profit_exit() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 100.0, 100.0]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 1.0, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 1.0, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     assert strat.completed_trades[0]["exit_reason"] == "take_profit"
 
@@ -92,10 +92,9 @@ def test_shock_reversion_profit_exit_uses_first_target_hit() -> None:
     assert exit_plan.signal is True
 
 
-
 def test_shock_reversion_recovery_exit_uses_frozen_anchor() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 99.0, 99.0]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     trade = strat.completed_trades[0]
     assert trade["anchor_price_at_entry"] == 100.0
@@ -105,7 +104,7 @@ def test_shock_reversion_recovery_exit_uses_frozen_anchor() -> None:
 
 def test_shock_reversion_tracks_etd_from_peak_to_exit() -> None:
     closes = [100.0] * 180 + [97.0, 99.5, 99.0, 99.0, 99.0]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 1.0, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 1.0, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     trade = strat.completed_trades[0]
     assert trade["mfe_price"] == 99.5
@@ -116,7 +115,7 @@ def test_shock_reversion_tracks_etd_from_peak_to_exit() -> None:
 
 def test_shock_reversion_etd_is_zero_when_exit_matches_peak() -> None:
     closes = [100.0] * 180 + [97.0, 99.0, 99.5, 99.5, 99.5]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     trade = strat.completed_trades[0]
     assert trade["mfe_price"] == trade["exit_price"]
@@ -125,7 +124,7 @@ def test_shock_reversion_etd_is_zero_when_exit_matches_peak() -> None:
 
 def test_shock_reversion_max_hold_remains_safeguard() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 98.0, 98.0, 98.0]
-    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     assert strat.completed_trades[0]["exit_reason"] == "max_hold"
 
@@ -133,11 +132,19 @@ def test_shock_reversion_max_hold_remains_safeguard() -> None:
 def test_shock_reversion_rejects_zscore_params() -> None:
     closes = [100.0] * 180 + [97.0, 97.0, 97.0]
     with pytest.raises(ValueError, match="does not accept z-score params"):
-        _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "z_entry": -1.0})
+        _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "z_entry": -1.0})
 
 
-def test_shock_reversion_does_not_require_trend_history_when_filter_disabled() -> None:
-    df = _session_df("2025-10-01", "2026-02-28")
+def test_shock_reversion_rejects_removed_trend_filter_params() -> None:
+    closes = [100.0] * 180 + [97.0, 97.0, 97.0]
+    with pytest.raises(ValueError, match="does not accept use_trend_filter"):
+        _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "use_trend_filter": False})
+    with pytest.raises(ValueError, match="does not accept trend_ma_period"):
+        _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "trend_ma_period": 120})
+
+
+def test_shock_reversion_requires_only_intraday_excursion_history() -> None:
+    df = _session_df("2026-02-24", "2026-02-28")
 
     _, strat, metrics = run_backtest(
         strategy_cls=ShockReversionIntradayStrategy,
@@ -145,9 +152,7 @@ def test_shock_reversion_does_not_require_trend_history_when_filter_disabled() -
         config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
         strategy_params={
             "trade_unit": 500,
-            "use_trend_filter": False,
             "excursion_lookback_bars": 12,
-            "trend_ma_period": 120,
             "excursion_threshold": 0.03,
             "recovery_frac": 0.5,
             "max_hold_bars": 40,
@@ -159,26 +164,3 @@ def test_shock_reversion_does_not_require_trend_history_when_filter_disabled() -
 
     assert len(strat.diagnostics) > 0
     assert metrics["diagnostics_summary"]["total_bars"] > 0
-
-
-def test_shock_reversion_fails_fast_when_trend_history_is_insufficient() -> None:
-    df = _session_df("2025-10-01", "2026-02-28")
-
-    with pytest.raises(ValueError, match="requires at least 120 trading days"):
-        run_backtest(
-            strategy_cls=ShockReversionIntradayStrategy,
-            data_df=df,
-            config=BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
-            strategy_params={
-                "trade_unit": 500,
-                "use_trend_filter": True,
-                "excursion_lookback_bars": 12,
-                "trend_ma_period": 120,
-                "excursion_threshold": 0.03,
-                "recovery_frac": 0.5,
-                "max_hold_bars": 40,
-                "stop_loss_pct": 0.03,
-                "take_profit_pct": 0.03,
-            },
-            symbol="SYNTH",
-        )

@@ -180,7 +180,6 @@ def run_backtest(
         strategy_cls,
         (
             MeanReversionAdvanced,
-            ShockReversionIntradayStrategy,
             MeanReversion,
             CoreSatelliteMeanReversion,
         ),
