@@ -175,6 +175,7 @@ def execute_experiment_spec(
                 "parameters": params,
                 "symbol": symbol,
                 "date_range": {"start": spec["start"], "end": spec["end"]},
+                "initial_cash": config.initial_cash,
             }
             (run_dir / "config_snapshot.yaml").write_text(
                 yaml.safe_dump(snapshot, sort_keys=False),
@@ -189,6 +190,7 @@ def execute_experiment_spec(
                     "symbol": symbol,
                     "experiment_name": experiment_name,
                     "date_range": {"start": spec["start"], "end": spec["end"]},
+                    "initial_cash": config.initial_cash,
                 },
             }
             (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
@@ -199,11 +201,13 @@ def execute_experiment_spec(
     _write_csv(signals_path, experiment_signals, SIGNAL_EXPORT_COLUMNS)
 
     summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
+    run_performance_report_path = output_root / "run_performance_report.csv"
     return {
         "experiment_name": experiment_name,
         "output_dir": str(output_root),
         "summary_path": str(summary_path),
         "summary_sorted_path": str(summary_sorted_path),
+        "run_performance_report_path": str(run_performance_report_path),
         "trades_path": str(trades_path),
         "signals_path": str(signals_path),
         "num_runs": total_runs,

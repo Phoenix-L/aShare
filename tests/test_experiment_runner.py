@@ -80,10 +80,12 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
     experiment_dir = Path(result["output_dir"])
     results_path = Path(result["summary_path"])
     results_sorted_path = Path(result["summary_sorted_path"])
+    run_report_path = Path(result["run_performance_report_path"])
 
     assert experiment_dir.exists()
     assert results_path.exists()
     assert results_sorted_path.exists()
+    assert run_report_path.exists()
 
     results_df = pd.read_csv(results_path)
     assert len(results_df) == 4
@@ -99,6 +101,7 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
 
     run_payload = json.loads((experiment_dir / "run_001" / "run_result.json").read_text(encoding="utf-8"))
     assert set(run_payload.keys()) == {"params", "metrics", "meta"}
+    assert run_payload["meta"]["initial_cash"] == BacktestConfig().initial_cash
 
 
 def test_execute_experiment_does_not_print_grid_diagnostics_when_not_deduplicated(monkeypatch, tmp_path: Path, capsys) -> None:

@@ -173,6 +173,75 @@ def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_
     assert top_config["params"]["excursion_threshold"] == 0.012
 
 
+def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_root = tmp_path / "outputs" / "shock_run_report"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    runs = [
+        (
+            "run_001",
+            {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.4, "take_profit_pct": 0.02, "max_hold_bars": 12, "stop_loss_pct": 0.01, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80},
+            {"final_value": 108000.0, "total_return": 0.99, "sharpe": 1.1, "max_drawdown": 0.05, "num_trades": 2},
+            {"strategy": "shock_reversion_intraday", "symbol": "600519.SH", "date_range": {"start": "2024-01-01", "end": "2024-01-20"}, "initial_cash": 100000.0},
+            {"entry_signals": 4, "executed_trades": 2, "blocked_by_multiple": 1, "avg_pnl": 1.0, "avg_mfe": 2.5, "avg_mae": -0.5, "avg_etd": 0.25},
+            [
+                {"run_id": "run_001", "symbol": "600519.SH", "holding_bars": 2, "pnl_pct": 1.5, "mfe_pct": 3.0, "mae_pct": -0.4, "etd": 0.3, "exit_reason": "recovery", "shock_score_at_entry": 70.0},
+                {"run_id": "run_001", "symbol": "600519.SH", "holding_bars": 4, "pnl_pct": 0.5, "mfe_pct": 2.0, "mae_pct": -0.6, "etd": 0.2, "exit_reason": "stop_loss", "shock_score_at_entry": 80.0},
+            ],
+        ),
+        (
+            "run_002",
+            {"excursion_lookback_bars": 4, "excursion_threshold": 0.012, "recovery_frac": 0.45, "take_profit_pct": 0.025, "max_hold_bars": 10, "stop_loss_pct": 0.012, "use_shock_score_filter": False},
+            {"final_value": 95000.0, "total_return": -0.50, "sharpe": 0.6, "max_drawdown": 0.08, "num_trades": 1},
+            {"strategy": "shock_reversion_intraday", "symbol": "000858.SZ", "date_range": {"start": "2024-02-01", "end": "2024-02-20"}, "initial_cash": 100000.0},
+            {"entry_signals": 3, "executed_trades": 1, "blocked_by_multiple": 0, "avg_pnl": -2.0, "avg_mfe": 0.5, "avg_mae": -2.5, "avg_etd": 0.1},
+            [
+                {"run_id": "run_002", "symbol": "000858.SZ", "holding_bars": 3, "pnl_pct": -2.0, "mfe_pct": 0.5, "mae_pct": -2.5, "etd": 0.1, "exit_reason": "max_hold", "shock_score_at_entry": 35.0},
+            ],
+        ),
+    ]
+
+    trade_rows: list[dict[str, object]] = []
+    for run_id, parameters, metrics, meta, diagnostics, trades in runs:
+        _write_run(output_root, run_id, metrics=metrics, parameters=parameters, meta=meta)
+        (output_root / run_id / "diagnostics_summary.json").write_text(json.dumps(diagnostics), encoding="utf-8")
+        trade_rows.extend(trades)
+    pd.DataFrame(trade_rows).to_csv(output_root / "trades.csv", index=False)
+
+    build_summary("shock_run_report")
+
+    report_df = pd.read_csv(output_root / "run_performance_report.csv")
+
+    assert list(report_df["run_id"]) == ["run_001", "run_002"]
+    assert "selection_report.csv" not in report_df.columns
+
+    first = report_df.loc[report_df["run_id"] == "run_001"].iloc[0]
+    assert first["symbol"] == "600519.SH"
+    assert first["start_date"] == "2024-01-01"
+    assert first["end_date"] == "2024-01-20"
+    assert first["total_return"] == 0.08
+    assert first["avg_pnl"] == 1.0
+    assert first["executed_trades"] == 2
+    assert first["entry_signals"] == 4
+    assert first["blocked_by_multiple"] == 1
+    assert first["stop_loss_share"] == 0.5
+    assert first["recovery_share"] == 0.5
+    assert first["take_profit_share"] == 0.0
+    assert first["max_hold_share"] == 0.0
+    assert first["avg_holding_bars"] == 3.0
+    assert first["avg_shock_score"] == 75.0
+    assert first["pnl_capture_ratio"] == 0.4
+    assert first["shock_score_min"] == 60
+    assert first["shock_score_max"] == 80
+    assert first["use_shock_score_filter"]
+
+    second = report_df.loc[report_df["run_id"] == "run_002"].iloc[0]
+    assert second["total_return"] == -0.05
+    assert second["max_hold_share"] == 1.0
+    assert second["use_shock_score_filter"] in {False, 0}
+
+
 def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     output_root = tmp_path / "outputs" / "shock_selection_mismatch"
