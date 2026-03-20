@@ -63,6 +63,12 @@ def _build_diagnostics_summary(
     """Aggregate per-bar and per-trade diagnostics into high-level metrics."""
     uses_trend_filter = bool(getattr(strategy, "uses_trend_filter", True))
     uses_atr_filter = bool(getattr(strategy, "uses_atr_filter", False))
+    uses_shock_score_filter = any(
+        "blocked_by_shock_score_low" in item
+        or "blocked_by_shock_score_high" in item
+        or "shock_score_filter_enabled" in item
+        for item in diagnostics
+    )
 
     summary: dict[str, Any] = {
         "total_bars": len(diagnostics),
@@ -75,6 +81,9 @@ def _build_diagnostics_summary(
     if uses_atr_filter:
         summary["blocked_by_atr"] = 0
         summary["blocked_by_art"] = 0
+    if uses_shock_score_filter:
+        summary["blocked_by_shock_score_low"] = 0
+        summary["blocked_by_shock_score_high"] = 0
 
     for item in diagnostics:
         if not item.get("entry_signal", False):
@@ -93,6 +102,12 @@ def _build_diagnostics_summary(
         if uses_atr_filter and ("atr_filter" in blocked_by or "art_filter" in blocked_by):
             summary["blocked_by_atr"] += 1
             summary["blocked_by_art"] += 1
+            active_blocks += 1
+        if uses_shock_score_filter and item.get("blocked_by_shock_score_low", False):
+            summary["blocked_by_shock_score_low"] += 1
+            active_blocks += 1
+        if uses_shock_score_filter and item.get("blocked_by_shock_score_high", False):
+            summary["blocked_by_shock_score_high"] += 1
             active_blocks += 1
         if uses_trend_filter or uses_atr_filter:
             if active_blocks >= 2:

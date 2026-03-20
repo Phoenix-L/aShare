@@ -216,6 +216,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
                         "take_profit_pct": 0.05,
                         "max_hold_bars": 8,
                         "stop_loss_pct": 0.02,
+                        "use_shock_score_filter": True,
+                        "shock_score_min": 60,
+                        "shock_score_max": 80,
                         "z_entry": None,
                         "z_exit": None,
                     },
@@ -245,6 +248,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
     assert "recovery_frac=0.5" in result.output
     assert "tp=0.05" in result.output
     assert "hold=8" in result.output
+    assert "use_shock_score_filter=true" in result.output
+    assert "shock_score_min=60" in result.output
+    assert "shock_score_max=80" in result.output
     assert "z_entry=None" not in result.output
     assert "z_exit=None" not in result.output
 
