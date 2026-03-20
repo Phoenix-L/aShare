@@ -197,6 +197,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             return
 
         exit_price = float(order.executed.price)
+        update_trade_metrics(self.position_state, exit_price, len(self))
         exit_plan = evaluate_exit_engine(
             close=exit_price,
             current_bar=len(self),
@@ -208,12 +209,15 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         )
         standardized_reason = self.pending_exit_reason or self._standardize_exit_reason(exit_plan.reason)
         trade_record = dict(self.current_trade_record)
+        mfe_price = float(self.position_state.mfe_price or self.position_state.entry_price)
+        entry_price = float(self.position_state.entry_price)
         trade_record.update(
             {
                 "exit_datetime": self._current_datetime(),
                 "exit_price": exit_price,
                 "holding_bars": exit_plan.holding_bars,
-                "pnl_pct": ((exit_price - self.position_state.entry_price) / self.position_state.entry_price) * 100.0,
+                "pnl_pct": ((exit_price - entry_price) / entry_price) * 100.0,
+                "etd": max(0.0, (mfe_price - exit_price) / entry_price),
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,
                 "recovery_target": exit_plan.recovery_target,
