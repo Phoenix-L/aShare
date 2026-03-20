@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import yaml
 
 from ashare.experiment.result import build_summary, collect_run_results, rank_results
@@ -31,7 +32,7 @@ def test_build_summary_omits_irrelevant_mean_reversion_columns(monkeypatch, tmp_
     assert sorted_path.exists()
     assert ranked[0]["run_id"] == "run_002"
     summary_text = summary_path.read_text(encoding="utf-8")
-    assert "z_entry,z_exit,use_trend_filter,use_atr_filter,use_art_filter,total_return,sharpe,max_drawdown,num_trades" in summary_text
+    assert "z_entry,z_exit,use_trend_filter,use_atr_filter,use_art_filter,total_return,total_return_simple,total_return_log,sharpe,max_drawdown,num_trades" in summary_text
     assert "excursion_threshold" not in summary_text
     assert "signal_mode" not in summary_text
 
@@ -182,18 +183,18 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
         (
             "run_001",
             {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.4, "take_profit_pct": 0.02, "max_hold_bars": 12, "stop_loss_pct": 0.01, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80},
-            {"final_value": 108000.0, "total_return": 0.99, "sharpe": 1.1, "max_drawdown": 0.05, "num_trades": 2},
+            {"final_value": 100624.56337900016, "total_return": 0.99, "total_return_log": 0.006226210650540601, "sharpe": 1.1, "max_drawdown": 0.05, "num_trades": 36},
             {"strategy": "shock_reversion_intraday", "symbol": "600519.SH", "date_range": {"start": "2024-01-01", "end": "2024-01-20"}, "initial_cash": 100000.0},
-            {"entry_signals": 4, "executed_trades": 2, "blocked_by_multiple": 1, "avg_pnl": 1.0, "avg_mfe": 2.5, "avg_mae": -0.5, "avg_etd": 0.25},
+            {"entry_signals": 40, "executed_trades": 36, "blocked_by_multiple": 5, "avg_pnl": 0.35608091836527733, "avg_mfe": 2.5, "avg_mae": -0.5, "avg_etd": 0.25},
             [
-                {"run_id": "run_001", "symbol": "600519.SH", "holding_bars": 2, "pnl_pct": 1.5, "mfe_pct": 3.0, "mae_pct": -0.4, "etd": 0.3, "exit_reason": "recovery", "shock_score_at_entry": 70.0},
-                {"run_id": "run_001", "symbol": "600519.SH", "holding_bars": 4, "pnl_pct": 0.5, "mfe_pct": 2.0, "mae_pct": -0.6, "etd": 0.2, "exit_reason": "stop_loss", "shock_score_at_entry": 80.0},
+                {"run_id": "run_001", "symbol": "600519.SH", "holding_bars": 3, "pnl_pct": 0.35608091836527733, "mfe_pct": 2.5, "mae_pct": -0.5, "etd": 0.25, "exit_reason": "recovery", "shock_score_at_entry": 70.0}
+                for _ in range(36)
             ],
         ),
         (
             "run_002",
             {"excursion_lookback_bars": 4, "excursion_threshold": 0.012, "recovery_frac": 0.45, "take_profit_pct": 0.025, "max_hold_bars": 10, "stop_loss_pct": 0.012, "use_shock_score_filter": False},
-            {"final_value": 95000.0, "total_return": -0.50, "sharpe": 0.6, "max_drawdown": 0.08, "num_trades": 1},
+            {"final_value": 95000.0, "total_return": -0.50, "total_return_log": -0.05129329438755058, "sharpe": 0.6, "max_drawdown": 0.08, "num_trades": 1},
             {"strategy": "shock_reversion_intraday", "symbol": "000858.SZ", "date_range": {"start": "2024-02-01", "end": "2024-02-20"}, "initial_cash": 100000.0},
             {"entry_signals": 3, "executed_trades": 1, "blocked_by_multiple": 0, "avg_pnl": -2.0, "avg_mfe": 0.5, "avg_mae": -2.5, "avg_etd": 0.1},
             [
@@ -220,24 +221,32 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert first["symbol"] == "600519.SH"
     assert first["start_date"] == "2024-01-01"
     assert first["end_date"] == "2024-01-20"
-    assert first["total_return"] == 0.08
-    assert first["avg_pnl"] == 1.0
-    assert first["executed_trades"] == 2
-    assert first["entry_signals"] == 4
-    assert first["blocked_by_multiple"] == 1
-    assert first["stop_loss_share"] == 0.5
-    assert first["recovery_share"] == 0.5
+    assert first["total_return"] == pytest.approx(0.006245633790001739)
+    assert first["total_return_simple"] == pytest.approx(0.006245633790001739)
+    assert first["total_return_log"] == pytest.approx(0.006226210650540601)
+    assert first["sum_trade_return_pct"] == pytest.approx(12.81891306114998)
+    assert first["compound_trade_return_pct"] > first["sum_trade_return_pct"]
+    assert first["avg_pnl"] == pytest.approx(0.35608091836527733)
+    assert first["executed_trades"] == 36
+    assert first["entry_signals"] == 40
+    assert first["blocked_by_multiple"] == 5
+    assert first["stop_loss_share"] == 0.0
+    assert first["recovery_share"] == 1.0
     assert first["take_profit_share"] == 0.0
     assert first["max_hold_share"] == 0.0
     assert first["avg_holding_bars"] == 3.0
-    assert first["avg_shock_score"] == 75.0
-    assert first["pnl_capture_ratio"] == 0.4
+    assert first["avg_shock_score"] == 70.0
+    assert first["pnl_capture_ratio"] == pytest.approx(0.14243236734611094)
     assert first["shock_score_min"] == 60
     assert first["shock_score_max"] == 80
     assert first["use_shock_score_filter"]
+    assert first["sum_trade_return_pct"] > (first["total_return_simple"] * 100)
 
     second = report_df.loc[report_df["run_id"] == "run_002"].iloc[0]
-    assert second["total_return"] == -0.05
+    assert second["total_return"] == pytest.approx(-0.05)
+    assert second["total_return_simple"] == pytest.approx(-0.05)
+    assert second["total_return_log"] == pytest.approx(-0.05129329438755058)
+    assert second["sum_trade_return_pct"] == pytest.approx(-2.0)
     assert second["max_hold_share"] == 1.0
     assert second["use_shock_score_filter"] in {False, 0}
 

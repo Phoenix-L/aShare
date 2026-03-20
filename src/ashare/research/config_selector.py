@@ -10,6 +10,8 @@ SUMMARY_EXCLUDE_COLUMNS = {
     "run_id",
     "return",
     "total_return",
+    "total_return_simple",
+    "total_return_log",
     "rtot",
     "avg_trade_return",
     "sharpe",
@@ -108,7 +110,7 @@ def _build_selection_frame(output_root: Path) -> pd.DataFrame:
         record = {
             column: summary_row[column]
             for column in summary_df.columns
-            if column in summary_row.index and column not in {"return", "rtot"}
+            if column in summary_row.index and column not in {"return", "rtot", "total_return_simple", "total_return_log"}
         }
         record.update(
             {

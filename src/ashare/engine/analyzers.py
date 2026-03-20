@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import backtrader as bt
@@ -110,7 +111,8 @@ def extract_results(cerebro: bt.Cerebro, strat: bt.Strategy) -> dict[str, Any]:
     except (AttributeError, KeyError, TypeError):
         pass
 
-    total_return = returns_analysis.get("rtot", 0.0) if isinstance(returns_analysis, dict) else 0.0
+    total_return_log = returns_analysis.get("rtot", 0.0) if isinstance(returns_analysis, dict) else 0.0
+    total_return_simple = math.expm1(total_return_log) if total_return_log > float("-inf") else total_return_log
 
     # Try different possible key names for Sharpe ratio
     sharpe_value = (
@@ -127,7 +129,7 @@ def extract_results(cerebro: bt.Cerebro, strat: bt.Strategy) -> dict[str, Any]:
                 sharpe_analysis=sharpe_analysis if isinstance(sharpe_analysis, dict) else {"sharpe": sharpe_analysis},
                 returns_analysis=returns_analysis if isinstance(returns_analysis, dict) else {"returns": returns_analysis},
                 num_trades=num_trades,
-                total_return=float(total_return or 0.0),
+                total_return=float(total_return_log or 0.0),
                 strategy_name=str(getattr(strat, "__class__", type(strat)).__name__),
             )
         except Exception as e:
@@ -135,8 +137,10 @@ def extract_results(cerebro: bt.Cerebro, strat: bt.Strategy) -> dict[str, Any]:
 
     return {
         "final_value": cerebro.broker.getvalue(),
-        "rtot": total_return,
-        "total_return": total_return,
+        "rtot": total_return_log,
+        "total_return": total_return_simple,
+        "total_return_simple": total_return_simple,
+        "total_return_log": total_return_log,
         "sharpe": sharpe_value,
         "max_drawdown": strat.analyzers.drawdown.get_analysis()["max"]["drawdown"],
         "max_drawdown_len": strat.analyzers.drawdown.get_analysis()["max"]["len"],

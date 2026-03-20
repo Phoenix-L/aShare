@@ -91,6 +91,8 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
     assert len(results_df) == 4
     assert list(results_df.columns) == [
         "total_return",
+        "total_return_simple",
+        "total_return_log",
         "sharpe",
         "max_drawdown",
         "num_trades",

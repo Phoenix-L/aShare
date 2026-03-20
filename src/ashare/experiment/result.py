@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ import yaml
 from ashare.evaluation.run_report import write_run_performance_report
 from ashare.research.config_selector import write_selection_artifacts
 
-METRIC_COLUMNS = ["total_return", "sharpe", "max_drawdown", "num_trades"]
+METRIC_COLUMNS = ["total_return", "total_return_simple", "total_return_log", "sharpe", "max_drawdown", "num_trades"]
 PARAMETER_COLUMN_PREFERENCE = {
     "mean_reversion_advanced": [
         "z_entry",
@@ -116,6 +117,14 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
         meta = run_payload["meta"]
         use_atr_filter = params.get("use_atr_filter", params.get("use_art_filter"))
         atr_ratio_min = params.get("atr_ratio_min", params.get("art_threshold"))
+        total_return_log = _safe_float(metrics.get("total_return_log", metrics.get("rtot")), RANKING_DEFAULTS["total_return"])
+        total_return_simple = _safe_float(
+            metrics.get("total_return_simple"),
+            math.expm1(total_return_log) if total_return_log > float("-inf") else RANKING_DEFAULTS["total_return"],
+        )
+        if "total_return_simple" not in metrics and "total_return" in metrics and "rtot" not in metrics and "total_return_log" not in metrics:
+            total_return_simple = _safe_float(metrics.get("total_return"), total_return_simple)
+            total_return_log = math.log1p(total_return_simple) if total_return_simple > -1 else float("-inf")
 
         record = {
             "run_id": str(meta.get("run_id") or run_dir.name),
@@ -147,7 +156,9 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "max_hold_bars": params.get("max_hold_bars"),
             "stop_loss_pct": params.get("stop_loss_pct"),
             "atr_ratio_min": atr_ratio_min,
-            "total_return": _safe_float(metrics.get("total_return", metrics.get("rtot")), RANKING_DEFAULTS["total_return"]),
+            "total_return": total_return_simple,
+            "total_return_simple": total_return_simple,
+            "total_return_log": total_return_log,
             "sharpe": _safe_float(metrics.get("sharpe"), RANKING_DEFAULTS["sharpe"]),
             "max_drawdown": _safe_float(metrics.get("max_drawdown"), RANKING_DEFAULTS["max_drawdown"]),
             "num_trades": metrics.get("num_trades", metrics.get("trade_count")),

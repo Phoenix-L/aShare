@@ -117,7 +117,12 @@ def _build_run_record(run_dir: Path, summary_row: dict[str, Any]) -> dict[str, A
     return {
         "run_id": run_dir.name,
         "sharpe": _safe_float(metrics.get("sharpe", summary_row.get("sharpe"))),
-        "return": _safe_float(metrics.get("total_return", metrics.get("rtot", summary_row.get("total_return", summary_row.get("rtot"))))),
+        "return": _safe_float(
+            metrics.get(
+                "total_return_simple",
+                metrics.get("total_return", summary_row.get("total_return_simple", summary_row.get("total_return", summary_row.get("rtot")))),
+            )
+        ),
         "signal_mode": _param("signal_mode") or "zscore",
         "z_entry": _safe_float(_param("z_entry"), default=0.0),
         "z_exit": _safe_float(_param("z_exit"), default=0.0),
@@ -140,7 +145,7 @@ def _extract_top_configs(summary_sorted_df: pd.DataFrame, limit: int = 5) -> lis
     if summary_sorted_df.empty:
         return []
 
-    metric_columns = {"sharpe", "total_return", "rtot", "max_drawdown", "num_trades"}
+    metric_columns = {"sharpe", "total_return", "total_return_simple", "total_return_log", "rtot", "max_drawdown", "num_trades"}
     top_configs: list[dict[str, Any]] = []
 
     for rank, (_, row) in enumerate(summary_sorted_df.head(limit).iterrows(), start=1):
@@ -153,7 +158,7 @@ def _extract_top_configs(summary_sorted_df: pd.DataFrame, limit: int = 5) -> lis
             {
                 "rank": rank,
                 "sharpe": _safe_float(row.get("sharpe")),
-                "return": _safe_float(row.get("total_return", row.get("rtot"))),
+                "return": _safe_float(row.get("total_return_simple", row.get("total_return", row.get("rtot")))),
                 "params": params,
             }
         )
@@ -208,7 +213,7 @@ def analyze_experiment(output_dir: str) -> dict[str, Any]:
         run_frame = pd.DataFrame(
             {
                 "sharpe": pd.to_numeric(summary_df.get("sharpe"), errors="coerce").fillna(0.0),
-                "return": pd.to_numeric(summary_df.get("total_return", summary_df.get("rtot")), errors="coerce").fillna(0.0),
+                "return": pd.to_numeric(summary_df.get("total_return_simple", summary_df.get("total_return", summary_df.get("rtot"))), errors="coerce").fillna(0.0),
                 "signal_mode": summary_df.get("signal_mode").fillna("zscore") if "signal_mode" in summary_df else "zscore",
                 "z_entry": pd.to_numeric(summary_df.get("z_entry"), errors="coerce").fillna(0.0),
                 "z_exit": pd.to_numeric(summary_df.get("z_exit"), errors="coerce").fillna(0.0),

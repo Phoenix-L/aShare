@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,10 @@ REPORT_COLUMNS = [
     "start_date",
     "end_date",
     "total_return",
+    "sum_trade_return_pct",
+    "compound_trade_return_pct",
+    "total_return_simple",
+    "total_return_log",
     "avg_pnl",
     "executed_trades",
     "sharpe",
@@ -128,7 +133,7 @@ def _coalesce(*values: Any) -> Any:
     return None
 
 
-def _compute_total_return(metrics: dict[str, Any], meta: dict[str, Any], summary_row: dict[str, Any]) -> float:
+def _compute_total_return_simple(metrics: dict[str, Any], meta: dict[str, Any], summary_row: dict[str, Any]) -> float:
     final_equity = _safe_float(metrics.get("final_value"), None)
     initial_equity = _safe_float(meta.get("initial_cash"), None)
     if final_equity is not None and initial_equity not in (None, 0.0):
@@ -144,6 +149,48 @@ def _compute_total_return(metrics: dict[str, Any], meta: dict[str, Any], summary
             0.0,
         )
     )
+
+
+def _compute_total_return_log(metrics: dict[str, Any], meta: dict[str, Any], summary_row: dict[str, Any]) -> float:
+    final_equity = _safe_float(metrics.get("final_value"), None)
+    initial_equity = _safe_float(meta.get("initial_cash"), None)
+    if final_equity is not None and initial_equity not in (None, 0.0):
+        equity_ratio = float(final_equity) / float(initial_equity)
+        return math.log(equity_ratio) if equity_ratio > 0 else float("-inf")
+
+    explicit_log_return = _coalesce(
+        _safe_float(metrics.get("total_return_log"), None),
+        _safe_float(summary_row.get("total_return_log"), None),
+        _safe_float(metrics.get("rtot"), None),
+        _safe_float(summary_row.get("rtot"), None),
+    )
+    if explicit_log_return is not None:
+        return float(explicit_log_return)
+
+    explicit_simple_return = _coalesce(
+        _safe_float(metrics.get("total_return_simple"), None),
+        _safe_float(summary_row.get("total_return_simple"), None),
+        _safe_float(summary_row.get("total_return"), None),
+        _safe_float(metrics.get("total_return"), None),
+    )
+    if explicit_simple_return is None:
+        return 0.0
+    return math.log1p(float(explicit_simple_return)) if float(explicit_simple_return) > -1 else float("-inf")
+
+
+def _sum_trade_return_pct(pnl_values: pd.Series) -> float:
+    valid = pnl_values.dropna()
+    return float(valid.sum()) if not valid.empty else 0.0
+
+
+def _compound_trade_return_pct(pnl_values: pd.Series) -> float:
+    valid = pnl_values.dropna()
+    if valid.empty:
+        return 0.0
+    compounded = 1.0
+    for pnl_pct in valid.tolist():
+        compounded *= 1.0 + (float(pnl_pct) / 100.0)
+    return (compounded - 1.0) * 100.0
 
 
 def _run_payload(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -187,6 +234,10 @@ def _build_row(
     avg_mfe_from_trades = _avg(mfe_values)
     avg_mae_from_trades = _avg(mae_values)
     avg_etd_from_trades = _avg(etd_values)
+    total_return_simple = _compute_total_return_simple(metrics, meta, summary_row)
+    total_return_log = _compute_total_return_log(metrics, meta, summary_row)
+    sum_trade_return_pct = _sum_trade_return_pct(pnl_values)
+    compound_trade_return_pct = _compound_trade_return_pct(pnl_values)
 
     avg_pnl = float(_coalesce(avg_pnl_from_trades if not trades_df.empty else None, _safe_float(diagnostics_summary.get("avg_pnl"), None), 0.0))
     avg_mfe = float(_coalesce(avg_mfe_from_trades if not trades_df.empty else None, _safe_float(diagnostics_summary.get("avg_mfe"), None), 0.0))
@@ -201,7 +252,11 @@ def _build_row(
         "symbol": _coalesce(meta.get("symbol"), summary_row.get("symbol"), trades_df.iloc[0].get("symbol") if not trades_df.empty else None),
         "start_date": _coalesce(date_range.get("start"), summary_row.get("start_date")),
         "end_date": _coalesce(date_range.get("end"), summary_row.get("end_date")),
-        "total_return": _compute_total_return(metrics, meta, summary_row),
+        "total_return": total_return_simple,
+        "sum_trade_return_pct": sum_trade_return_pct,
+        "compound_trade_return_pct": compound_trade_return_pct,
+        "total_return_simple": total_return_simple,
+        "total_return_log": total_return_log,
         "avg_pnl": avg_pnl,
         "executed_trades": executed_trades,
         "sharpe": float(_coalesce(_safe_float(summary_row.get("sharpe"), None), _safe_float(metrics.get("sharpe"), None), 0.0)),
