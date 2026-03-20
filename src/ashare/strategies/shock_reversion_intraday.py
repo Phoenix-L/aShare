@@ -20,6 +20,10 @@ logger = get_logger("ashare.strategies.shock_reversion_intraday")
 class ShockReversionIntradayStrategy(bt.Strategy):
     """Standalone intraday shock-reversion strategy."""
 
+    uses_trend_filter = False
+    uses_atr_filter = False
+    uses_excursion_filter = True
+
     params = dict(
         trade_unit=500,
         excursion_lookback_bars=3,
@@ -240,7 +244,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 )
 
         executed = False
-        blocked_by: list[str] = []
         entry_condition = signal_trigger and not self.position and self.active_order is None
 
         if entry_condition:
@@ -276,7 +279,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "threshold": float(self.p.excursion_threshold),
                 "entry_signal": bool(entry_signal),
                 "executed": bool(executed),
-                "blocked_by": blocked_by,
                 "in_position": bool(self.position),
                 "holding_bars": exit_plan.holding_bars if self.position_state is not None else 0,
                 "recovery_target": exit_plan.recovery_target,

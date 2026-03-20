@@ -43,7 +43,7 @@ def test_mean_reversion_diagnostics_populated_and_block_reasons_trend() -> None:
     assert blocked
     assert any("trend_filter" in row["blocked_by"] for row in blocked)
     assert metrics["diagnostics_summary"]["blocked_by_trend"] >= 1
-    assert metrics["diagnostics_summary"]["blocked_by_excursion"] == 0
+    assert "blocked_by_excursion" not in metrics["diagnostics_summary"]
 
 
 def test_mean_reversion_diagnostics_output_files_generated(tmp_path: Path) -> None:
@@ -99,7 +99,7 @@ def test_experiment_saves_diagnostics_in_each_run_folder(monkeypatch, tmp_path: 
 
 def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 99.0, 99.0] * 2
-    _, _, metrics = run_backtest(
+    _, strat, metrics = run_backtest(
         strategy_cls=ShockReversionIntradayStrategy,
         data_df=_synthetic_df(closes),
         config=_config(),
@@ -107,6 +107,12 @@ def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() 
         symbol="SYNTH",
     )
     summary = metrics["diagnostics_summary"]
+    assert all("blocked_by" not in row for row in strat.diagnostics)
+    assert "blocked_by_trend" not in summary
+    assert "blocked_by_atr" not in summary
+    assert "blocked_by_art" not in summary
+    assert summary["blocked_by_excursion"] == 0
+    assert summary["blocked_by_multiple"] == 0
     assert summary["avg_mfe"] > 0
     assert summary["avg_mae"] <= 0
     assert summary["avg_pnl"] > 0

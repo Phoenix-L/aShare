@@ -80,10 +80,20 @@ Per-bar diagnostics include:
 - `excursion`
 - `entry_signal`
 - `executed`
-- `blocked_by`
 - `holding_bars`
 - recovery / take-profit targets
 - normalized exit reason
+
+### Diagnostics summary
+
+Because the strategy is filter-independent, its `diagnostics_summary.json` includes only:
+
+- `total_bars`
+- `entry_signals`
+- `executed_trades`
+- `blocked_by_excursion`
+- `blocked_by_multiple`
+- trade-efficiency metrics such as MFE / MAE / ETD
 
 ### Trade records
 

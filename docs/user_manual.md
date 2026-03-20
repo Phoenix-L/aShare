@@ -214,16 +214,11 @@ Experiment-level:
 
 ## 7) Diagnostics
 
-When a strategy has a `diagnostics` attribute (currently `mean_reversion_advanced`):
+When a strategy has a `diagnostics` attribute:
 
-- `diagnostics.json` stores per-bar entries such as `zscore`, filter pass flags, signal/execution flags, and `blocked_by` reasons.
-- `diagnostics_summary.json` stores aggregate counters:
-  - `total_bars`
-  - `entry_signals`
-  - `executed_trades`
-  - `blocked_by_trend`
-  - `blocked_by_atr` *(legacy alias: `blocked_by_art`)*
-  - `blocked_by_multiple`
+- `diagnostics.json` stores per-bar entries such as signals, execution flags, strategy-specific state, and any applicable `blocked_by` reasons.
+- `diagnostics_summary.json` stores aggregate counters and trade-efficiency metrics.
+- Filter-related counters are strategy-aware and only appear when the active strategy/run actually uses that filter family.
 
 For experiments, diagnostics are under each run folder in `outputs/<experiment_name>/run_xxx/`.
 
