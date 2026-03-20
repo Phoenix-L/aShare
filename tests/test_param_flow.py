@@ -195,6 +195,33 @@ class _ShockStrategy:
     )
 
 
+
+def test_cli_shock_score_filter_requires_explicit_min(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0))
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", lambda *args, **kwargs: _shock_df())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "--strategy",
+            "shock_reversion_intraday",
+            "--symbols",
+            "600519.SH",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--param",
+            "use_shock_score_filter=true",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires an explicit shock_score_min" in result.output
+
 def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
     monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig())
     monkeypatch.setattr("ashare.cli.get_strategy_class", lambda _: _ShockStrategy)

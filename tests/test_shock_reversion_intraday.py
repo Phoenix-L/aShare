@@ -104,7 +104,24 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
     ]:
         assert key in signal
     assert signal["shock_score"] >= 0.0
+    assert signal["shock_score_min"] is None
 
+
+
+def test_shock_reversion_requires_explicit_score_min_when_filter_enabled() -> None:
+    closes = [100.0] * 180 + [97.0, 98.0, 99.0]
+    with pytest.raises(ValueError, match="requires an explicit shock_score_min"):
+        _run(
+            closes,
+            {
+                "trade_unit": 500,
+                "excursion_lookback_bars": 3,
+                "excursion_threshold": 0.01,
+                "max_hold_bars": 10,
+                "stop_loss_pct": 0.10,
+                "use_shock_score_filter": True,
+            },
+        )
 
 def test_shock_reversion_optional_score_filter_blocks_low_score_entries() -> None:
     closes = [100.0] * 180 + [99.0, 99.0, 99.0]
