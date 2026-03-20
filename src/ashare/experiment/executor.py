@@ -37,6 +37,7 @@ TRADE_EXPORT_COLUMNS = [
     "mae_price",
     "anchor_price_at_entry",
     "excursion_at_entry",
+    "shock_score_at_entry",
     "recovery_target",
     "take_profit_price",
     "effective_target_price",
@@ -50,6 +51,15 @@ SIGNAL_EXPORT_COLUMNS = [
     "symbol",
     "datetime",
     "excursion",
+    "depth_raw",
+    "depth_score",
+    "speed_ret",
+    "speed_score",
+    "stabilization_score",
+    "noise_base",
+    "noise_ratio",
+    "noise_penalty",
+    "shock_score",
     "threshold",
     "trend_ok",
     "entry_executed",
@@ -63,7 +73,6 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> No
         writer.writeheader()
         for row in rows:
             writer.writerow({column: row.get(column) for column in columns})
-
 
 
 def _report_grid_size(original_grid_size: int, deduplicated_runs: int) -> None:
