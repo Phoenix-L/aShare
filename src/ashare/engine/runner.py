@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import json
+import statistics
 from pathlib import Path
 from typing import Any, Type
 
@@ -97,14 +98,20 @@ def _build_diagnostics_summary(
     mfe_values = [float(trade.get("mfe_pct", trade.get("max_favorable_excursion", 0.0))) for trade in completed_trades]
     mae_values = [float(trade.get("mae_pct", trade.get("max_adverse_excursion", 0.0))) for trade in completed_trades]
     pnl_values = [float(trade.get("pnl_pct", 0.0)) for trade in completed_trades]
+    etd_values = [max(0.0, float(trade.get("etd", 0.0))) for trade in completed_trades]
 
     avg_mfe = _safe_avg(mfe_values)
     avg_mae = _safe_avg(mae_values)
     avg_pnl = _safe_avg(pnl_values)
+    avg_etd = _safe_avg(etd_values)
     summary["avg_mfe"] = avg_mfe
     summary["avg_mae"] = avg_mae
     summary["avg_pnl"] = avg_pnl
+    summary["avg_etd"] = avg_etd
+    summary["median_etd"] = statistics.median(etd_values) if etd_values else 0.0
+    summary["max_etd"] = max(etd_values) if etd_values else 0.0
     summary["mfe_pnl_gap"] = avg_mfe - avg_pnl
+    summary["etd_pnl_gap"] = avg_etd
     summary["pnl_capture_ratio"] = avg_pnl / avg_mfe if avg_mfe > 0 else 0.0
 
     exit_reasons = ["recovery", "take_profit", "stop_loss", "max_hold"]
