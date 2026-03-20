@@ -162,5 +162,48 @@ def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_
     assert set(ranked_df["run_id"]) == {"run_001", "run_002", "run_003", "run_004", "run_005"}
     assert report_df.loc[report_df["run_id"] == "run_006", "rejection_reason"].item() == "hard:executed_trades<10"
     assert report_df.loc[report_df["run_id"] == "run_004", "selected"].item()
+    assert "return" not in report_df.columns
+    assert "total_return" in report_df.columns
+    assert "avg_trade_return" in report_df.columns
+    assert "return_alignment_warning" in report_df.columns
+    assert not report_df["return_sign_mismatch"].any()
     assert top_config["run_id"] == "run_002"
+    assert "total_return" in top_config
+    assert "avg_trade_return" in top_config
     assert top_config["params"]["excursion_threshold"] == 0.012
+
+
+def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_root = tmp_path / "outputs" / "shock_selection_mismatch"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    _write_run(
+        output_root,
+        "run_001",
+        metrics={"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 12},
+        parameters={"excursion_lookback_bars": 3, "excursion_threshold": 0.01},
+        meta={"strategy": "shock_reversion_intraday"},
+    )
+    (output_root / "run_001" / "diagnostics_summary.json").write_text(
+        json.dumps({"executed_trades": 12, "avg_pnl": -1.5, "avg_mfe": 4.0, "avg_mae": -0.8, "avg_etd": 0.8}),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "run_id": "run_001",
+                "exit_reason": "recovery",
+            }
+        ]
+    ).to_csv(output_root / "trades.csv", index=False)
+
+    build_summary("shock_selection_mismatch")
+
+    report_df = pd.read_csv(output_root / "selection_report.csv")
+    mismatch_row = report_df.loc[report_df["run_id"] == "run_001"].iloc[0]
+
+    assert mismatch_row["total_return"] == 0.08
+    assert mismatch_row["avg_trade_return"] == -1.5
+    assert mismatch_row["return_sign_mismatch"]
+    assert mismatch_row["return_alignment_warning"] == "sign_mismatch"

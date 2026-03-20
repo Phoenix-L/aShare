@@ -11,6 +11,7 @@ SUMMARY_EXCLUDE_COLUMNS = {
     "return",
     "total_return",
     "rtot",
+    "avg_trade_return",
     "sharpe",
     "max_drawdown",
     "num_trades",
@@ -60,7 +61,7 @@ def _normalize_series(series: pd.Series) -> pd.Series:
     return (numeric - minimum) / (maximum - minimum)
 
 
-def _return_column(summary_df: pd.DataFrame) -> str | None:
+def _portfolio_return_column(summary_df: pd.DataFrame) -> str | None:
     for column in ("return", "total_return", "rtot"):
         if column in summary_df.columns:
             return column
@@ -91,8 +92,8 @@ def _build_selection_frame(output_root: Path) -> pd.DataFrame:
     if summary_df.empty:
         return pd.DataFrame()
 
-    return_column = _return_column(summary_df)
-    if return_column is None:
+    portfolio_return_column = _portfolio_return_column(summary_df)
+    if portfolio_return_column is None:
         raise ValueError(f"Missing return column in {output_root / 'summary.csv'}")
 
     run_dirs = sorted(path for path in output_root.iterdir() if path.is_dir() and path.name.startswith("run_"))
@@ -104,11 +105,15 @@ def _build_selection_frame(output_root: Path) -> pd.DataFrame:
     for index, run_dir in enumerate(run_dirs):
         summary_row = summary_df.iloc[index] if index < len(summary_df.index) else pd.Series(dtype=object)
         diagnostics_summary = _load_json(run_dir / "diagnostics_summary.json")
-        record = {column: summary_row[column] for column in summary_df.columns if column in summary_row.index}
+        record = {
+            column: summary_row[column]
+            for column in summary_df.columns
+            if column in summary_row.index and column not in {"return", "rtot"}
+        }
         record.update(
             {
                 "run_id": run_dir.name,
-                "return": _safe_float(summary_row.get(return_column)),
+                "total_return": _safe_float(summary_row.get(portfolio_return_column)),
                 "sharpe": _safe_float(summary_row.get("sharpe")),
                 "max_drawdown": _safe_float(summary_row.get("max_drawdown")),
                 "num_trades": _safe_float(summary_row.get("num_trades", summary_row.get("trade_count"))),
@@ -120,9 +125,16 @@ def _build_selection_frame(output_root: Path) -> pd.DataFrame:
                 "stop_loss_share": float(stop_loss_share_map.get(run_dir.name, 0.0)),
             }
         )
-        record["capture_ratio"] = record["avg_pnl"] / record["avg_mfe"] if record["avg_mfe"] > 0 else 0.0
-        record["pain_gain_ratio"] = abs(record["avg_mae"]) / record["avg_pnl"] if record["avg_pnl"] > 0 else float("inf")
+        record["avg_trade_return"] = record["avg_pnl"]
+        record["capture_ratio"] = record["avg_trade_return"] / record["avg_mfe"] if record["avg_mfe"] > 0 else 0.0
+        record["pain_gain_ratio"] = abs(record["avg_mae"]) / record["avg_trade_return"] if record["avg_trade_return"] > 0 else float("inf")
         record["etd_ratio"] = record["avg_etd"] / record["avg_mfe"] if record["avg_mfe"] > 0 else float("inf")
+
+        portfolio_return = record["total_return"]
+        avg_trade_return = record["avg_trade_return"]
+        signs_match = (portfolio_return == 0.0 or avg_trade_return == 0.0) or ((portfolio_return > 0) == (avg_trade_return > 0))
+        record["return_sign_mismatch"] = not signs_match
+        record["return_alignment_warning"] = "sign_mismatch" if not signs_match else ""
         records.append(record)
 
     return pd.DataFrame(records)
@@ -140,10 +152,10 @@ def _apply_selection_rules(selection_df: pd.DataFrame) -> pd.DataFrame:
         reasons: list[str] = []
         if row["executed_trades"] < 10:
             reasons.append("hard:executed_trades<10")
-        if row["return"] <= 0:
-            reasons.append("hard:return<=0")
-        if row["avg_pnl"] <= 0:
-            reasons.append("hard:avg_pnl<=0")
+        if row["total_return"] <= 0:
+            reasons.append("hard:total_return<=0")
+        if row["avg_trade_return"] <= 0:
+            reasons.append("hard:avg_trade_return<=0")
         if row["avg_mfe"] <= 0:
             reasons.append("hard:avg_mfe<=0")
         if row["capture_ratio"] < 0.25:
@@ -154,8 +166,8 @@ def _apply_selection_rules(selection_df: pd.DataFrame) -> pd.DataFrame:
             reasons.append("hard:stop_loss_share>0.60")
 
         is_ladder_ready = True
-        if row["avg_mfe"] < 2 * row["avg_pnl"]:
-            reasons.append("ladder:avg_mfe<2x_avg_pnl")
+        if row["avg_mfe"] < 2 * row["avg_trade_return"]:
+            reasons.append("ladder:avg_mfe<2x_avg_trade_return")
             is_ladder_ready = False
         if row["executed_trades"] < 10:
             is_ladder_ready = False
@@ -174,16 +186,16 @@ def _apply_selection_rules(selection_df: pd.DataFrame) -> pd.DataFrame:
     evaluated["selected"] = evaluated["rejection_reason"] == ""
 
     selected_mask = evaluated["selected"]
-    for column in ["return", "sharpe", "avg_pnl", "capture_ratio", "executed_trades", "max_drawdown", "avg_etd"]:
+    for column in ["total_return", "sharpe", "avg_trade_return", "capture_ratio", "executed_trades", "max_drawdown", "avg_etd"]:
         normalized = pd.Series([0.0] * len(evaluated.index), index=evaluated.index, dtype=float)
         normalized.loc[selected_mask] = _normalize_series(evaluated.loc[selected_mask, column])
         evaluated[f"{column}_normalized"] = normalized
 
     evaluated["score"] = 0.0
     evaluated.loc[selected_mask, "score"] = (
-        0.40 * evaluated.loc[selected_mask, "return_normalized"]
+        0.40 * evaluated.loc[selected_mask, "total_return_normalized"]
         + 0.20 * evaluated.loc[selected_mask, "sharpe_normalized"]
-        + 0.15 * evaluated.loc[selected_mask, "avg_pnl_normalized"]
+        + 0.15 * evaluated.loc[selected_mask, "avg_trade_return_normalized"]
         + 0.10 * evaluated.loc[selected_mask, "capture_ratio_normalized"]
         + 0.05 * evaluated.loc[selected_mask, "executed_trades_normalized"]
         - 0.05 * evaluated.loc[selected_mask, "max_drawdown_normalized"]
@@ -196,8 +208,9 @@ def _top_config_payload(row: pd.Series) -> dict[str, Any]:
     payload = {
         "run_id": row["run_id"],
         "score": float(row["score"]),
-        "return": float(row["return"]),
+        "total_return": float(row["total_return"]),
         "sharpe": float(row["sharpe"]),
+        "avg_trade_return": float(row["avg_trade_return"]),
         "avg_pnl": float(row["avg_pnl"]),
         "capture_ratio": float(row["capture_ratio"]),
         "executed_trades": int(row["executed_trades"]),
@@ -237,7 +250,7 @@ def write_selection_artifacts(output_dir: str | Path) -> dict[str, Path | pd.Dat
         }
 
     selection_df.to_csv(report_path, index=False)
-    ranked_df = selection_df.loc[selection_df["selected"]].sort_values(by=["score", "return", "sharpe"], ascending=[False, False, False]).head(5)
+    ranked_df = selection_df.loc[selection_df["selected"]].sort_values(by=["score", "total_return", "sharpe"], ascending=[False, False, False]).head(5)
     ranked_df.to_csv(ranked_path, index=False)
 
     if ranked_df.empty:
