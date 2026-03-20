@@ -282,6 +282,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
         executed = False
         blocked_by: list[str] = []
+        score_filter_enabled = bool(self.p.use_shock_score_filter)
         entry_condition = signal_trigger and not self.position and self.active_order is None
         if score_filter_enabled:
             entry_condition = entry_condition and score_filter_pass
