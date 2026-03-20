@@ -20,6 +20,7 @@ from ashare.utils.logging import get_logger
 logger = get_logger("ashare.experiment.executor")
 
 TRADE_EXPORT_COLUMNS = [
+    "run_id",
     "symbol",
     "entry_datetime",
     "exit_datetime",
@@ -133,7 +134,13 @@ def execute_experiment_spec(
 
             trade_rows = getattr(strat, "completed_trades", None)
             if trade_rows:
-                experiment_trades.extend(trade_rows)
+                experiment_trades.extend(
+                    {
+                        "run_id": f"run_{run_index:03d}",
+                        **trade_row,
+                    }
+                    for trade_row in trade_rows
+                )
 
             signal_rows = getattr(strat, "signal_events", None)
             if signal_rows:

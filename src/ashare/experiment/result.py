@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from ashare.research.config_selector import write_selection_artifacts
+
 METRIC_COLUMNS = ["total_return", "sharpe", "max_drawdown", "num_trades"]
 PARAMETER_COLUMN_PREFERENCE = {
     "mean_reversion_advanced": [
@@ -182,5 +184,8 @@ def build_summary(experiment_name: str) -> tuple[Path, Path, list[dict[str, Any]
     sorted_records = rank_results(records)
     summary_sorted_path = output_root / "summary_sorted.csv"
     _write_summary(summary_sorted_path, sorted_records)
+
+    if records and records[0].get("meta", {}).get("strategy") == "shock_reversion_intraday":
+        write_selection_artifacts(output_root)
 
     return summary_path, summary_sorted_path, sorted_records
