@@ -195,6 +195,33 @@ class _ShockStrategy:
     )
 
 
+
+def test_cli_shock_score_filter_requires_explicit_min(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig(initial_cash=500_000, commission=0.0, stamp_duty=0.0, slippage_perc=0.0))
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", lambda *args, **kwargs: _shock_df())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "--strategy",
+            "shock_reversion_intraday",
+            "--symbols",
+            "600519.SH",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--param",
+            "use_shock_score_filter=true",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires an explicit shock_score_min" in result.output
+
 def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
     monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig())
     monkeypatch.setattr("ashare.cli.get_strategy_class", lambda _: _ShockStrategy)
@@ -216,6 +243,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
                         "take_profit_pct": 0.05,
                         "max_hold_bars": 8,
                         "stop_loss_pct": 0.02,
+                        "use_shock_score_filter": True,
+                        "shock_score_min": 60,
+                        "shock_score_max": 80,
                         "z_entry": None,
                         "z_exit": None,
                     },
@@ -245,6 +275,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
     assert "recovery_frac=0.5" in result.output
     assert "tp=0.05" in result.output
     assert "hold=8" in result.output
+    assert "use_shock_score_filter=true" in result.output
+    assert "shock_score_min=60" in result.output
+    assert "shock_score_max=80" in result.output
     assert "z_entry=None" not in result.output
     assert "z_exit=None" not in result.output
 
