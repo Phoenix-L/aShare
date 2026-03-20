@@ -132,7 +132,6 @@ def _build_run_record(run_dir: Path, summary_row: dict[str, Any]) -> dict[str, A
         "executed_trades": _safe_float(diagnostics_summary.get("executed_trades")),
         "blocked_by_atr": blocked_by_atr,
         "blocked_by_art": blocked_by_atr,
-        "blocked_by_excursion": _safe_float(diagnostics_summary.get("blocked_by_excursion")),
     }
 
 
@@ -232,22 +231,18 @@ def analyze_experiment(output_dir: str) -> dict[str, Any]:
 
     trade_efficiencies: list[float] = []
     atr_block_rates: list[float] = []
-    excursion_block_rates: list[float] = []
     if not run_frame.empty:
         for _, row in run_frame.iterrows():
             entry_signals = _safe_float(row.get("entry_signals"))
             executed_trades = _safe_float(row.get("executed_trades"))
             blocked_by_atr = _safe_float(row.get("blocked_by_atr", row.get("blocked_by_art")))
-            blocked_by_excursion = _safe_float(row.get("blocked_by_excursion"))
 
             if entry_signals > 0:
                 trade_efficiencies.append(executed_trades / entry_signals)
                 atr_block_rates.append(blocked_by_atr / entry_signals)
-                excursion_block_rates.append(blocked_by_excursion / entry_signals)
             else:
                 trade_efficiencies.append(0.0)
                 atr_block_rates.append(0.0)
-                excursion_block_rates.append(0.0)
 
     total_runs = len(run_dirs)
     if total_runs == 0 and not summary_df.empty:
@@ -266,7 +261,6 @@ def analyze_experiment(output_dir: str) -> dict[str, Any]:
         "filters": {
             "blocked_by_atr": avg_atr_block_rate,
             "blocked_by_art": avg_atr_block_rate,
-            "blocked_by_excursion": sum(excursion_block_rates) / len(excursion_block_rates) if excursion_block_rates else 0.0,
         },
         "parameter_analysis": _build_parameter_analysis(run_frame),
         "top_configs": _extract_top_configs(summary_sorted_df),

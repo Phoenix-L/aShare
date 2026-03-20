@@ -63,22 +63,18 @@ def _build_diagnostics_summary(
     """Aggregate per-bar and per-trade diagnostics into high-level metrics."""
     uses_trend_filter = bool(getattr(strategy, "uses_trend_filter", True))
     uses_atr_filter = bool(getattr(strategy, "uses_atr_filter", False))
-    uses_excursion_filter = bool(getattr(strategy, "uses_excursion_filter", False))
 
     summary: dict[str, Any] = {
         "total_bars": len(diagnostics),
         "entry_signals": 0,
         "executed_trades": 0,
+        "blocked_by_multiple": 0,
     }
     if uses_trend_filter:
         summary["blocked_by_trend"] = 0
     if uses_atr_filter:
         summary["blocked_by_atr"] = 0
         summary["blocked_by_art"] = 0
-    if uses_excursion_filter:
-        summary["blocked_by_excursion"] = 0
-    if uses_trend_filter or uses_atr_filter or uses_excursion_filter:
-        summary["blocked_by_multiple"] = 0
 
     for item in diagnostics:
         if not item.get("entry_signal", False):
@@ -98,10 +94,10 @@ def _build_diagnostics_summary(
             summary["blocked_by_atr"] += 1
             summary["blocked_by_art"] += 1
             active_blocks += 1
-        if uses_excursion_filter and "excursion_filter" in blocked_by:
-            summary["blocked_by_excursion"] += 1
-            active_blocks += 1
-        if "blocked_by_multiple" in summary and active_blocks >= 2:
+        if uses_trend_filter or uses_atr_filter:
+            if active_blocks >= 2:
+                summary["blocked_by_multiple"] += 1
+        elif blocked_by:
             summary["blocked_by_multiple"] += 1
 
     completed_trades = list(completed_trades or [])
@@ -256,8 +252,6 @@ def run_backtest(
                 log_lines.append(f"Blocked by trend: {diagnostics_summary['blocked_by_trend']}")
             if "blocked_by_atr" in diagnostics_summary:
                 log_lines.append(f"Blocked by ATR: {diagnostics_summary['blocked_by_atr']}")
-            if "blocked_by_excursion" in diagnostics_summary:
-                log_lines.append(f"Blocked by excursion: {diagnostics_summary['blocked_by_excursion']}")
             if "blocked_by_multiple" in diagnostics_summary:
                 log_lines.append(f"Blocked by multiple: {diagnostics_summary['blocked_by_multiple']}")
             logger.info("\n".join(log_lines))

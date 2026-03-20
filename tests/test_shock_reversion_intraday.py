@@ -66,7 +66,8 @@ def test_shock_reversion_entry_depends_only_on_excursion_signal() -> None:
     strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert strat.buy_events >= 1
     assert all("trend_ok" not in row for row in strat.diagnostics)
-    assert all("blocked_by" not in row for row in strat.diagnostics)
+    assert all("trend_filter" not in row.get("blocked_by", []) for row in strat.diagnostics)
+    assert all("atr_filter" not in row.get("blocked_by", []) for row in strat.diagnostics)
 
 
 def test_shock_reversion_take_profit_exit() -> None:

@@ -25,7 +25,6 @@ class MeanReversionAdvanced(bt.Strategy):
 
     uses_trend_filter = True
     uses_atr_filter = True
-    uses_excursion_filter = False
 
     params = dict(
         trade_unit=500,
@@ -98,7 +97,6 @@ class MeanReversionAdvanced(bt.Strategy):
         self.atr_ratio_min = self._resolve_atr_ratio_min()
         self.uses_trend_filter = bool(self.p.use_trend_filter)
         self.uses_atr_filter = bool(self.use_atr_filter)
-        self.uses_excursion_filter = False
 
     def _get_daily_ma_source(self):
         """Return the required daily-resampled feed used for MA calculations."""

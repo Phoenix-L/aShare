@@ -91,8 +91,7 @@ Because the strategy is filter-independent, its `diagnostics_summary.json` inclu
 - `total_bars`
 - `entry_signals`
 - `executed_trades`
-- `blocked_by_excursion`
-- `blocked_by_multiple`
+- `blocked_by_multiple` for signal-triggered bars that could not execute because of execution-state constraints such as an existing position or active order
 - trade-efficiency metrics such as MFE / MAE / ETD
 
 ### Trade records

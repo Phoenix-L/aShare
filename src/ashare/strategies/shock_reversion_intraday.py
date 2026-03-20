@@ -22,7 +22,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
     uses_trend_filter = False
     uses_atr_filter = False
-    uses_excursion_filter = True
 
     params = dict(
         trade_unit=500,
@@ -244,7 +243,13 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 )
 
         executed = False
+        blocked_by: list[str] = []
         entry_condition = signal_trigger and not self.position and self.active_order is None
+
+        if entry_signal and self.position:
+            blocked_by.append("in_position")
+        if entry_signal and self.active_order is not None:
+            blocked_by.append("active_order")
 
         if entry_condition:
             self.pending_entry_context = {

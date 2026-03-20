@@ -107,12 +107,14 @@ def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() 
         symbol="SYNTH",
     )
     summary = metrics["diagnostics_summary"]
-    assert all("blocked_by" not in row for row in strat.diagnostics)
+    assert all("trend_filter" not in row.get("blocked_by", []) for row in strat.diagnostics)
+    assert all("atr_filter" not in row.get("blocked_by", []) for row in strat.diagnostics)
+    assert all("art_filter" not in row.get("blocked_by", []) for row in strat.diagnostics)
     assert "blocked_by_trend" not in summary
     assert "blocked_by_atr" not in summary
     assert "blocked_by_art" not in summary
-    assert summary["blocked_by_excursion"] == 0
-    assert summary["blocked_by_multiple"] == 0
+    assert "blocked_by_excursion" not in summary
+    assert summary["blocked_by_multiple"] >= 1
     assert summary["avg_mfe"] > 0
     assert summary["avg_mae"] <= 0
     assert summary["avg_pnl"] > 0
