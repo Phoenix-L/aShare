@@ -51,8 +51,7 @@ def _build_parameter_analysis_insights(results: dict[str, Any]) -> list[str]:
             insights.append("Excursion filter currently has limited impact.")
 
     atr_block_rate = float(results.get("filters", {}).get("blocked_by_atr", results.get("filters", {}).get("blocked_by_art", 0.0)) or 0.0)
-    excursion_block_rate = float(results.get("filters", {}).get("blocked_by_excursion", 0.0) or 0.0)
-    if atr_block_rate >= max(0.10, excursion_block_rate * 2):
+    if atr_block_rate >= 0.10:
         insights.append("Strategy dominated by ATR filtering.")
 
     return insights
@@ -64,15 +63,12 @@ def _build_insights(results: dict[str, Any]) -> list[str]:
 
     trade_efficiency = float(results.get("trade_efficiency", {}).get("avg", 0.0) or 0.0)
     atr_block_rate = float(results.get("filters", {}).get("blocked_by_atr", results.get("filters", {}).get("blocked_by_art", 0.0)) or 0.0)
-    excursion_block_rate = float(results.get("filters", {}).get("blocked_by_excursion", 0.0) or 0.0)
     avg_sharpe = float(results.get("avg_sharpe", 0.0) or 0.0)
 
     if trade_efficiency < 0.1:
         insights.append("Strategy over-filtered: very few entry signals are converted into executed trades.")
     if atr_block_rate > 0.5:
         insights.append("ATR filter too restrictive: volatility gating is blocking most candidate entries.")
-    if excursion_block_rate > 0.5:
-        insights.append("Excursion filter limiting signals: recent displacement requirements may be too strict.")
     if avg_sharpe > 1.0:
         insights.append("Average Sharpe is healthy, suggesting the parameter sweep found broadly stable behavior.")
 
@@ -218,7 +214,6 @@ def generate_markdown_report(results: dict[str, Any]) -> str:
             "",
             "## Filter Impact",
             f"- ATR block rate: {_as_percent(atr_block_rate)}",
-            f"- Excursion block rate: {_as_percent(float(filters.get('blocked_by_excursion', 0.0) or 0.0))}",
             "",
             "## Parameter Contribution Analysis",
             "",

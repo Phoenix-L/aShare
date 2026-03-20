@@ -46,25 +46,25 @@ def _build_mock_experiment(output_dir) -> None:
             "run_001",
             {"z_entry": -1.1, "z_exit": 0.3, "use_multi_day_excursion": False, "excursion_window": 2, "excursion_min": 0.008},
             {"total_return": 0.05, "sharpe": 1.0},
-            {"entry_signals": 10, "executed_trades": 2, "blocked_by_atr": 6, "blocked_by_excursion": 1},
+            {"entry_signals": 10, "executed_trades": 2, "blocked_by_atr": 6},
         ),
         (
             "run_002",
             {"z_entry": -1.2, "z_exit": 0.3, "use_multi_day_excursion": False, "excursion_window": 3, "excursion_min": 0.010},
             {"total_return": 0.07, "sharpe": 1.2},
-            {"entry_signals": 8, "executed_trades": 2, "blocked_by_atr": 4, "blocked_by_excursion": 1},
+            {"entry_signals": 8, "executed_trades": 2, "blocked_by_atr": 4},
         ),
         (
             "run_003",
             {"z_entry": -1.4, "z_exit": 0.5, "use_multi_day_excursion": True, "excursion_window": 3, "excursion_min": 0.010},
             {"total_return": 0.12, "sharpe": 1.8},
-            {"entry_signals": 6, "executed_trades": 2, "blocked_by_atr": 3, "blocked_by_excursion": 1},
+            {"entry_signals": 6, "executed_trades": 2, "blocked_by_atr": 3},
         ),
         (
             "run_004",
             {"z_entry": -1.6, "z_exit": 0.5, "use_multi_day_excursion": True, "excursion_window": 5, "excursion_min": 0.015},
             {"total_return": 0.10, "sharpe": 1.6},
-            {"entry_signals": 4, "executed_trades": 1, "blocked_by_atr": 2, "blocked_by_excursion": 1},
+            {"entry_signals": 4, "executed_trades": 1, "blocked_by_atr": 2},
         ),
     ]
 
@@ -89,7 +89,6 @@ def test_analyze_experiment_aggregates_metrics_and_grouping_correctly(tmp_path) 
     assert results["avg_return"] == pytest.approx(0.085)
     assert results["trade_efficiency"]["avg"] == pytest.approx(0.2583333333333333)
     assert results["filters"]["blocked_by_atr"] == pytest.approx(0.525)
-    assert results["filters"]["blocked_by_excursion"] == pytest.approx(0.16041666666666665)
     assert results["top_configs"][0]["rank"] == 1
     assert results["top_configs"][0]["params"]["use_multi_day_excursion"] is True
 
@@ -121,7 +120,7 @@ def test_generate_markdown_report_contains_parameter_sections_and_insights() -> 
             "avg_sharpe": 1.4,
             "avg_return": 0.085,
             "trade_efficiency": {"avg": 0.08},
-            "filters": {"blocked_by_atr": 0.62, "blocked_by_art": 0.62, "blocked_by_excursion": 0.20},
+            "filters": {"blocked_by_atr": 0.62, "blocked_by_art": 0.62},
             "top_configs": [{"rank": 1, "sharpe": 1.8, "return": 0.12, "params": {"z_entry": -1.4}}],
             "parameter_analysis": {
                 "excursion_toggle": {
@@ -199,7 +198,7 @@ def test_analyze_experiment_accepts_legacy_blocked_by_art_alias(tmp_path) -> Non
     run_dir = output_dir / "run_001"
     run_dir.mkdir()
     _write_json(run_dir / "metrics.json", {"total_return": 0.05, "sharpe": 1.0})
-    _write_json(run_dir / "diagnostics_summary.json", {"entry_signals": 10, "executed_trades": 2, "blocked_by_art": 5, "blocked_by_excursion": 1})
+    _write_json(run_dir / "diagnostics_summary.json", {"entry_signals": 10, "executed_trades": 2, "blocked_by_art": 5})
     _write_snapshot(run_dir / "config_snapshot.yaml", {"z_entry": -1.0, "z_exit": 0.5, "use_art_filter": True, "use_multi_day_excursion": False, "excursion_window": 3, "excursion_min": 0.01})
 
     results = analyze_experiment(str(output_dir))

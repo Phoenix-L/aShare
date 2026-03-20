@@ -2,7 +2,7 @@
 
 ## Core concept
 
-`shock_reversion_intraday` is an event-driven intraday reversion strategy. It looks for sharp downside excursions from a recent rolling high, enters after a sufficiently deep shock, and exits through a shared exit engine that balances recovery, take-profit, stop-loss, and maximum holding time.
+`shock_reversion_intraday` is a pure event-driven intraday reversion strategy. It looks for sharp downside excursions from a recent rolling high, enters after a sufficiently deep shock, and exits through a shared exit engine that balances recovery, take-profit, stop-loss, and maximum holding time.
 
 ## Signal definition
 
@@ -25,19 +25,7 @@ A long entry is allowed only when all of the following are true:
 
 1. no position is open;
 2. `excursion <= -excursion_threshold`;
-3. the trend filter passes, if enabled;
-4. no order is already active.
-
-### Trend filter
-
-If enabled, the strategy compares the intraday close against a daily-resampled moving average:
-
-```text
-close > trend_MA
-```
-
-- The period is controlled by `trend_ma_period`.
-- This filter is optional and can be disabled.
+3. no order is already active.
 
 ## Exit logic
 
@@ -82,8 +70,6 @@ The exit engine closes the position when the first of these conditions is met:
 | `trade_unit` | Fixed share size per entry order. |
 | `excursion_lookback_bars` | Rolling lookback window for the anchor price. |
 | `excursion_threshold` | Minimum shock depth required to enter. |
-| `use_trend_filter` | Enables the daily trend gate. |
-| `trend_ma_period` | Daily moving-average period used by the trend filter. |
 | `recovery_frac` | Fraction of the shock to recover before the recovery exit can fire. |
 | `take_profit_pct` | Absolute profit target from entry price. |
 | `stop_loss_pct` | Maximum tolerated loss from entry price. |
