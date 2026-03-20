@@ -33,6 +33,7 @@ PARAMETER_COLUMN_PREFERENCE = {
         "score_weight_noise_penalty",
         "use_shock_score_filter",
         "shock_score_min",
+        "shock_score_max",
         "take_profit_pct",
         "recovery_frac",
         "max_hold_bars",
@@ -137,6 +138,7 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "score_weight_noise_penalty": params.get("score_weight_noise_penalty"),
             "use_shock_score_filter": params.get("use_shock_score_filter"),
             "shock_score_min": params.get("shock_score_min"),
+            "shock_score_max": params.get("shock_score_max"),
             "excursion_window": params.get("excursion_window"),
             "excursion_min": params.get("excursion_min"),
             "take_profit_pct": params.get("take_profit_pct"),
@@ -211,6 +213,34 @@ def _bucket_for_score(score: float | None) -> tuple[float, float] | None:
     return None
 
 
+
+def _aggregate_trade_quality(trades: list[dict[str, Any]]) -> dict[str, float]:
+    pnl_values = [_safe_float(trade.get("pnl_pct"), 0.0) for trade in trades]
+    mfe_values = [_safe_float(trade.get("mfe_pct", trade.get("max_favorable_excursion")), 0.0) for trade in trades]
+    mae_values = [_safe_float(trade.get("mae_pct", trade.get("max_adverse_excursion")), 0.0) for trade in trades]
+    etd_values = [_safe_float(trade.get("etd"), 0.0) for trade in trades]
+    holding_bars_values = [_safe_float(trade.get("holding_bars"), 0.0) for trade in trades]
+    executed_trades = len(trades)
+    return {
+        "executed_trades": executed_trades,
+        "avg_pnl": _avg(pnl_values),
+        "avg_mfe": _avg(mfe_values),
+        "avg_mae": _avg(mae_values),
+        "avg_etd": _avg(etd_values),
+        "win_rate": (sum(1 for value in pnl_values if value > 0.0) / executed_trades) if executed_trades else 0.0,
+        "stop_loss_share": (sum(1 for trade in trades if trade.get("exit_reason") == "stop_loss") / executed_trades) if executed_trades else 0.0,
+        "avg_holding_bars": _avg(holding_bars_values),
+    }
+
+
+def _aggregate_signal_component_averages(signals: list[dict[str, Any]]) -> dict[str, float]:
+    return {
+        "avg_depth_score": _avg([_safe_float(signal.get("depth_score"), 0.0) for signal in signals]),
+        "avg_speed_score": _avg([_safe_float(signal.get("speed_score"), 0.0) for signal in signals]),
+        "avg_stabilization_score": _avg([_safe_float(signal.get("stabilization_score"), 0.0) for signal in signals]),
+        "avg_noise_penalty": _avg([_safe_float(signal.get("noise_penalty"), 0.0) for signal in signals]),
+    }
+
 def write_shock_score_bucket_analysis(output_root: Path) -> Path:
     """Write score-bucket quality metrics for shock_reversion_intraday experiments."""
     signals = _load_csv_rows(output_root / "signals.csv")
@@ -235,26 +265,20 @@ def write_shock_score_bucket_analysis(output_root: Path) -> Path:
     for lower, upper in SHOCK_SCORE_BUCKETS:
         label = _bucket_label(lower, upper)
         bucket_trades = trade_buckets[label]
-        pnl_values = [_safe_float(trade.get("pnl_pct"), 0.0) for trade in bucket_trades]
-        mfe_values = [_safe_float(trade.get("mfe_pct", trade.get("max_favorable_excursion")), 0.0) for trade in bucket_trades]
-        mae_values = [_safe_float(trade.get("mae_pct", trade.get("max_adverse_excursion")), 0.0) for trade in bucket_trades]
-        etd_values = [_safe_float(trade.get("etd"), 0.0) for trade in bucket_trades]
-        executed_trades = len(bucket_trades)
+        trade_quality = _aggregate_trade_quality(bucket_trades)
         rows.append(
             {
                 "score_bucket": label,
                 "bucket_min": lower,
                 "bucket_max": upper,
                 "signal_count": signal_counts[label],
-                "executed_trades": executed_trades,
-                "avg_pnl": _avg(pnl_values),
-                "avg_mfe": _avg(mfe_values),
-                "avg_mae": _avg(mae_values),
-                "avg_etd": _avg(etd_values),
-                "win_rate": (sum(1 for value in pnl_values if value > 0.0) / executed_trades) if executed_trades else 0.0,
-                "stop_loss_share": (
-                    sum(1 for trade in bucket_trades if trade.get("exit_reason") == "stop_loss") / executed_trades
-                ) if executed_trades else 0.0,
+                "executed_trades": trade_quality["executed_trades"],
+                "avg_pnl": trade_quality["avg_pnl"],
+                "avg_mfe": trade_quality["avg_mfe"],
+                "avg_mae": trade_quality["avg_mae"],
+                "avg_etd": trade_quality["avg_etd"],
+                "win_rate": trade_quality["win_rate"],
+                "stop_loss_share": trade_quality["stop_loss_share"],
             }
         )
 
@@ -274,6 +298,78 @@ def write_shock_score_bucket_analysis(output_root: Path) -> Path:
                 "avg_etd",
                 "win_rate",
                 "stop_loss_share",
+            ],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    return path
+
+
+def write_shock_score_overshock_analysis(output_root: Path) -> Path:
+    """Write explicit 60-80 vs 80-100 overshock diagnostics for shock experiments."""
+    signals = _load_csv_rows(output_root / "signals.csv")
+    trades = _load_csv_rows(output_root / "trades.csv")
+
+    selected_buckets = ["60-80", "80-100"]
+    signal_buckets = {label: [] for label in selected_buckets}
+    trade_buckets = {label: [] for label in selected_buckets}
+
+    for signal in signals:
+        bucket = _bucket_for_score(_safe_float(signal.get("shock_score"), None))
+        if bucket is None:
+            continue
+        label = _bucket_label(*bucket)
+        if label in signal_buckets:
+            signal_buckets[label].append(signal)
+
+    for trade in trades:
+        bucket = _bucket_for_score(_safe_float(trade.get("shock_score_at_entry"), None))
+        if bucket is None:
+            continue
+        label = _bucket_label(*bucket)
+        if label in trade_buckets:
+            trade_buckets[label].append(trade)
+
+    baseline = _aggregate_trade_quality(trade_buckets["60-80"])
+    rows: list[dict[str, Any]] = []
+    for label in selected_buckets:
+        trade_quality = _aggregate_trade_quality(trade_buckets[label])
+        component_averages = _aggregate_signal_component_averages(signal_buckets[label])
+        rows.append(
+            {
+                "bucket": label,
+                "signal_count": len(signal_buckets[label]),
+                **trade_quality,
+                **component_averages,
+                "pnl_diff_vs_60_80": trade_quality["avg_pnl"] - baseline["avg_pnl"],
+                "winrate_diff_vs_60_80": trade_quality["win_rate"] - baseline["win_rate"],
+                "stoploss_diff_vs_60_80": trade_quality["stop_loss_share"] - baseline["stop_loss_share"],
+            }
+        )
+
+    path = output_root / "shock_score_overshock_analysis.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "bucket",
+                "signal_count",
+                "executed_trades",
+                "avg_pnl",
+                "avg_mfe",
+                "avg_mae",
+                "avg_etd",
+                "win_rate",
+                "stop_loss_share",
+                "avg_holding_bars",
+                "avg_depth_score",
+                "avg_speed_score",
+                "avg_stabilization_score",
+                "avg_noise_penalty",
+                "pnl_diff_vs_60_80",
+                "winrate_diff_vs_60_80",
+                "stoploss_diff_vs_60_80",
             ],
         )
         writer.writeheader()
@@ -307,5 +403,6 @@ def build_summary(experiment_name: str) -> tuple[Path, Path, list[dict[str, Any]
     if records and records[0].get("meta", {}).get("strategy") == "shock_reversion_intraday":
         write_selection_artifacts(output_root)
         write_shock_score_bucket_analysis(output_root)
+        write_shock_score_overshock_analysis(output_root)
 
     return summary_path, summary_sorted_path, sorted_records

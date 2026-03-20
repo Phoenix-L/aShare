@@ -62,8 +62,10 @@ SIGNAL_EXPORT_COLUMNS = [
     "shock_score",
     "threshold",
     "shock_score_min",
+    "shock_score_max",
     "shock_score_filter_enabled",
-    "blocked_by_shock_score",
+    "blocked_by_shock_score_low",
+    "blocked_by_shock_score_high",
     "trend_ok",
     "entry_executed",
 ]

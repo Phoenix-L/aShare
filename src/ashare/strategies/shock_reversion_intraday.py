@@ -41,6 +41,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         score_weight_noise_penalty=DEFAULT_SCORE_WEIGHTS["noise_penalty"],
         use_shock_score_filter=False,
         shock_score_min=60,
+        shock_score_max=None,
     )
 
     @classmethod
@@ -244,8 +245,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
         signal_trigger = excursion_value <= -self.p.excursion_threshold
         score_filter_enabled = bool(self.p.use_shock_score_filter)
-        score_filter_pass = score_breakdown.shock_score >= float(self.p.shock_score_min)
-        blocked_by_shock_score = bool(signal_trigger and score_filter_enabled and not score_filter_pass)
+        score_above_min = score_breakdown.shock_score >= float(self.p.shock_score_min)
+        score_below_max = self.p.shock_score_max is None or score_breakdown.shock_score <= float(self.p.shock_score_max)
+        blocked_by_shock_score_low = bool(signal_trigger and score_filter_enabled and not score_above_min)
+        blocked_by_shock_score_high = bool(signal_trigger and score_filter_enabled and not score_below_max)
         entry_signal = signal_trigger
         in_position = bool(self.position)
         exit_plan = evaluate_exit_engine(
@@ -285,14 +288,16 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         score_filter_enabled = bool(self.p.use_shock_score_filter)
         entry_condition = signal_trigger and not self.position and self.active_order is None
         if score_filter_enabled:
-            entry_condition = entry_condition and score_filter_pass
+            entry_condition = entry_condition and score_above_min and score_below_max
 
         if entry_signal and self.position:
             blocked_by.append("in_position")
         if entry_signal and self.active_order is not None:
             blocked_by.append("active_order")
-        if blocked_by_shock_score:
-            blocked_by.append("shock_score_filter")
+        if blocked_by_shock_score_low:
+            blocked_by.append("shock_score_low")
+        if blocked_by_shock_score_high:
+            blocked_by.append("shock_score_high")
 
         if entry_condition:
             self.pending_entry_context = {
@@ -318,8 +323,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     **score_breakdown.to_dict(),
                     "threshold": float(self.p.excursion_threshold),
                     "shock_score_min": float(self.p.shock_score_min),
+                    "shock_score_max": None if self.p.shock_score_max is None else float(self.p.shock_score_max),
                     "shock_score_filter_enabled": bool(score_filter_enabled),
-                    "blocked_by_shock_score": bool(blocked_by_shock_score),
+                    "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
+                    "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
                     "entry_executed": bool(executed),
                 }
             )
@@ -332,9 +339,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "threshold": float(self.p.excursion_threshold),
                 "entry_signal": bool(entry_signal),
                 "shock_score_filter_enabled": bool(score_filter_enabled),
-                "blocked_by_shock_score": bool(blocked_by_shock_score),
-                "shock_score_pass": bool(score_filter_pass),
+                "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
+                "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
+                "shock_score_pass": bool(score_above_min and score_below_max),
                 "shock_score_min": float(self.p.shock_score_min),
+                "shock_score_max": None if self.p.shock_score_max is None else float(self.p.shock_score_max),
                 "executed": bool(executed),
                 "blocked_by": list(blocked_by),
                 "in_position": bool(self.position),

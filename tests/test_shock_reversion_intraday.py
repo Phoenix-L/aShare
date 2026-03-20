@@ -96,8 +96,10 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
         "noise_penalty",
         "shock_score",
         "shock_score_min",
+        "shock_score_max",
         "shock_score_filter_enabled",
-        "blocked_by_shock_score",
+        "blocked_by_shock_score_low",
+        "blocked_by_shock_score_high",
         "entry_executed",
     ]:
         assert key in signal
@@ -122,10 +124,32 @@ def test_shock_reversion_optional_score_filter_blocks_low_score_entries() -> Non
     assert strat.buy_events == 0
     blocked = [row for row in strat.diagnostics if row["entry_signal"] and not row["executed"]]
     assert blocked
-    assert any(row["blocked_by_shock_score"] for row in blocked)
-    assert any("shock_score_filter" in row["blocked_by"] for row in blocked)
+    assert any(row["blocked_by_shock_score_low"] for row in blocked)
+    assert any("shock_score_low" in row["blocked_by"] for row in blocked)
     assert all(row["shock_score_filter_enabled"] for row in blocked)
 
+
+
+def test_shock_reversion_optional_score_filter_blocks_high_score_entries() -> None:
+    closes = [100.0] * 180 + [95.0, 96.0, 97.0]
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+            "use_shock_score_filter": True,
+            "shock_score_min": 0,
+            "shock_score_max": 40,
+        },
+    )
+
+    blocked = [row for row in strat.diagnostics if row["entry_signal"] and not row["executed"]]
+    assert blocked
+    assert any(row["blocked_by_shock_score_high"] for row in blocked)
+    assert any("shock_score_high" in row["blocked_by"] for row in blocked)
 
 def test_shock_reversion_trade_records_include_score_at_entry() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 100.0, 100.0]

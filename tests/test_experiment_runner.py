@@ -240,6 +240,11 @@ class _ShockBacktestStrategy:
             "noise_penalty": 0.0,
             "shock_score": 72.0,
             "threshold": 0.01,
+            "shock_score_min": 60,
+            "shock_score_max": 80,
+            "shock_score_filter_enabled": True,
+            "blocked_by_shock_score_low": False,
+            "blocked_by_shock_score_high": False,
             "entry_executed": True,
         },
         {
@@ -256,6 +261,11 @@ class _ShockBacktestStrategy:
             "noise_penalty": 0.1667,
             "shock_score": 35.0,
             "threshold": 0.01,
+            "shock_score_min": 60,
+            "shock_score_max": 80,
+            "shock_score_filter_enabled": True,
+            "blocked_by_shock_score_low": True,
+            "blocked_by_shock_score_high": False,
             "entry_executed": True,
         },
         {
@@ -272,6 +282,11 @@ class _ShockBacktestStrategy:
             "noise_penalty": 0.5833,
             "shock_score": 18.0,
             "threshold": 0.01,
+            "shock_score_min": 60,
+            "shock_score_max": 80,
+            "shock_score_filter_enabled": True,
+            "blocked_by_shock_score_low": True,
+            "blocked_by_shock_score_high": False,
             "entry_executed": False,
         },
     ]
@@ -318,3 +333,95 @@ def test_execute_experiment_writes_shock_score_bucket_analysis(monkeypatch, tmp_
     assert weak["stop_loss_share"] == 1.0
     assert strong["executed_trades"] == 1
     assert strong["avg_pnl"] == 1.0
+
+
+def test_execute_experiment_writes_shock_score_overshock_analysis(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    class _OvershockBacktestStrategy(_ShockBacktestStrategy):
+        completed_trades = _ShockBacktestStrategy.completed_trades + [
+            {
+                "symbol": "600519.SH",
+                "entry_datetime": "2024-01-03T10:00:00",
+                "exit_datetime": "2024-01-03T11:00:00",
+                "entry_price": 100.0,
+                "exit_price": 97.0,
+                "holding_bars": 3,
+                "pnl_pct": -3.0,
+                "mfe_pct": 0.2,
+                "mae_pct": -3.2,
+                "etd": 0.4,
+                "max_favorable_excursion": 0.2,
+                "max_adverse_excursion": -3.2,
+                "mfe_price": 100.2,
+                "mae_price": 96.8,
+                "anchor_price_at_entry": 105.0,
+                "excursion_at_entry": -0.05,
+                "shock_score_at_entry": 88.0,
+                "recovery_target": 102.5,
+                "take_profit_price": 102.0,
+                "effective_target_price": 102.0,
+                "bars_to_mfe": 1,
+                "bars_to_mae": 3,
+                "exit_reason": "stop_loss",
+                "exit_subtype": "stop_loss",
+            },
+        ]
+        signal_events = _ShockBacktestStrategy.signal_events + [
+            {
+                "symbol": "600519.SH",
+                "datetime": "2024-01-04T10:00:00",
+                "excursion": -0.05,
+                "depth_raw": 0.05,
+                "depth_score": 1.0,
+                "speed_ret": -0.03,
+                "speed_score": 1.0,
+                "stabilization_score": 0.5,
+                "noise_base": 0.004,
+                "noise_ratio": 12.5,
+                "noise_penalty": 0.0,
+                "shock_score": 88.0,
+                "threshold": 0.01,
+                "shock_score_min": 60,
+                "shock_score_max": 80,
+                "shock_score_filter_enabled": True,
+                "blocked_by_shock_score_low": False,
+                "blocked_by_shock_score_high": True,
+                "entry_executed": False,
+            },
+        ]
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    def _fake_backtest(strategy_cls, data_df, config, strategy_params=None, symbol=None, experiment_name=None, run_id=None, output_dir=None):
+        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id, output_dir)
+        return None, _OvershockBacktestStrategy(), {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 3}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    result = execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="shock_reversion_intraday",
+        spec={
+            "name": "shock_overshock_experiment",
+            "strategy": "shock_reversion_intraday",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "take_profit_pct": 0.02, "max_hold_bars": 8, "stop_loss_pct": 0.03, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80},
+            "grid": {},
+        },
+        config=BacktestConfig(),
+    )
+
+    overshock_path = Path(result["output_dir"]) / "shock_score_overshock_analysis.csv"
+    overshock_df = pd.read_csv(overshock_path)
+    assert overshock_path.exists()
+    assert list(overshock_df["bucket"]) == ["60-80", "80-100"]
+    overshock = overshock_df.loc[overshock_df["bucket"] == "80-100"].iloc[0]
+    assert overshock["executed_trades"] == 1
+    assert overshock["stop_loss_share"] == 1.0
+    assert overshock["pnl_diff_vs_60_80"] < 0.0

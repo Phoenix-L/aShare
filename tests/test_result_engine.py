@@ -40,12 +40,13 @@ def test_build_summary_omits_irrelevant_shock_columns(monkeypatch, tmp_path: Pat
     monkeypatch.chdir(tmp_path)
     output_root = tmp_path / "outputs" / "shock_experiment"
     output_root.mkdir(parents=True, exist_ok=True)
-    _write_run(output_root, "run_001", metrics={"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 3}, parameters={"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.1, "use_shock_score_filter": True, "shock_score_min": 60}, meta={"strategy": "shock_reversion_intraday"})
+    _write_run(output_root, "run_001", metrics={"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 3}, parameters={"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.1, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80}, meta={"strategy": "shock_reversion_intraday"})
     summary_path, _, _ = build_summary("shock_experiment")
     summary_text = summary_path.read_text(encoding="utf-8")
     assert "excursion_lookback_bars" in summary_text
     assert "use_shock_score_filter" in summary_text
     assert "shock_score_min" in summary_text
+    assert "shock_score_max" in summary_text
     assert "use_trend_filter" not in summary_text
     assert "trend_ma_period" not in summary_text
     assert "z_entry" not in summary_text
