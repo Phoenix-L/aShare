@@ -1,118 +1,242 @@
 # shock_reversion_intraday — System Architecture
 
-## End-to-end data flow
+**Version:** v0.5.0
 
-`shock_reversion_intraday` uses the same shared engine as `mean_reversion_advanced`:
+## Architecture overview
+
+`shock_reversion_intraday` runs on the shared aShare experiment stack but uses a strategy-specific signal path built entirely from the primary intraday feed.
 
 ```text
-Tushare (or the configured provider) -> pandas loader/cache -> Backtrader feed
--> ShockReversionIntradayStrategy -> diagnostics/trades
+Provider data -> pandas minute DataFrame -> Backtrader intraday feed
+-> ShockReversionIntradayStrategy
+-> shared exit engine + broker accounting
+-> diagnostics/trade exports
+-> run_performance_report.csv
 ```
 
-That means the same CLI, experiment runner, metrics extraction, and artifact-writing pipeline is reused unchanged.
+## Pipeline
 
-## Feed structure
+### 1. Data feed
 
-The strategy operates only on the primary intraday feed:
+The experiment executor loads intraday minute/30-minute data into pandas and converts it into a Backtrader feed.
 
-- `datas[0]`: primary intraday execution feed.
+For this strategy:
 
-Unlike `mean_reversion_advanced`, this strategy does not depend on a daily-resampled feed or moving-average state.
+- only `datas[0]` is required;
+- there is **no** daily-resampled companion feed;
+- warm-up depends on `excursion_lookback_bars` and the score model's minimum bar history.
 
-## Indicator wiring
+### 2. Signal generation (excursion)
 
-Indicator construction is strategy-specific:
+Inside `ShockReversionIntradayStrategy`:
 
-- `rolling_max_close` is `Highest(self.data.close, period=excursion_lookback_bars)` on the intraday feed;
-- `excursion = (close - rolling_max_close) / rolling_max_close` is computed directly from the intraday feed.
+- `rolling_max_close = Highest(close, period=excursion_lookback_bars)`
+- `excursion = (close - rolling_max_close) / rolling_max_close`
 
-This makes excursion a pure intraday event signal rather than a z-score, ATR-normalized mean-distance signal, or trend-filtered setup.
+The signal is triggered when:
 
-## Execution flow
+```text
+excursion <= -excursion_threshold
+```
 
-The runtime loop is centered on `next()`.
+This is a pure intraday event detector; it is not a z-score and does not depend on ATR or trend state.
 
-1. Read the intraday close, rolling anchor, and excursion.
-2. Skip bars until the rolling lookback is ready.
-3. Compute the entry trigger: `excursion <= -excursion_threshold`.
-4. Evaluate the shared exit engine using the frozen entry anchor and current price.
-5. If a position is open and any exit rule fires, submit a close order.
-6. If flat and the excursion trigger fires, submit a buy order.
-7. Append per-bar diagnostics and, when applicable, signal-event exports.
+### 3. Optional score filter
 
-## Exit engine
+On each bar, the strategy computes a full shock-score breakdown:
 
-The strategy reuses the shared execution helpers from `components/execution.py`.
+- `depth_score`
+- `speed_score`
+- `stabilization_score`
+- `noise_penalty`
+- `shock_score`
 
-The exit engine evaluates:
+If `use_shock_score_filter` is enabled, entry requires:
 
-- recovery target;
-- take-profit target;
-- stop-loss threshold;
-- maximum holding bars.
+- `shock_score >= shock_score_min`
+- and, if configured, `shock_score <= shock_score_max`
 
-The resulting decision is normalized into stable exit labels:
+This stage only filters entries. It does not rank signals and does not alter broker sizing.
+
+### 4. Order execution (fixed 500 shares)
+
+When the signal passes all checks and the strategy is flat:
+
+- a buy order is submitted with `size = trade_unit`;
+- the default size is **500 shares**;
+- execution is fixed-size, not capital-proportional.
+
+At fill time, the strategy freezes the entry context:
+
+- `anchor_price_at_entry`
+- `excursion_at_entry`
+- `shock_score_at_entry`
+
+These frozen values are later exported into `trades.csv`.
+
+### 5. Exit engine
+
+Open positions are evaluated bar by bar by the shared execution component.
+
+The engine computes:
+
+- `recovery_target`
+- `take_profit_price`
+- `effective_target_price = min(recovery_target, take_profit_price)` when both exist
+- stop-loss threshold from `stop_loss_pct`
+- max-hold threshold from `max_hold_bars`
+
+Exit precedence is effectively:
+
+1. stop loss if price is already below the stop threshold;
+2. profit exit when the effective target is reached (**recovery OR take-profit**);
+3. max hold once `holding_bars >= max_hold_bars`.
+
+The strategy normalizes exit reasons to stable labels:
 
 - `recovery`
 - `take_profit`
 - `stop_loss`
 - `max_hold`
 
-## Diagnostics integration
+### 6. Broker equity tracking
 
-The strategy is fully integrated with the shared diagnostics pipeline.
+Backtrader broker state tracks:
 
-### Signal tracking
+- cash;
+- marked-to-market portfolio value;
+- commission / slippage effects;
+- account-level return metrics.
 
-Every qualifying entry signal can also be exported through `signal_events`, including:
+Account performance is extracted after the backtest as:
 
-- symbol
-- datetime
-- excursion
-- threshold
-- whether the signal executed
+- `final_value`
+- `total_return`
+- `total_return_simple`
+- `total_return_log`
+- `sharpe`
+- `max_drawdown`
+- `num_trades`
 
-### Bar diagnostics
+### 7. Diagnostics and reporting
 
-Per-bar diagnostics include:
+The strategy emits:
 
-- `signal_trigger`
-- `excursion`
-- `entry_signal`
-- `executed`
-- `holding_bars`
-- recovery / take-profit targets
-- normalized exit reason
+- `diagnostics` for per-bar history;
+- `signal_events` for threshold-crossing signal rows;
+- `completed_trades` for trade-level exports.
 
-### Diagnostics summary
+The executor persists these into experiment artifacts and the reporting layer merges them into research-ready summaries.
 
-Because the strategy is filter-independent, its `diagnostics_summary.json` includes only:
+## Metrics pipeline
+
+### `trades.csv` → trade-level metrics
+
+`trades.csv` stores one row per completed trade, including:
+
+- entry / exit timestamps;
+- entry / exit prices;
+- `pnl_pct`;
+- `mfe_pct`, `mae_pct`, `etd`;
+- `anchor_price_at_entry`;
+- `excursion_at_entry`;
+- `shock_score_at_entry`;
+- exit reason fields.
+
+This file is the source for trade-level statistics such as:
+
+- `sum_trade_return_pct`
+- `compound_trade_return_pct`
+- average holding bars
+- exit-reason shares
+- average shock score at entry
+
+### `diagnostics_summary.json` → aggregated metrics
+
+`diagnostics_summary.json` aggregates bar-level and completed-trade diagnostics, including:
 
 - `total_bars`
 - `entry_signals`
 - `executed_trades`
-- `blocked_by_multiple` for signal-triggered bars that could not execute because of execution-state constraints such as an existing position or active order
-- trade-efficiency metrics such as MFE / MAE / ETD
+- `blocked_by_multiple`
+- optional `blocked_by_shock_score_low`
+- optional `blocked_by_shock_score_high`
+- `avg_pnl`
+- `avg_mfe`
+- `avg_mae`
+- `avg_etd`
+- `median_etd`
+- `max_etd`
+- `mfe_pnl_gap`
+- `pnl_capture_ratio`
+- `win_rate_by_exit_reason`
+- `avg_holding_bars_by_exit_reason`
 
-### Trade records
+### `run_performance_report.csv` → final merged report
 
-Completed trades capture:
+`run_performance_report.csv` merges:
 
-- entry and exit timestamps;
-- entry and exit prices;
-- anchor price at entry;
-- excursion at entry;
-- MFE/MAE metrics plus ETD;
-- exit reason and holding time.
+- account-level metrics from run payloads and broker outputs;
+- trade-level metrics from `trades.csv`;
+- diagnostic aggregates from `diagnostics_summary.json`;
+- selected parameter values from the run configuration.
 
-## Experiment runner integration
+This file is the best single report for comparing runs because it keeps account-level return and trade-level quality metrics side by side.
 
-The strategy uses the same experiment stack as `mean_reversion_advanced`.
+## Trade-level vs account-level metrics
 
-### Grid search
+The architecture intentionally separates:
 
-`execute_experiment_spec()` expands the parameter grid, validates each combination, runs the backtests, and writes shared experiment outputs.
+### Trade-level metrics
 
-### Deduplication
+These come from completed trades and measure signal/execution quality:
 
-`generate_parameter_sets()` and `deduplicate_parameter_sets()` normalize shock-reversion parameter combinations so that only meaningful excursion and exit dimensions are retained before execution.
+- `pnl_pct`
+- `sum_trade_return_pct`
+- `compound_trade_return_pct`
+- `avg_pnl`
+- `avg_mfe`
+- `avg_mae`
+- `avg_etd`
+
+### Account-level metrics
+
+These come from broker equity and measure portfolio outcome:
+
+- `final_value`
+- `total_return`
+- `total_return_simple`
+- `total_return_log`
+- `max_drawdown`
+- `sharpe`
+
+This distinction matters because the strategy does not deploy all capital into each trade.
+
+## Known design decision
+
+The strategy uses **fixed share sizing**, not full capital deployment.
+
+Implications:
+
+- default entries buy 500 shares regardless of account size;
+- a profitable signal model can still produce low `total_return` if capital utilization is low;
+- `sum_trade_return_pct` is therefore useful as a signal-strength measure that is less distorted by cash drag.
+
+## Components intentionally not present
+
+The current architecture does **not** include:
+
+- trend-filter stage;
+- ATR / ART filter stage;
+- daily moving-average subsystem;
+- score-conditioned exit subsystem.
+
+## Changelog
+
+### v0.5.0
+
+- updated the pipeline description to the current excursion-only strategy;
+- removed outdated trend and ATR/ART filter architecture references;
+- added the optional shock-score filter stage;
+- clarified fixed-share execution and capital-utilization consequences;
+- documented the metrics pipeline from `trades.csv` and `diagnostics_summary.json` into `run_performance_report.csv`.
