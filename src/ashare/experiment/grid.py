@@ -14,6 +14,15 @@ SHOCK_REVERSION_INTRADAY_KEYS = {
     "recovery_frac",
     "max_hold_bars",
     "stop_loss_pct",
+    "speed_scale",
+    "noise_lookback",
+    "noise_ratio_scale",
+    "score_weight_depth",
+    "score_weight_speed",
+    "score_weight_stabilization",
+    "score_weight_noise_penalty",
+    "use_shock_score_filter",
+    "shock_score_min",
 }
 
 

@@ -4,6 +4,7 @@ import pytest
 from ashare.config.settings import BacktestConfig
 from ashare.engine.runner import run_backtest
 from ashare.strategies.components.execution import create_position_state, evaluate_exit_engine
+from ashare.strategies.components.shock_score import compute_shock_score
 from ashare.strategies.shock_reversion_intraday import ShockReversionIntradayStrategy
 
 
@@ -53,6 +54,84 @@ def _run(closes: list[float], strategy_params: dict) -> ShockReversionIntradaySt
     )
     return strat
 
+
+
+
+def test_compute_shock_score_v1_breakdown_matches_formula() -> None:
+    breakdown = compute_shock_score(
+        close_now=95.0,
+        close_prev=94.0,
+        close_minus_two=100.0,
+        high_now=96.0,
+        low_now=93.0,
+        excursion=-0.05,
+        excursion_threshold=0.02,
+        close_history=[100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 94.0, 95.0],
+    )
+
+    assert breakdown.depth_raw == pytest.approx(0.05)
+    assert breakdown.depth_score == 1.0
+    assert breakdown.speed_ret == pytest.approx(-0.05)
+    assert breakdown.speed_score == 1.0
+    assert breakdown.stabilization_score == 1.0
+    assert breakdown.noise_base > 0
+    assert breakdown.noise_penalty == 0.0
+    assert breakdown.shock_score == pytest.approx(90.0)
+
+
+def test_shock_reversion_signal_events_include_score_breakdown() -> None:
+    closes = [100.0] * 180 + [95.0, 96.0, 97.0]
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+
+    signal = strat.signal_events[0]
+    for key in [
+        "excursion",
+        "depth_raw",
+        "depth_score",
+        "speed_ret",
+        "speed_score",
+        "stabilization_score",
+        "noise_base",
+        "noise_ratio",
+        "noise_penalty",
+        "shock_score",
+        "shock_score_min",
+        "shock_score_filter_enabled",
+        "blocked_by_shock_score",
+        "entry_executed",
+    ]:
+        assert key in signal
+    assert signal["shock_score"] >= 0.0
+
+
+def test_shock_reversion_optional_score_filter_blocks_low_score_entries() -> None:
+    closes = [100.0] * 180 + [99.0, 99.0, 99.0]
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.005,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+            "use_shock_score_filter": True,
+            "shock_score_min": 60,
+        },
+    )
+
+    assert strat.buy_events == 0
+    blocked = [row for row in strat.diagnostics if row["entry_signal"] and not row["executed"]]
+    assert blocked
+    assert any(row["blocked_by_shock_score"] for row in blocked)
+    assert any("shock_score_filter" in row["blocked_by"] for row in blocked)
+    assert all(row["shock_score_filter_enabled"] for row in blocked)
+
+
+def test_shock_reversion_trade_records_include_score_at_entry() -> None:
+    closes = [100.0] * 180 + [97.0, 98.0, 100.0, 100.0]
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 1.0, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+
+    assert strat.completed_trades[0]["shock_score_at_entry"] >= 0.0
 
 def test_shock_reversion_enters_on_excursion_signal() -> None:
     closes = [100.0] * 180 + [97.0, 97.0, 97.0]

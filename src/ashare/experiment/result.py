@@ -24,6 +24,15 @@ PARAMETER_COLUMN_PREFERENCE = {
     "shock_reversion_intraday": [
         "excursion_lookback_bars",
         "excursion_threshold",
+        "speed_scale",
+        "noise_lookback",
+        "noise_ratio_scale",
+        "score_weight_depth",
+        "score_weight_speed",
+        "score_weight_stabilization",
+        "score_weight_noise_penalty",
+        "use_shock_score_filter",
+        "shock_score_min",
         "take_profit_pct",
         "recovery_frac",
         "max_hold_bars",
@@ -45,6 +54,7 @@ DEFAULT_PARAMETER_COLUMN_PREFERENCE = [
     "atr_ratio_min",
 ]
 RANKING_DEFAULTS = {"sharpe": -999.0, "total_return": -999.0, "max_drawdown": 999.0}
+SHOCK_SCORE_BUCKETS = [(0.0, 20.0), (20.0, 40.0), (40.0, 60.0), (60.0, 80.0), (80.0, 100.0)]
 
 
 def _safe_float(value: Any, fallback: float) -> float:
@@ -118,6 +128,15 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "use_multi_day_excursion": params.get("use_multi_day_excursion"),
             "excursion_lookback_bars": params.get("excursion_lookback_bars"),
             "excursion_threshold": params.get("excursion_threshold"),
+            "speed_scale": params.get("speed_scale"),
+            "noise_lookback": params.get("noise_lookback"),
+            "noise_ratio_scale": params.get("noise_ratio_scale"),
+            "score_weight_depth": params.get("score_weight_depth"),
+            "score_weight_speed": params.get("score_weight_speed"),
+            "score_weight_stabilization": params.get("score_weight_stabilization"),
+            "score_weight_noise_penalty": params.get("score_weight_noise_penalty"),
+            "use_shock_score_filter": params.get("use_shock_score_filter"),
+            "shock_score_min": params.get("shock_score_min"),
             "excursion_window": params.get("excursion_window"),
             "excursion_min": params.get("excursion_min"),
             "take_profit_pct": params.get("take_profit_pct"),
@@ -163,6 +182,106 @@ def _write_summary(path: Path, records: list[dict[str, Any]]) -> None:
             writer.writerow({column: record.get(column) for column in columns})
 
 
+def _load_csv_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _avg(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _bucket_label(lower: float, upper: float) -> str:
+    return f"{int(lower)}-{int(upper)}"
+
+
+def _bucket_for_score(score: float | None) -> tuple[float, float] | None:
+    if score is None:
+        return None
+    score = max(0.0, min(100.0, float(score)))
+    for lower, upper in SHOCK_SCORE_BUCKETS:
+        if upper == 100.0:
+            if lower <= score <= upper:
+                return lower, upper
+            continue
+        if lower <= score < upper:
+            return lower, upper
+    return None
+
+
+def write_shock_score_bucket_analysis(output_root: Path) -> Path:
+    """Write score-bucket quality metrics for shock_reversion_intraday experiments."""
+    signals = _load_csv_rows(output_root / "signals.csv")
+    trades = _load_csv_rows(output_root / "trades.csv")
+
+    signal_counts = {_bucket_label(lower, upper): 0 for lower, upper in SHOCK_SCORE_BUCKETS}
+    trade_buckets: dict[str, list[dict[str, Any]]] = {_bucket_label(lower, upper): [] for lower, upper in SHOCK_SCORE_BUCKETS}
+
+    for signal in signals:
+        bucket = _bucket_for_score(_safe_float(signal.get("shock_score"), None))
+        if bucket is None:
+            continue
+        signal_counts[_bucket_label(*bucket)] += 1
+
+    for trade in trades:
+        bucket = _bucket_for_score(_safe_float(trade.get("shock_score_at_entry"), None))
+        if bucket is None:
+            continue
+        trade_buckets[_bucket_label(*bucket)].append(trade)
+
+    rows: list[dict[str, Any]] = []
+    for lower, upper in SHOCK_SCORE_BUCKETS:
+        label = _bucket_label(lower, upper)
+        bucket_trades = trade_buckets[label]
+        pnl_values = [_safe_float(trade.get("pnl_pct"), 0.0) for trade in bucket_trades]
+        mfe_values = [_safe_float(trade.get("mfe_pct", trade.get("max_favorable_excursion")), 0.0) for trade in bucket_trades]
+        mae_values = [_safe_float(trade.get("mae_pct", trade.get("max_adverse_excursion")), 0.0) for trade in bucket_trades]
+        etd_values = [_safe_float(trade.get("etd"), 0.0) for trade in bucket_trades]
+        executed_trades = len(bucket_trades)
+        rows.append(
+            {
+                "score_bucket": label,
+                "bucket_min": lower,
+                "bucket_max": upper,
+                "signal_count": signal_counts[label],
+                "executed_trades": executed_trades,
+                "avg_pnl": _avg(pnl_values),
+                "avg_mfe": _avg(mfe_values),
+                "avg_mae": _avg(mae_values),
+                "avg_etd": _avg(etd_values),
+                "win_rate": (sum(1 for value in pnl_values if value > 0.0) / executed_trades) if executed_trades else 0.0,
+                "stop_loss_share": (
+                    sum(1 for trade in bucket_trades if trade.get("exit_reason") == "stop_loss") / executed_trades
+                ) if executed_trades else 0.0,
+            }
+        )
+
+    path = output_root / "shock_score_buckets.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "score_bucket",
+                "bucket_min",
+                "bucket_max",
+                "signal_count",
+                "executed_trades",
+                "avg_pnl",
+                "avg_mfe",
+                "avg_mae",
+                "avg_etd",
+                "win_rate",
+                "stop_loss_share",
+            ],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    return path
+
+
 def rank_results(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         records,
@@ -187,5 +306,6 @@ def build_summary(experiment_name: str) -> tuple[Path, Path, list[dict[str, Any]
 
     if records and records[0].get("meta", {}).get("strategy") == "shock_reversion_intraday":
         write_selection_artifacts(output_root)
+        write_shock_score_bucket_analysis(output_root)
 
     return summary_path, summary_sorted_path, sorted_records
