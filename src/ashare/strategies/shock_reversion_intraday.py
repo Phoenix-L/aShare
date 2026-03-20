@@ -284,7 +284,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "threshold": float(self.p.excursion_threshold),
                 "entry_signal": bool(entry_signal),
                 "executed": bool(executed),
-                "blocked_by": blocked_by,
                 "in_position": bool(self.position),
                 "holding_bars": exit_plan.holding_bars if self.position_state is not None else 0,
                 "recovery_target": exit_plan.recovery_target,
