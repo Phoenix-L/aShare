@@ -10,10 +10,8 @@ from ashare.strategies.components.execution import (
     create_position_state,
     evaluate_exit_engine,
     export_trade_metrics,
-    get_holding_bars,
     update_trade_metrics,
 )
-from ashare.strategies.components.filters import passes_trend_filter
 from ashare.utils.logging import get_logger
 
 logger = get_logger("ashare.strategies.shock_reversion_intraday")
@@ -24,10 +22,8 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
     params = dict(
         trade_unit=500,
-        use_trend_filter=True,
         excursion_lookback_bars=3,
         excursion_threshold=0.01,
-        trend_ma_period=120,
         take_profit_pct=0.02,
         recovery_frac=0.5,
         max_hold_bars=16,
@@ -52,26 +48,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 f"{required_intraday_bars} intraday bars for excursion warm-up, got {intraday_bars}."
             )
 
-        if not bool(resolved.get("use_trend_filter", True)):
-            return
-
-        trading_days = int(data_df.index.normalize().nunique())
-        required_trading_days = int(resolved["trend_ma_period"])
-        if trading_days < required_trading_days:
-            raise ValueError(
-                "ShockReversionIntradayStrategy requires at least "
-                f"{required_trading_days} trading days when use_trend_filter=True, got {trading_days}. "
-                "Expand the date range or disable the trend filter."
-            )
-
     def __init__(self) -> None:
         if self.p.excursion_lookback_bars is None:
             raise ValueError("Invalid config: excursion_lookback_bars required")
 
-        self.trend_ma = None
-        if self.p.use_trend_filter:
-            daily_data = self._get_daily_ma_source()
-            self.trend_ma = bt.indicators.SimpleMovingAverage(daily_data.close, period=self.p.trend_ma_period)
         self.rolling_max_close = bt.indicators.Highest(self.data.close, period=self.p.excursion_lookback_bars)
         self.excursion = (self.data.close - self.rolling_max_close) / self.rolling_max_close
 
@@ -87,22 +67,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.pending_entry_context: dict | None = None
         self.pending_exit_reason: str | None = None
         self.active_order = None
-
-    def _get_daily_ma_source(self):
-        """Return the required daily-resampled feed used for trend calculations."""
-        if len(self.datas) < 2:
-            raise ValueError(
-                "ShockReversionIntradayStrategy requires a daily-resampled feed at datas[1] for trend calculations."
-            )
-
-        daily_data = self.datas[1]
-        timeframe = getattr(daily_data, "_timeframe", None)
-        compression = getattr(daily_data, "_compression", None)
-        if timeframe != bt.TimeFrame.Days or compression != 1:
-            raise ValueError(
-                "ShockReversionIntradayStrategy requires datas[1] to be a 1-day resampled feed for trend calculations."
-            )
-        return daily_data
 
     def _get_symbol(self) -> str:
         """Return the current primary symbol name."""
@@ -197,6 +161,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             return
 
         exit_price = float(order.executed.price)
+        update_trade_metrics(self.position_state, exit_price, len(self))
         exit_plan = evaluate_exit_engine(
             close=exit_price,
             current_bar=len(self),
@@ -208,12 +173,15 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         )
         standardized_reason = self.pending_exit_reason or self._standardize_exit_reason(exit_plan.reason)
         trade_record = dict(self.current_trade_record)
+        mfe_price = float(self.position_state.mfe_price or self.position_state.entry_price)
+        entry_price = float(self.position_state.entry_price)
         trade_record.update(
             {
                 "exit_datetime": self._current_datetime(),
                 "exit_price": exit_price,
                 "holding_bars": exit_plan.holding_bars,
-                "pnl_pct": ((exit_price - self.position_state.entry_price) / self.position_state.entry_price) * 100.0,
+                "pnl_pct": ((exit_price - entry_price) / entry_price) * 100.0,
+                "etd": max(0.0, (mfe_price - exit_price) / entry_price),
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,
                 "recovery_target": exit_plan.recovery_target,
@@ -227,12 +195,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
     def next(self) -> None:
         close = float(self.data.close[0])
-        trend_ma = float("nan") if self.trend_ma is None else float(self.trend_ma[-1])
         rolling_max_close = float(self.rolling_max_close[0])
         excursion_value = float(self.excursion[0])
         if math.isnan(excursion_value):
-            return
-        if self.p.use_trend_filter and math.isnan(trend_ma):
             return
 
         if self.position and self.position_state is not None:
@@ -240,7 +205,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             self._sync_trade_metrics()
 
         signal_trigger = excursion_value <= -self.p.excursion_threshold
-        trend_ok = passes_trend_filter(close, trend_ma, enabled=self.p.use_trend_filter)
         entry_signal = signal_trigger
         in_position = bool(self.position)
         exit_plan = evaluate_exit_engine(
@@ -277,10 +241,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
         executed = False
         blocked_by: list[str] = []
-        entry_condition = signal_trigger and trend_ok and not self.position and self.active_order is None
-
-        if entry_signal and not self.position and not trend_ok:
-            blocked_by.append("trend_filter")
+        entry_condition = signal_trigger and not self.position and self.active_order is None
 
         if entry_condition:
             self.pending_entry_context = {
@@ -292,11 +253,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             executed = True
             self.current_trade_reason = {
                 "signal_trigger": bool(signal_trigger),
-                "trend_ok": bool(trend_ok),
                 "excursion": float(excursion_value),
                 "anchor_price": float(rolling_max_close),
             }
-            blocked_by = []
 
         if entry_signal:
             self.signal_events.append(
@@ -305,7 +264,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "datetime": self._current_datetime(),
                     "excursion": float(excursion_value),
                     "threshold": float(self.p.excursion_threshold),
-                    "trend_ok": bool(trend_ok),
                     "entry_executed": bool(executed),
                 }
             )
@@ -314,7 +272,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             {
                 "datetime": self._current_datetime(),
                 "signal_trigger": bool(signal_trigger),
-                "trend_ok": bool(trend_ok),
                 "excursion": float(excursion_value),
                 "threshold": float(self.p.excursion_threshold),
                 "entry_signal": bool(entry_signal),

@@ -103,13 +103,17 @@ def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() 
         strategy_cls=ShockReversionIntradayStrategy,
         data_df=_synthetic_df(closes),
         config=_config(),
-        strategy_params={"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "trend_ma_period": 2, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10},
+        strategy_params={"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10},
         symbol="SYNTH",
     )
     summary = metrics["diagnostics_summary"]
     assert summary["avg_mfe"] > 0
     assert summary["avg_mae"] <= 0
     assert summary["avg_pnl"] > 0
+    assert summary["avg_etd"] >= 0
+    assert summary["median_etd"] >= 0
+    assert summary["max_etd"] >= summary["avg_etd"]
+    assert summary["etd_pnl_gap"] == summary["avg_etd"]
     assert summary["win_rate_by_exit_reason"]["recovery"] == 1.0
 
 
