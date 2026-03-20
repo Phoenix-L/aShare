@@ -61,6 +61,9 @@ SIGNAL_EXPORT_COLUMNS = [
     "noise_penalty",
     "shock_score",
     "threshold",
+    "shock_score_min",
+    "shock_score_filter_enabled",
+    "blocked_by_shock_score",
     "trend_ok",
     "entry_executed",
 ]

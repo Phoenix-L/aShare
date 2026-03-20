@@ -125,6 +125,34 @@ def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() 
     assert summary["win_rate_by_exit_reason"]["recovery"] == 1.0
 
 
+
+def test_shock_reversion_score_filter_is_counted_in_diagnostics_summary() -> None:
+    closes = [100.0] * 180 + [99.0, 99.0, 99.0, 99.0]
+    _, strat, metrics = run_backtest(
+        strategy_cls=ShockReversionIntradayStrategy,
+        data_df=_synthetic_df(closes),
+        config=_config(),
+        strategy_params={
+            "trade_unit": 500,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.005,
+            "recovery_frac": 0.5,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+            "use_shock_score_filter": True,
+            "shock_score_min": 60,
+        },
+        symbol="SYNTH",
+    )
+    summary = metrics["diagnostics_summary"]
+    blocked = [row for row in strat.diagnostics if row["entry_signal"] and row["blocked_by_shock_score"]]
+
+    assert blocked
+    assert summary["blocked_by_shock_score"] == len(blocked)
+    assert "blocked_by_trend" not in summary
+    assert "blocked_by_atr" not in summary
+    assert "blocked_by_art" not in summary
+
 def test_strategy_validation_fails_fast_for_irrelevant_params() -> None:
     with pytest.raises(ValueError, match="mean_reversion_advanced"):
         execute_experiment_spec(

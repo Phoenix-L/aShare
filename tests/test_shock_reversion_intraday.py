@@ -95,6 +95,9 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
         "noise_ratio",
         "noise_penalty",
         "shock_score",
+        "shock_score_min",
+        "shock_score_filter_enabled",
+        "blocked_by_shock_score",
         "entry_executed",
     ]:
         assert key in signal
@@ -119,7 +122,9 @@ def test_shock_reversion_optional_score_filter_blocks_low_score_entries() -> Non
     assert strat.buy_events == 0
     blocked = [row for row in strat.diagnostics if row["entry_signal"] and not row["executed"]]
     assert blocked
+    assert any(row["blocked_by_shock_score"] for row in blocked)
     assert any("shock_score_filter" in row["blocked_by"] for row in blocked)
+    assert all(row["shock_score_filter_enabled"] for row in blocked)
 
 
 def test_shock_reversion_trade_records_include_score_at_entry() -> None:

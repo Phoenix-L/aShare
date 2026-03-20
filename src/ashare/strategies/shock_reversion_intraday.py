@@ -243,7 +243,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             self._sync_trade_metrics()
 
         signal_trigger = excursion_value <= -self.p.excursion_threshold
+        score_filter_enabled = bool(self.p.use_shock_score_filter)
         score_filter_pass = score_breakdown.shock_score >= float(self.p.shock_score_min)
+        blocked_by_shock_score = bool(signal_trigger and score_filter_enabled and not score_filter_pass)
         entry_signal = signal_trigger
         in_position = bool(self.position)
         exit_plan = evaluate_exit_engine(
@@ -289,7 +291,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             blocked_by.append("in_position")
         if entry_signal and self.active_order is not None:
             blocked_by.append("active_order")
-        if entry_signal and score_filter_enabled and not score_filter_pass:
+        if blocked_by_shock_score:
             blocked_by.append("shock_score_filter")
 
         if entry_condition:
@@ -315,6 +317,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "datetime": self._current_datetime(),
                     **score_breakdown.to_dict(),
                     "threshold": float(self.p.excursion_threshold),
+                    "shock_score_min": float(self.p.shock_score_min),
+                    "shock_score_filter_enabled": bool(score_filter_enabled),
+                    "blocked_by_shock_score": bool(blocked_by_shock_score),
                     "entry_executed": bool(executed),
                 }
             )
@@ -326,8 +331,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 **score_breakdown.to_dict(),
                 "threshold": float(self.p.excursion_threshold),
                 "entry_signal": bool(entry_signal),
-                "score_filter_enabled": bool(score_filter_enabled),
-                "score_filter_pass": bool(score_filter_pass),
+                "shock_score_filter_enabled": bool(score_filter_enabled),
+                "blocked_by_shock_score": bool(blocked_by_shock_score),
+                "shock_score_pass": bool(score_filter_pass),
                 "shock_score_min": float(self.p.shock_score_min),
                 "executed": bool(executed),
                 "blocked_by": list(blocked_by),
