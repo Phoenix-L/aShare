@@ -10,12 +10,10 @@ from ashare.strategies.validation import validate_strategy_params
 SHOCK_REVERSION_INTRADAY_KEYS = {
     "excursion_lookback_bars",
     "excursion_threshold",
-    "trend_ma_period",
     "take_profit_pct",
     "recovery_frac",
     "max_hold_bars",
     "stop_loss_pct",
-    "use_trend_filter",
 }
 
 

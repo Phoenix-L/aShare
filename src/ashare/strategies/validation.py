@@ -27,6 +27,8 @@ FORBIDDEN_PARAMS_BY_STRATEGY: dict[str, dict[str, str]] = {
         "use_art_filter": "ShockReversionIntradayStrategy does not accept ATR gate params: use_art_filter.",
         "atr_ratio_min": "ShockReversionIntradayStrategy does not accept ATR gate params: atr_ratio_min.",
         "art_threshold": "ShockReversionIntradayStrategy does not accept ATR gate params: art_threshold.",
+        "use_trend_filter": "ShockReversionIntradayStrategy is now pure event-driven and does not accept use_trend_filter.",
+        "trend_ma_period": "ShockReversionIntradayStrategy is now pure event-driven and does not accept trend_ma_period.",
     },
 }
 

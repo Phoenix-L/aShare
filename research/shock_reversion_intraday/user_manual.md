@@ -19,12 +19,12 @@ ashare experiment \
 
 ## Parameter guide
 
+`shock_reversion_intraday` is a pure event-driven strategy. Entries depend only on the intraday excursion signal and not on any moving-average or trend gate.
+
 ### Entry parameters
 
 - `excursion_lookback_bars`: controls the rolling anchor window.
 - `excursion_threshold`: minimum downside excursion required to trigger entry.
-- `use_trend_filter`: enables the daily moving-average gate.
-- `trend_ma_period`: controls the daily MA period used by the trend filter.
 
 ### Exit parameters
 
@@ -59,7 +59,7 @@ ashare experiment \
 After the run, inspect:
 
 - `signals.csv` for all shock events that crossed the threshold;
-- `trades.csv` for completed trade records and exit reasons;
+- `trades.csv` for completed trade records, ETD, and exit reasons;
 - `diagnostics_summary.json` for signal conversion and exit-efficiency metrics;
 - `summary_sorted.csv` for top parameter combinations.
 

@@ -23,6 +23,10 @@ logger = get_logger("ashare.strategies.mean_reversion_advanced")
 class MeanReversionAdvanced(bt.Strategy):
     """Configurable z-score mean-reversion strategy with optional trend and ATR filters."""
 
+    uses_trend_filter = True
+    uses_atr_filter = True
+    uses_excursion_filter = False
+
     params = dict(
         trade_unit=500,
         z_entry=-1.5,
@@ -92,6 +96,9 @@ class MeanReversionAdvanced(bt.Strategy):
 
         self.use_atr_filter = self._resolve_use_atr_filter()
         self.atr_ratio_min = self._resolve_atr_ratio_min()
+        self.uses_trend_filter = bool(self.p.use_trend_filter)
+        self.uses_atr_filter = bool(self.use_atr_filter)
+        self.uses_excursion_filter = False
 
     def _get_daily_ma_source(self):
         """Return the required daily-resampled feed used for MA calculations."""

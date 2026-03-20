@@ -17,6 +17,8 @@ def test_position_state_tracks_holding_bars_and_mfe_mae() -> None:
     assert metrics["mae_pct"] == -3.0
     assert metrics["bars_to_mfe"] == 2
     assert metrics["bars_to_mae"] == 4
+    assert metrics["mfe_price"] == 103.0
+    assert metrics["mae_price"] == 97.0
 
 
 def test_exit_engine_returns_recovery_then_max_hold_then_stop() -> None:

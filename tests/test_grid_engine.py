@@ -49,10 +49,10 @@ def test_shock_reversion_rejects_zscore_grid_params() -> None:
         })
 
 
-def test_shock_reversion_deduplicate_parameter_sets_keeps_relevant_excursion_params() -> None:
+def test_shock_reversion_deduplicate_parameter_sets_ignores_removed_trend_params() -> None:
     combinations = [
         {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "use_trend_filter": False},
-        {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "use_trend_filter": False},
+        {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "use_trend_filter": True, "trend_ma_period": 120},
     ]
     final_runs = deduplicate_parameter_sets(combinations, strategy_name="shock_reversion_intraday")
-    assert final_runs == [combinations[0]]
+    assert final_runs == [{"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01}]

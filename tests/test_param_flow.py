@@ -143,10 +143,6 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
             "--param",
             "excursion_threshold=0.01,0.02",
             "--param",
-            "trend_ma_period=2",
-            "--param",
-            "use_trend_filter=false",
-            "--param",
             "recovery_frac=0.5",
             "--param",
             "max_hold_bars=10",
@@ -178,6 +174,7 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert "effective_target_price" in trades_text
     assert "bars_to_mfe" in trades_text
     assert "mfe_pct" in trades_text
+    assert "etd" in trades_text
     assert "exit_reason" in trades_text
     assert "recovery" in trades_text
     assert len(trades_text.strip().splitlines()) > 1
@@ -195,7 +192,6 @@ class _ShockStrategy:
         ("take_profit_pct", 0.02),
         ("max_hold_bars", 8),
         ("stop_loss_pct", 0.05),
-        ("use_trend_filter", False),
     )
 
 
@@ -220,7 +216,6 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
                         "take_profit_pct": 0.05,
                         "max_hold_bars": 8,
                         "stop_loss_pct": 0.02,
-                        "use_trend_filter": False,
                         "z_entry": None,
                         "z_exit": None,
                     },
