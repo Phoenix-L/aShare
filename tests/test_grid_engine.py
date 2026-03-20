@@ -56,3 +56,15 @@ def test_shock_reversion_deduplicate_parameter_sets_ignores_removed_trend_params
     ]
     final_runs = deduplicate_parameter_sets(combinations, strategy_name="shock_reversion_intraday")
     assert final_runs == [{"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01}]
+
+
+def test_shock_reversion_strategy_preserves_shock_score_max_grid_dimension() -> None:
+    payload = {
+        "strategy": "shock_reversion_intraday",
+        "parameters": {"use_shock_score_filter": True, "shock_score_min": 60},
+        "grid": {"shock_score_max": [70, 80, 90]},
+    }
+    final_runs = generate_parameter_sets(payload)
+    assert len(final_runs) == 3
+    assert {"use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 70} in final_runs
+    assert {"use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 90} in final_runs

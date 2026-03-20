@@ -44,6 +44,20 @@ def _resolve_strategy_name(strategy_cls: Type[bt.Strategy]) -> str | None:
     return None
 
 
+
+def _validate_shock_score_filter_params(strategy_name: str | None, strategy_params: dict[str, Any]) -> None:
+    """Fail fast when the optional shock score filter is enabled without an explicit lower bound."""
+    if strategy_name != "shock_reversion_intraday":
+        return
+    if not strategy_params.get("use_shock_score_filter", False):
+        return
+    if "shock_score_min" not in strategy_params:
+        raise ValueError(
+            "Invalid config for shock_reversion_intraday: use_shock_score_filter=true requires an explicit "
+            "shock_score_min. Pass --param shock_score_min=<value>."
+        )
+
+
 def _validate_strategy_history_requirements(
     strategy_cls: Type[bt.Strategy],
     data_df: pd.DataFrame,
@@ -63,6 +77,12 @@ def _build_diagnostics_summary(
     """Aggregate per-bar and per-trade diagnostics into high-level metrics."""
     uses_trend_filter = bool(getattr(strategy, "uses_trend_filter", True))
     uses_atr_filter = bool(getattr(strategy, "uses_atr_filter", False))
+    uses_shock_score_filter = any(
+        "blocked_by_shock_score_low" in item
+        or "blocked_by_shock_score_high" in item
+        or "shock_score_filter_enabled" in item
+        for item in diagnostics
+    )
 
     summary: dict[str, Any] = {
         "total_bars": len(diagnostics),
@@ -75,6 +95,9 @@ def _build_diagnostics_summary(
     if uses_atr_filter:
         summary["blocked_by_atr"] = 0
         summary["blocked_by_art"] = 0
+    if uses_shock_score_filter:
+        summary["blocked_by_shock_score_low"] = 0
+        summary["blocked_by_shock_score_high"] = 0
 
     for item in diagnostics:
         if not item.get("entry_signal", False):
@@ -93,6 +116,12 @@ def _build_diagnostics_summary(
         if uses_atr_filter and ("atr_filter" in blocked_by or "art_filter" in blocked_by):
             summary["blocked_by_atr"] += 1
             summary["blocked_by_art"] += 1
+            active_blocks += 1
+        if uses_shock_score_filter and item.get("blocked_by_shock_score_low", False):
+            summary["blocked_by_shock_score_low"] += 1
+            active_blocks += 1
+        if uses_shock_score_filter and item.get("blocked_by_shock_score_high", False):
+            summary["blocked_by_shock_score_high"] += 1
             active_blocks += 1
         if uses_trend_filter or uses_atr_filter:
             if active_blocks >= 2:
@@ -202,6 +231,7 @@ def run_backtest(
     strategy_name = _resolve_strategy_name(strategy_cls)
     if strategy_name is not None:
         strategy_params = validate_strategy_params(strategy_name, strategy_params)
+    _validate_shock_score_filter_params(strategy_name, strategy_params)
     _validate_strategy_history_requirements(strategy_cls, data_df, strategy_params)
     logger.debug(f"Adding strategy: {strategy_cls.__name__} with params: {strategy_params}")
     cerebro.addstrategy(strategy_cls, **strategy_params)
