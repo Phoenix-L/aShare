@@ -18,6 +18,8 @@ class PositionState:
     mae_pct: float = 0.0
     max_favorable_excursion: float = 0.0
     max_adverse_excursion: float = 0.0
+    mfe_price: float | None = None
+    mae_price: float | None = None
     bars_to_mfe: int = 0
     bars_to_mae: int = 0
 
@@ -36,7 +38,14 @@ class ExitDecision:
 
 def create_position_state(entry_price: float, entry_bar: int, anchor_price: float | None = None) -> PositionState:
     """Create the initial execution state for a new position."""
-    return PositionState(entry_price=float(entry_price), entry_bar=int(entry_bar), anchor_price=anchor_price)
+    entry_price = float(entry_price)
+    return PositionState(
+        entry_price=entry_price,
+        entry_bar=int(entry_bar),
+        anchor_price=anchor_price,
+        mfe_price=entry_price,
+        mae_price=entry_price,
+    )
 
 
 def get_holding_bars(state: PositionState, current_bar: int) -> int:
@@ -51,10 +60,12 @@ def update_trade_metrics(state: PositionState, close: float, current_bar: int) -
     if move_pct > state.mfe_pct:
         state.mfe_pct = move_pct
         state.max_favorable_excursion = move_pct
+        state.mfe_price = float(close)
         state.bars_to_mfe = holding_bars
     if move_pct < state.mae_pct:
         state.mae_pct = move_pct
         state.max_adverse_excursion = move_pct
+        state.mae_price = float(close)
         state.bars_to_mae = holding_bars
 
 
@@ -67,6 +78,8 @@ def export_trade_metrics(state: PositionState) -> dict[str, Any]:
         "mae_pct": float(state.mae_pct),
         "max_favorable_excursion": float(state.max_favorable_excursion),
         "max_adverse_excursion": float(state.max_adverse_excursion),
+        "mfe_price": None if state.mfe_price is None else float(state.mfe_price),
+        "mae_price": None if state.mae_price is None else float(state.mae_price),
         "bars_to_mfe": int(state.bars_to_mfe),
         "bars_to_mae": int(state.bars_to_mae),
     }

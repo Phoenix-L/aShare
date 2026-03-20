@@ -103,6 +103,26 @@ def test_shock_reversion_recovery_exit_uses_frozen_anchor() -> None:
     assert trade["effective_target_price"] == 99.0
 
 
+def test_shock_reversion_tracks_etd_from_peak_to_exit() -> None:
+    closes = [100.0] * 180 + [97.0, 99.5, 99.0, 99.0, 99.0]
+    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 1.0, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
+    assert len(strat.completed_trades) == 1
+    trade = strat.completed_trades[0]
+    assert trade["mfe_price"] == 99.5
+    assert trade["exit_price"] == 99.0
+    assert trade["etd"] == pytest.approx((trade["mfe_price"] - trade["exit_price"]) / trade["entry_price"])
+    assert trade["etd"] >= 0.0
+
+
+def test_shock_reversion_etd_is_zero_when_exit_matches_peak() -> None:
+    closes = [100.0] * 180 + [97.0, 99.0, 99.5, 99.5, 99.5]
+    strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10})
+    assert len(strat.completed_trades) == 1
+    trade = strat.completed_trades[0]
+    assert trade["mfe_price"] == trade["exit_price"]
+    assert trade["etd"] == 0.0
+
+
 def test_shock_reversion_max_hold_remains_safeguard() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 98.0, 98.0, 98.0]
     strat = _run(closes, {"trade_unit": 500, "use_trend_filter": False, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
