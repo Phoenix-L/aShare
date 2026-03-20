@@ -37,6 +37,7 @@ TRADE_EXPORT_COLUMNS = [
     "mae_price",
     "anchor_price_at_entry",
     "excursion_at_entry",
+    "shock_score_at_entry",
     "recovery_target",
     "take_profit_price",
     "effective_target_price",
@@ -50,7 +51,21 @@ SIGNAL_EXPORT_COLUMNS = [
     "symbol",
     "datetime",
     "excursion",
+    "depth_raw",
+    "depth_score",
+    "speed_ret",
+    "speed_score",
+    "stabilization_score",
+    "noise_base",
+    "noise_ratio",
+    "noise_penalty",
+    "shock_score",
     "threshold",
+    "shock_score_min",
+    "shock_score_max",
+    "shock_score_filter_enabled",
+    "blocked_by_shock_score_low",
+    "blocked_by_shock_score_high",
     "trend_ok",
     "entry_executed",
 ]
@@ -63,7 +78,6 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> No
         writer.writeheader()
         for row in rows:
             writer.writerow({column: row.get(column) for column in columns})
-
 
 
 def _report_grid_size(original_grid_size: int, deduplicated_runs: int) -> None:
@@ -161,6 +175,7 @@ def execute_experiment_spec(
                 "parameters": params,
                 "symbol": symbol,
                 "date_range": {"start": spec["start"], "end": spec["end"]},
+                "initial_cash": config.initial_cash,
             }
             (run_dir / "config_snapshot.yaml").write_text(
                 yaml.safe_dump(snapshot, sort_keys=False),
@@ -175,6 +190,7 @@ def execute_experiment_spec(
                     "symbol": symbol,
                     "experiment_name": experiment_name,
                     "date_range": {"start": spec["start"], "end": spec["end"]},
+                    "initial_cash": config.initial_cash,
                 },
             }
             (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
@@ -185,11 +201,13 @@ def execute_experiment_spec(
     _write_csv(signals_path, experiment_signals, SIGNAL_EXPORT_COLUMNS)
 
     summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
+    run_performance_report_path = output_root / "run_performance_report.csv"
     return {
         "experiment_name": experiment_name,
         "output_dir": str(output_root),
         "summary_path": str(summary_path),
         "summary_sorted_path": str(summary_sorted_path),
+        "run_performance_report_path": str(run_performance_report_path),
         "trades_path": str(trades_path),
         "signals_path": str(signals_path),
         "num_runs": total_runs,

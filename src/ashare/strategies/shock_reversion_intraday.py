@@ -12,6 +12,7 @@ from ashare.strategies.components.execution import (
     export_trade_metrics,
     update_trade_metrics,
 )
+from ashare.strategies.components.shock_score import DEFAULT_SCORE_WEIGHTS, compute_shock_score
 from ashare.utils.logging import get_logger
 
 logger = get_logger("ashare.strategies.shock_reversion_intraday")
@@ -31,6 +32,16 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         recovery_frac=0.5,
         max_hold_bars=16,
         stop_loss_pct=0.02,
+        speed_scale=0.03,
+        noise_lookback=10,
+        noise_ratio_scale=3.0,
+        score_weight_depth=DEFAULT_SCORE_WEIGHTS["depth"],
+        score_weight_speed=DEFAULT_SCORE_WEIGHTS["speed"],
+        score_weight_stabilization=DEFAULT_SCORE_WEIGHTS["stabilization"],
+        score_weight_noise_penalty=DEFAULT_SCORE_WEIGHTS["noise_penalty"],
+        use_shock_score_filter=False,
+        shock_score_min=60,
+        shock_score_max=None,
     )
 
     @classmethod
@@ -57,6 +68,12 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
         self.rolling_max_close = bt.indicators.Highest(self.data.close, period=self.p.excursion_lookback_bars)
         self.excursion = (self.data.close - self.rolling_max_close) / self.rolling_max_close
+        self.score_weights = {
+            "depth": float(self.p.score_weight_depth),
+            "speed": float(self.p.score_weight_speed),
+            "stabilization": float(self.p.score_weight_stabilization),
+            "noise_penalty": float(self.p.score_weight_noise_penalty),
+        }
 
         self.buy_events = 0
         self.sell_events = 0
@@ -152,6 +169,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "entry_price": entry_price,
                 "anchor_price_at_entry": anchor_price,
                 "excursion_at_entry": float(context.get("excursion_at_entry", 0.0)),
+                "shock_score_at_entry": float(context.get("shock_score_at_entry", 0.0)),
                 "recovery_target": entry_exit_plan.recovery_target,
                 "take_profit_price": entry_exit_plan.take_profit_price,
                 "effective_target_price": entry_exit_plan.effective_target_price,
@@ -203,11 +221,40 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         if math.isnan(excursion_value):
             return
 
+        if len(self) < 3:
+            return
+
+        score_breakdown = compute_shock_score(
+            close_now=close,
+            close_prev=float(self.data.close[-1]),
+            close_minus_two=float(self.data.close[-2]),
+            high_now=float(self.data.high[0]),
+            low_now=float(self.data.low[0]),
+            excursion=excursion_value,
+            excursion_threshold=float(self.p.excursion_threshold),
+            close_history=[float(self.data.close[-idx]) for idx in range(min(len(self), int(self.p.noise_lookback) + 1) - 1, -1, -1)],
+            speed_scale=float(self.p.speed_scale),
+            noise_lookback=int(self.p.noise_lookback),
+            noise_ratio_scale=float(self.p.noise_ratio_scale),
+            score_weights=self.score_weights,
+        )
+
         if self.position and self.position_state is not None:
             update_trade_metrics(self.position_state, close, len(self))
             self._sync_trade_metrics()
 
         signal_trigger = excursion_value <= -self.p.excursion_threshold
+        score_filter_enabled = bool(self.p.use_shock_score_filter)
+        active_shock_score_min = float(self.p.shock_score_min) if score_filter_enabled else None
+        active_shock_score_max = (
+            None
+            if not score_filter_enabled or self.p.shock_score_max is None
+            else float(self.p.shock_score_max)
+        )
+        score_above_min = True if active_shock_score_min is None else score_breakdown.shock_score >= active_shock_score_min
+        score_below_max = True if active_shock_score_max is None else score_breakdown.shock_score <= active_shock_score_max
+        blocked_by_shock_score_low = bool(signal_trigger and score_filter_enabled and not score_above_min)
+        blocked_by_shock_score_high = bool(signal_trigger and score_filter_enabled and not score_below_max)
         entry_signal = signal_trigger
         in_position = bool(self.position)
         exit_plan = evaluate_exit_engine(
@@ -245,16 +292,23 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         executed = False
         blocked_by: list[str] = []
         entry_condition = signal_trigger and not self.position and self.active_order is None
+        if score_filter_enabled:
+            entry_condition = entry_condition and score_above_min and score_below_max
 
         if entry_signal and self.position:
             blocked_by.append("in_position")
         if entry_signal and self.active_order is not None:
             blocked_by.append("active_order")
+        if blocked_by_shock_score_low:
+            blocked_by.append("shock_score_low")
+        if blocked_by_shock_score_high:
+            blocked_by.append("shock_score_high")
 
         if entry_condition:
             self.pending_entry_context = {
                 "anchor_price_at_entry": rolling_max_close,
                 "excursion_at_entry": excursion_value,
+                "shock_score_at_entry": score_breakdown.shock_score,
             }
             self.active_order = self.buy(size=self.p.trade_unit)
             self.buy_events += 1
@@ -263,6 +317,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "signal_trigger": bool(signal_trigger),
                 "excursion": float(excursion_value),
                 "anchor_price": float(rolling_max_close),
+                "shock_score": float(score_breakdown.shock_score),
             }
 
         if entry_signal:
@@ -270,8 +325,13 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 {
                     "symbol": self._get_symbol(),
                     "datetime": self._current_datetime(),
-                    "excursion": float(excursion_value),
+                    **score_breakdown.to_dict(),
                     "threshold": float(self.p.excursion_threshold),
+                    "shock_score_min": active_shock_score_min,
+                    "shock_score_max": active_shock_score_max,
+                    "shock_score_filter_enabled": bool(score_filter_enabled),
+                    "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
+                    "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
                     "entry_executed": bool(executed),
                 }
             )
@@ -280,9 +340,15 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             {
                 "datetime": self._current_datetime(),
                 "signal_trigger": bool(signal_trigger),
-                "excursion": float(excursion_value),
+                **score_breakdown.to_dict(),
                 "threshold": float(self.p.excursion_threshold),
                 "entry_signal": bool(entry_signal),
+                "shock_score_filter_enabled": bool(score_filter_enabled),
+                "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
+                "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
+                "shock_score_pass": bool((not score_filter_enabled) or (score_above_min and score_below_max)),
+                "shock_score_min": active_shock_score_min,
+                "shock_score_max": active_shock_score_max,
                 "executed": bool(executed),
                 "blocked_by": list(blocked_by),
                 "in_position": bool(self.position),
