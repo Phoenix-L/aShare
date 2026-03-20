@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pandas as pd
 import yaml
 
 from ashare.experiment.result import build_summary, collect_run_results, rank_results
@@ -65,3 +66,98 @@ def test_collect_run_results_tolerates_missing_files(tmp_path: Path) -> None:
     assert records[0]["run_id"] == "run_001"
     assert records[0]["sharpe"] == -999.0
     assert set(records[0].keys()) >= {"params", "metrics", "meta"}
+
+
+def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_root = tmp_path / "outputs" / "shock_selection"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    runs = [
+        (
+            "run_001",
+            {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.4, "max_hold_bars": 12, "stop_loss_pct": 0.01},
+            {"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 12},
+            {"executed_trades": 12, "avg_pnl": 1.5, "avg_mfe": 4.0, "avg_mae": -0.8, "avg_etd": 0.8},
+        ),
+        (
+            "run_002",
+            {"excursion_lookback_bars": 4, "excursion_threshold": 0.012, "take_profit_pct": 0.025, "recovery_frac": 0.45, "max_hold_bars": 10, "stop_loss_pct": 0.012},
+            {"sharpe": 1.6, "total_return": 0.12, "max_drawdown": 0.04, "num_trades": 14},
+            {"executed_trades": 14, "avg_pnl": 1.8, "avg_mfe": 5.0, "avg_mae": -0.9, "avg_etd": 0.7},
+        ),
+        (
+            "run_003",
+            {"excursion_lookback_bars": 5, "excursion_threshold": 0.014, "take_profit_pct": 0.03, "recovery_frac": 0.5, "max_hold_bars": 9, "stop_loss_pct": 0.015},
+            {"sharpe": 1.4, "total_return": 0.10, "max_drawdown": 0.06, "num_trades": 15},
+            {"executed_trades": 15, "avg_pnl": 1.6, "avg_mfe": 4.4, "avg_mae": -0.85, "avg_etd": 0.75},
+        ),
+        (
+            "run_004",
+            {"excursion_lookback_bars": 6, "excursion_threshold": 0.016, "take_profit_pct": 0.031, "recovery_frac": 0.55, "max_hold_bars": 8, "stop_loss_pct": 0.015},
+            {"sharpe": 0.9, "total_return": 0.06, "max_drawdown": 0.07, "num_trades": 11},
+            {"executed_trades": 11, "avg_pnl": 1.2, "avg_mfe": 3.0, "avg_mae": -1.0, "avg_etd": 0.9},
+        ),
+        (
+            "run_005",
+            {"excursion_lookback_bars": 7, "excursion_threshold": 0.018, "take_profit_pct": 0.032, "recovery_frac": 0.6, "max_hold_bars": 7, "stop_loss_pct": 0.016},
+            {"sharpe": 1.3, "total_return": 0.09, "max_drawdown": 0.03, "num_trades": 13},
+            {"executed_trades": 13, "avg_pnl": 1.4, "avg_mfe": 4.2, "avg_mae": -0.7, "avg_etd": 0.6},
+        ),
+        (
+            "run_006",
+            {"excursion_lookback_bars": 8, "excursion_threshold": 0.02, "take_profit_pct": 0.034, "recovery_frac": 0.65, "max_hold_bars": 6, "stop_loss_pct": 0.02},
+            {"sharpe": 1.8, "total_return": 0.14, "max_drawdown": 0.05, "num_trades": 9},
+            {"executed_trades": 9, "avg_pnl": 2.0, "avg_mfe": 5.5, "avg_mae": -1.0, "avg_etd": 0.6},
+        ),
+    ]
+
+    trade_rows: list[dict[str, object]] = []
+    for run_id, parameters, metrics, diagnostics in runs:
+        _write_run(output_root, run_id, metrics=metrics, parameters=parameters, meta={"strategy": "shock_reversion_intraday"})
+        (output_root / run_id / "diagnostics_summary.json").write_text(json.dumps(diagnostics), encoding="utf-8")
+        stop_loss_count = 2 if run_id == "run_004" else 1
+        total_trades = int(diagnostics["executed_trades"])
+        for trade_index in range(total_trades):
+            trade_rows.append(
+                {
+                    "run_id": run_id,
+                    "symbol": "600519.SH",
+                    "entry_datetime": f"2024-01-01 09:{trade_index:02d}:00",
+                    "exit_datetime": f"2024-01-01 10:{trade_index:02d}:00",
+                    "entry_price": 100.0,
+                    "exit_price": 101.0,
+                    "holding_bars": 3,
+                    "pnl_pct": diagnostics["avg_pnl"],
+                    "mfe_pct": diagnostics["avg_mfe"],
+                    "mae_pct": diagnostics["avg_mae"],
+                    "etd": diagnostics["avg_etd"],
+                    "max_favorable_excursion": diagnostics["avg_mfe"],
+                    "max_adverse_excursion": diagnostics["avg_mae"],
+                    "mfe_price": 102.0,
+                    "mae_price": 99.0,
+                    "anchor_price_at_entry": 100.0,
+                    "excursion_at_entry": -0.02,
+                    "recovery_target": 101.5,
+                    "take_profit_price": 102.0,
+                    "effective_target_price": 101.8,
+                    "bars_to_mfe": 2,
+                    "bars_to_mae": 1,
+                    "exit_reason": "stop_loss" if trade_index < stop_loss_count else "recovery",
+                    "exit_subtype": "stop_loss" if trade_index < stop_loss_count else "recovery",
+                }
+            )
+    pd.DataFrame(trade_rows).to_csv(output_root / "trades.csv", index=False)
+
+    build_summary("shock_selection")
+
+    ranked_df = pd.read_csv(output_root / "selection_ranked.csv")
+    report_df = pd.read_csv(output_root / "selection_report.csv")
+    top_config = json.loads((output_root / "top_config.json").read_text(encoding="utf-8"))
+
+    assert len(ranked_df.index) == 5
+    assert set(ranked_df["run_id"]) == {"run_001", "run_002", "run_003", "run_004", "run_005"}
+    assert report_df.loc[report_df["run_id"] == "run_006", "rejection_reason"].item() == "hard:executed_trades<10"
+    assert report_df.loc[report_df["run_id"] == "run_004", "selected"].item()
+    assert top_config["run_id"] == "run_002"
+    assert top_config["params"]["excursion_threshold"] == 0.012

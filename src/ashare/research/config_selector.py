@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+SUMMARY_EXCLUDE_COLUMNS = {
+    "run_id",
+    "return",
+    "total_return",
+    "rtot",
+    "sharpe",
+    "max_drawdown",
+    "num_trades",
+    "trade_count",
+}
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except TypeError:
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _read_csv(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path)
+
+
+def _normalize_series(series: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    valid = numeric.dropna()
+    if valid.empty:
+        return pd.Series([0.0] * len(series), index=series.index, dtype=float)
+    minimum = float(valid.min())
+    maximum = float(valid.max())
+    if maximum == minimum:
+        return pd.Series([0.0] * len(series), index=series.index, dtype=float)
+    return (numeric - minimum) / (maximum - minimum)
+
+
+def _return_column(summary_df: pd.DataFrame) -> str | None:
+    for column in ("return", "total_return", "rtot"):
+        if column in summary_df.columns:
+            return column
+    return None
+
+
+def _build_stop_loss_share_map(trades_df: pd.DataFrame, run_ids: list[str]) -> dict[str, float]:
+    if trades_df.empty:
+        return {run_id: 0.0 for run_id in run_ids}
+
+    if "run_id" not in trades_df.columns:
+        if len(run_ids) == 1:
+            stop_loss_share = float((trades_df.get("exit_reason") == "stop_loss").mean()) if len(trades_df.index) else 0.0
+            return {run_ids[0]: stop_loss_share}
+        return {run_id: 1.0 for run_id in run_ids}
+
+    shares: dict[str, float] = {run_id: 0.0 for run_id in run_ids}
+    for run_id, run_trades in trades_df.groupby("run_id", dropna=True):
+        if run_id not in shares:
+            continue
+        exit_reasons = run_trades.get("exit_reason")
+        shares[str(run_id)] = float((exit_reasons == "stop_loss").mean()) if exit_reasons is not None and len(run_trades.index) else 0.0
+    return shares
+
+
+def _build_selection_frame(output_root: Path) -> pd.DataFrame:
+    summary_df = _read_csv(output_root / "summary.csv")
+    if summary_df.empty:
+        return pd.DataFrame()
+
+    return_column = _return_column(summary_df)
+    if return_column is None:
+        raise ValueError(f"Missing return column in {output_root / 'summary.csv'}")
+
+    run_dirs = sorted(path for path in output_root.iterdir() if path.is_dir() and path.name.startswith("run_"))
+    run_ids = [run_dir.name for run_dir in run_dirs]
+    trades_df = _read_csv(output_root / "trades.csv")
+    stop_loss_share_map = _build_stop_loss_share_map(trades_df, run_ids)
+
+    records: list[dict[str, Any]] = []
+    for index, run_dir in enumerate(run_dirs):
+        summary_row = summary_df.iloc[index] if index < len(summary_df.index) else pd.Series(dtype=object)
+        diagnostics_summary = _load_json(run_dir / "diagnostics_summary.json")
+        record = {column: summary_row[column] for column in summary_df.columns if column in summary_row.index}
+        record.update(
+            {
+                "run_id": run_dir.name,
+                "return": _safe_float(summary_row.get(return_column)),
+                "sharpe": _safe_float(summary_row.get("sharpe")),
+                "max_drawdown": _safe_float(summary_row.get("max_drawdown")),
+                "num_trades": _safe_float(summary_row.get("num_trades", summary_row.get("trade_count"))),
+                "executed_trades": _safe_float(diagnostics_summary.get("executed_trades")),
+                "avg_pnl": _safe_float(diagnostics_summary.get("avg_pnl")),
+                "avg_mfe": _safe_float(diagnostics_summary.get("avg_mfe")),
+                "avg_mae": _safe_float(diagnostics_summary.get("avg_mae")),
+                "avg_etd": _safe_float(diagnostics_summary.get("avg_etd")),
+                "stop_loss_share": float(stop_loss_share_map.get(run_dir.name, 0.0)),
+            }
+        )
+        record["capture_ratio"] = record["avg_pnl"] / record["avg_mfe"] if record["avg_mfe"] > 0 else 0.0
+        record["pain_gain_ratio"] = abs(record["avg_mae"]) / record["avg_pnl"] if record["avg_pnl"] > 0 else float("inf")
+        record["etd_ratio"] = record["avg_etd"] / record["avg_mfe"] if record["avg_mfe"] > 0 else float("inf")
+        records.append(record)
+
+    return pd.DataFrame(records)
+
+
+def _apply_selection_rules(selection_df: pd.DataFrame) -> pd.DataFrame:
+    if selection_df.empty:
+        return selection_df
+
+    evaluated = selection_df.copy()
+    rejection_reasons: list[str] = []
+    ladder_ready: list[bool] = []
+
+    for _, row in evaluated.iterrows():
+        reasons: list[str] = []
+        if row["executed_trades"] < 10:
+            reasons.append("hard:executed_trades<10")
+        if row["return"] <= 0:
+            reasons.append("hard:return<=0")
+        if row["avg_pnl"] <= 0:
+            reasons.append("hard:avg_pnl<=0")
+        if row["avg_mfe"] <= 0:
+            reasons.append("hard:avg_mfe<=0")
+        if row["capture_ratio"] < 0.25:
+            reasons.append("hard:capture_ratio<0.25")
+        if row["max_drawdown"] > 0.12:
+            reasons.append("hard:max_drawdown>0.12")
+        if row["stop_loss_share"] > 0.60:
+            reasons.append("hard:stop_loss_share>0.60")
+
+        is_ladder_ready = True
+        if row["avg_mfe"] < 2 * row["avg_pnl"]:
+            reasons.append("ladder:avg_mfe<2x_avg_pnl")
+            is_ladder_ready = False
+        if row["executed_trades"] < 10:
+            is_ladder_ready = False
+        if row["stop_loss_share"] > 0.50:
+            reasons.append("ladder:stop_loss_share>0.50")
+            is_ladder_ready = False
+        if row["etd_ratio"] > 0.70:
+            reasons.append("ladder:etd_ratio>0.70")
+            is_ladder_ready = False
+
+        rejection_reasons.append(";".join(reasons))
+        ladder_ready.append(is_ladder_ready and not any(reason.startswith("hard:") for reason in reasons))
+
+    evaluated["ladder_ready"] = ladder_ready
+    evaluated["rejection_reason"] = rejection_reasons
+    evaluated["selected"] = evaluated["rejection_reason"] == ""
+
+    selected_mask = evaluated["selected"]
+    for column in ["return", "sharpe", "avg_pnl", "capture_ratio", "executed_trades", "max_drawdown", "avg_etd"]:
+        normalized = pd.Series([0.0] * len(evaluated.index), index=evaluated.index, dtype=float)
+        normalized.loc[selected_mask] = _normalize_series(evaluated.loc[selected_mask, column])
+        evaluated[f"{column}_normalized"] = normalized
+
+    evaluated["score"] = 0.0
+    evaluated.loc[selected_mask, "score"] = (
+        0.40 * evaluated.loc[selected_mask, "return_normalized"]
+        + 0.20 * evaluated.loc[selected_mask, "sharpe_normalized"]
+        + 0.15 * evaluated.loc[selected_mask, "avg_pnl_normalized"]
+        + 0.10 * evaluated.loc[selected_mask, "capture_ratio_normalized"]
+        + 0.05 * evaluated.loc[selected_mask, "executed_trades_normalized"]
+        - 0.05 * evaluated.loc[selected_mask, "max_drawdown_normalized"]
+        - 0.05 * evaluated.loc[selected_mask, "avg_etd_normalized"]
+    )
+    return evaluated
+
+
+def _top_config_payload(row: pd.Series) -> dict[str, Any]:
+    payload = {
+        "run_id": row["run_id"],
+        "score": float(row["score"]),
+        "return": float(row["return"]),
+        "sharpe": float(row["sharpe"]),
+        "avg_pnl": float(row["avg_pnl"]),
+        "capture_ratio": float(row["capture_ratio"]),
+        "executed_trades": int(row["executed_trades"]),
+        "max_drawdown": float(row["max_drawdown"]),
+        "avg_etd": float(row["avg_etd"]),
+        "stop_loss_share": float(row["stop_loss_share"]),
+        "params": {},
+    }
+    for column, value in row.items():
+        if column in SUMMARY_EXCLUDE_COLUMNS or column.endswith("_normalized"):
+            continue
+        if column in payload or column in {"rejection_reason", "selected", "score", "ladder_ready", "executed_trades", "avg_pnl", "avg_mfe", "avg_mae", "avg_etd", "capture_ratio", "pain_gain_ratio", "etd_ratio", "stop_loss_share"}:
+            continue
+        if pd.isna(value):
+            continue
+        payload["params"][column] = value.item() if hasattr(value, "item") else value
+    return payload
+
+
+def write_selection_artifacts(output_dir: str | Path) -> dict[str, Path | pd.DataFrame]:
+    output_root = Path(output_dir)
+    selection_df = _apply_selection_rules(_build_selection_frame(output_root))
+
+    report_path = output_root / "selection_report.csv"
+    ranked_path = output_root / "selection_ranked.csv"
+    top_config_path = output_root / "top_config.json"
+
+    if selection_df.empty:
+        pd.DataFrame().to_csv(report_path, index=False)
+        pd.DataFrame().to_csv(ranked_path, index=False)
+        top_config_path.write_text(json.dumps({"selected": False, "reason": "no_runs"}, indent=2), encoding="utf-8")
+        return {
+            "selection_report_path": report_path,
+            "selection_ranked_path": ranked_path,
+            "top_config_path": top_config_path,
+            "selection_frame": selection_df,
+        }
+
+    selection_df.to_csv(report_path, index=False)
+    ranked_df = selection_df.loc[selection_df["selected"]].sort_values(by=["score", "return", "sharpe"], ascending=[False, False, False]).head(5)
+    ranked_df.to_csv(ranked_path, index=False)
+
+    if ranked_df.empty:
+        top_payload: dict[str, Any] = {"selected": False, "reason": "no_qualified_configs"}
+    else:
+        top_payload = _top_config_payload(ranked_df.iloc[0])
+    top_config_path.write_text(json.dumps(top_payload, indent=2), encoding="utf-8")
+
+    return {
+        "selection_report_path": report_path,
+        "selection_ranked_path": ranked_path,
+        "top_config_path": top_config_path,
+        "selection_frame": selection_df,
+    }
