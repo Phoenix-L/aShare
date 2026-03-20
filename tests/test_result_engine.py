@@ -40,10 +40,13 @@ def test_build_summary_omits_irrelevant_shock_columns(monkeypatch, tmp_path: Pat
     monkeypatch.chdir(tmp_path)
     output_root = tmp_path / "outputs" / "shock_experiment"
     output_root.mkdir(parents=True, exist_ok=True)
-    _write_run(output_root, "run_001", metrics={"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 3}, parameters={"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.1}, meta={"strategy": "shock_reversion_intraday"})
+    _write_run(output_root, "run_001", metrics={"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 3}, parameters={"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.1, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80}, meta={"strategy": "shock_reversion_intraday"})
     summary_path, _, _ = build_summary("shock_experiment")
     summary_text = summary_path.read_text(encoding="utf-8")
     assert "excursion_lookback_bars" in summary_text
+    assert "use_shock_score_filter" in summary_text
+    assert "shock_score_min" in summary_text
+    assert "shock_score_max" in summary_text
     assert "use_trend_filter" not in summary_text
     assert "trend_ma_period" not in summary_text
     assert "z_entry" not in summary_text
@@ -159,5 +162,48 @@ def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_
     assert set(ranked_df["run_id"]) == {"run_001", "run_002", "run_003", "run_004", "run_005"}
     assert report_df.loc[report_df["run_id"] == "run_006", "rejection_reason"].item() == "hard:executed_trades<10"
     assert report_df.loc[report_df["run_id"] == "run_004", "selected"].item()
+    assert "return" not in report_df.columns
+    assert "total_return" in report_df.columns
+    assert "avg_trade_return" in report_df.columns
+    assert "return_alignment_warning" in report_df.columns
+    assert not report_df["return_sign_mismatch"].any()
     assert top_config["run_id"] == "run_002"
+    assert "total_return" in top_config
+    assert "avg_trade_return" in top_config
     assert top_config["params"]["excursion_threshold"] == 0.012
+
+
+def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_root = tmp_path / "outputs" / "shock_selection_mismatch"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    _write_run(
+        output_root,
+        "run_001",
+        metrics={"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 12},
+        parameters={"excursion_lookback_bars": 3, "excursion_threshold": 0.01},
+        meta={"strategy": "shock_reversion_intraday"},
+    )
+    (output_root / "run_001" / "diagnostics_summary.json").write_text(
+        json.dumps({"executed_trades": 12, "avg_pnl": -1.5, "avg_mfe": 4.0, "avg_mae": -0.8, "avg_etd": 0.8}),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "run_id": "run_001",
+                "exit_reason": "recovery",
+            }
+        ]
+    ).to_csv(output_root / "trades.csv", index=False)
+
+    build_summary("shock_selection_mismatch")
+
+    report_df = pd.read_csv(output_root / "selection_report.csv")
+    mismatch_row = report_df.loc[report_df["run_id"] == "run_001"].iloc[0]
+
+    assert mismatch_row["total_return"] == 0.08
+    assert mismatch_row["avg_trade_return"] == -1.5
+    assert mismatch_row["return_sign_mismatch"]
+    assert mismatch_row["return_alignment_warning"] == "sign_mismatch"

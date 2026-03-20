@@ -51,6 +51,9 @@ def _ranking_param_items(strategy_name: str, row: dict) -> list[tuple[str, objec
             ("take_profit_pct", "tp"),
             ("max_hold_bars", "hold"),
             ("stop_loss_pct", "stop"),
+            ("use_shock_score_filter", "use_shock_score_filter"),
+            ("shock_score_min", "shock_score_min"),
+            ("shock_score_max", "shock_score_max"),
         ],
     }
     if strategy_name in strategy_specific:

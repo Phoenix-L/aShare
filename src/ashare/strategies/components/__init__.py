@@ -16,6 +16,14 @@ from ashare.strategies.components.indicators import (
     compute_atr_ratio,
     compute_zscore,
 )
+from ashare.strategies.components.shock_score import (
+    DEFAULT_NOISE_LOOKBACK,
+    DEFAULT_NOISE_RATIO_SCALE,
+    DEFAULT_SCORE_WEIGHTS,
+    DEFAULT_SPEED_SCALE,
+    ShockScoreBreakdown,
+    compute_shock_score,
+)
 
 __all__ = [
     "ExitDecision",
@@ -32,4 +40,10 @@ __all__ = [
     "passes_art_filter",
     "passes_atr_filter",
     "passes_trend_filter",
+    "DEFAULT_NOISE_LOOKBACK",
+    "DEFAULT_NOISE_RATIO_SCALE",
+    "DEFAULT_SCORE_WEIGHTS",
+    "DEFAULT_SPEED_SCALE",
+    "ShockScoreBreakdown",
+    "compute_shock_score",
 ]
