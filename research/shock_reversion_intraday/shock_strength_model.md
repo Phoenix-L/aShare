@@ -130,7 +130,7 @@ Metrics per bucket:
 
 - `signal_count`
 - `executed_trades`
-- `avg_pnl`
+- `avg_return_per_trade`
 - `avg_mfe`
 - `avg_mae`
 - `avg_etd`
@@ -159,7 +159,7 @@ Keep code prepared for later tuning of:
 
 The score is considered useful if higher-score buckets show, directionally:
 
-- higher `avg_pnl`
+- higher `avg_return_per_trade`
 - higher `win_rate`
 - lower `stop_loss_share`
 - better `avg_mfe` / `avg_mae` / `avg_etd` profile

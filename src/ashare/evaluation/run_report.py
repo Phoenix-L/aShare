@@ -51,9 +51,6 @@ REPORT_COLUMNS = [
     "stop_loss_pct",
     "use_shock_score_filter",
     "use_score_conditioned_exit",
-    "sum_trade_return_pct",
-    "compound_trade_return_pct",
-    "avg_pnl",
 ]
 
 
@@ -250,24 +247,24 @@ def _build_row(
     if not trades_df.empty and "trade_return" in trades_df.columns:
         pnl_values = pd.to_numeric(trades_df.get("trade_return"), errors="coerce")
     if pnl_values.dropna().empty and not trades_df.empty and "pnl_pct" in trades_df.columns:
-        pnl_values = pd.to_numeric(trades_df.get("pnl_pct"), errors="coerce") / 100.0
+        pnl_values = pd.to_numeric(trades_df.get("pnl_pct"), errors="coerce")
 
     mfe_values = pd.Series(dtype=float)
     if not trades_df.empty and "mfe" in trades_df.columns:
         mfe_values = pd.to_numeric(trades_df.get("mfe"), errors="coerce")
     if mfe_values.dropna().empty and not trades_df.empty:
-        mfe_values = pd.to_numeric(trades_df.get("mfe_pct", trades_df.get("max_favorable_excursion")), errors="coerce") / 100.0
+        mfe_values = pd.to_numeric(trades_df.get("mfe_pct", trades_df.get("max_favorable_excursion")), errors="coerce")
 
     mae_values = pd.Series(dtype=float)
     if not trades_df.empty and "mae" in trades_df.columns:
         mae_values = pd.to_numeric(trades_df.get("mae"), errors="coerce")
     if mae_values.dropna().empty and not trades_df.empty:
-        mae_values = pd.to_numeric(trades_df.get("mae_pct", trades_df.get("max_adverse_excursion")), errors="coerce") / 100.0
+        mae_values = pd.to_numeric(trades_df.get("mae_pct", trades_df.get("max_adverse_excursion")), errors="coerce")
     etd_values = pd.to_numeric(trades_df.get("etd"), errors="coerce") if "etd" in trades_df.columns else pd.Series(dtype=float)
     holding_bars = pd.to_numeric(trades_df.get("holding_bars"), errors="coerce") if "holding_bars" in trades_df.columns else pd.Series(dtype=float)
     shock_scores = pd.to_numeric(trades_df.get("shock_score_at_entry"), errors="coerce") if "shock_score_at_entry" in trades_df.columns else pd.Series(dtype=float)
 
-    avg_pnl_from_trades = _avg(pnl_values)
+    avg_return_per_trade_from_trades = _avg(pnl_values)
     avg_mfe_from_trades = _avg(mfe_values)
     avg_mae_from_trades = _avg(mae_values)
     avg_etd_from_trades = _avg(etd_values)
@@ -278,9 +275,8 @@ def _build_row(
 
     avg_return_per_trade = float(
         _coalesce(
-            avg_pnl_from_trades if not trades_df.empty else None,
+            avg_return_per_trade_from_trades if not trades_df.empty else None,
             _safe_float(diagnostics_summary.get("avg_return_per_trade"), None),
-            _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_pnl"), None),
             0.0,
         )
     )
@@ -356,9 +352,6 @@ def _build_row(
         "stop_loss_pct": _coalesce(params.get("stop_loss_pct"), summary_row.get("stop_loss_pct")),
         "use_shock_score_filter": _coalesce(params.get("use_shock_score_filter"), summary_row.get("use_shock_score_filter")),
         "use_score_conditioned_exit": _coalesce(params.get("use_score_conditioned_exit"), summary_row.get("use_score_conditioned_exit")),
-        "sum_trade_return_pct": sum_trade_return,
-        "compound_trade_return_pct": compound_trade_return,
-        "avg_pnl": avg_return_per_trade,
     }
 
 

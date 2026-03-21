@@ -258,7 +258,7 @@ def test_shock_reversion_without_margin_rejects_same_insufficient_cash_trade() -
     assert metrics["min_cash"] >= 0.0
 
 
-def test_shock_reversion_margin_interest_reduces_total_return_without_changing_trade_pnl_pct() -> None:
+def test_shock_reversion_margin_interest_reduces_total_return_without_changing_trade_return() -> None:
     closes = [500.0] * 180 + [490.0, 491.0, 500.0, 500.0]
     base_params = {
         "trade_unit": 500,
@@ -274,7 +274,7 @@ def test_shock_reversion_margin_interest_reduces_total_return_without_changing_t
     strat_zero, metrics_zero = _run_with_metrics(closes, {**base_params, "margin_rate_annual": 0.0}, initial_cash=100_000)
     strat_interest, metrics_interest = _run_with_metrics(closes, {**base_params, "margin_rate_annual": 0.0835}, initial_cash=100_000)
 
-    assert strat_zero.completed_trades[0]["pnl_pct"] == pytest.approx(strat_interest.completed_trades[0]["pnl_pct"])
+    assert strat_zero.completed_trades[0]["trade_return"] == pytest.approx(strat_interest.completed_trades[0]["trade_return"])
     assert metrics_interest["total_margin_interest_paid"] > metrics_zero["total_margin_interest_paid"]
     assert metrics_interest["total_return"] < metrics_zero["total_return"]
 

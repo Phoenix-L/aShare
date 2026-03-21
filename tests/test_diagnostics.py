@@ -118,7 +118,7 @@ def test_shock_reversion_diagnostics_summary_includes_exit_efficiency_metrics() 
     assert summary["avg_mfe"] > 0
     assert summary["avg_mae"] <= 0
     assert summary["avg_return_per_trade"] > 0
-    assert summary["avg_pnl"] > 0
+    assert summary["avg_return_per_trade"] > 0
     assert summary["avg_etd"] >= 0
     assert summary["median_etd"] >= 0
     assert summary["max_etd"] >= summary["avg_etd"]

@@ -165,7 +165,6 @@ def _build_diagnostics_summary(
     summary["avg_mfe"] = avg_mfe
     summary["avg_mae"] = avg_mae
     summary["avg_return_per_trade"] = avg_return_per_trade
-    summary["avg_pnl"] = avg_return_per_trade
     summary["avg_etd"] = avg_etd
     summary["median_etd"] = statistics.median(etd_values) if etd_values else 0.0
     summary["max_etd"] = max(etd_values) if etd_values else 0.0
