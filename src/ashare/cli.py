@@ -166,7 +166,7 @@ def backtest(
     click.echo(f"Total return: {metrics['rtot'] * 100:.2f}%")
     sharpe = metrics.get("sharpe")
     click.echo(f"Sharpe ratio: {sharpe:.2f}" if sharpe is not None else "Sharpe ratio: N/A")
-    click.echo(f"Max drawdown: {metrics['max_drawdown']:.2f}%")
+    click.echo(f"Max drawdown: {metrics['max_drawdown'] * 100:.2f}%")
 
     if plot:
         cerebro.plot()

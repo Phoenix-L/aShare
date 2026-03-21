@@ -21,11 +21,11 @@ REPORT_COLUMNS = [
     "margin_rate_annual",
     "total_margin_interest_paid",
     "total_return",
-    "sum_trade_return_pct",
-    "compound_trade_return_pct",
+    "sum_trade_return",
+    "compound_trade_return",
     "total_return_simple",
     "total_return_log",
-    "avg_pnl",
+    "avg_return_per_trade",
     "executed_trades",
     "sharpe",
     "max_drawdown",
@@ -51,6 +51,9 @@ REPORT_COLUMNS = [
     "stop_loss_pct",
     "use_shock_score_filter",
     "use_score_conditioned_exit",
+    "sum_trade_return_pct",
+    "compound_trade_return_pct",
+    "avg_pnl",
 ]
 
 
@@ -138,6 +141,21 @@ def _coalesce(*values: Any) -> Any:
     return None
 
 
+def _normalize_ratio_maybe_percent(value: Any, default: float = 0.0) -> float:
+    normalized = _safe_float(value, default)
+    if normalized is None:
+        return default
+    normalized = float(normalized)
+    return normalized / 100.0 if abs(normalized) >= 1.0 else normalized
+
+
+def _normalize_drawdown(value: Any, default: float = 0.0) -> float:
+    normalized = _safe_float(value, default)
+    if normalized is None:
+        return default
+    return float(normalized) / 100.0 if float(normalized) > 1.0 else float(normalized)
+
+
 def _compute_total_return_simple(metrics: dict[str, Any], meta: dict[str, Any], summary_row: dict[str, Any]) -> float:
     final_equity = _safe_float(metrics.get("final_value"), None)
     initial_equity = _safe_float(meta.get("initial_cash"), None)
@@ -183,19 +201,19 @@ def _compute_total_return_log(metrics: dict[str, Any], meta: dict[str, Any], sum
     return math.log1p(float(explicit_simple_return)) if float(explicit_simple_return) > -1 else float("-inf")
 
 
-def _sum_trade_return_pct(pnl_values: pd.Series) -> float:
+def _sum_trade_return(pnl_values: pd.Series) -> float:
     valid = pnl_values.dropna()
     return float(valid.sum()) if not valid.empty else 0.0
 
 
-def _compound_trade_return_pct(pnl_values: pd.Series) -> float:
+def _compound_trade_return(pnl_values: pd.Series) -> float:
     valid = pnl_values.dropna()
     if valid.empty:
         return 0.0
     compounded = 1.0
-    for pnl_pct in valid.tolist():
-        compounded *= 1.0 + (float(pnl_pct) / 100.0)
-    return (compounded - 1.0) * 100.0
+    for trade_return in valid.tolist():
+        compounded *= 1.0 + float(trade_return)
+    return compounded - 1.0
 
 
 def _run_payload(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -228,9 +246,23 @@ def _build_row(
     diagnostics_summary: dict[str, Any],
     trades_df: pd.DataFrame,
 ) -> dict[str, Any]:
-    pnl_values = pd.to_numeric(trades_df.get("pnl_pct"), errors="coerce") if "pnl_pct" in trades_df.columns else pd.Series(dtype=float)
-    mfe_values = pd.to_numeric(trades_df.get("mfe_pct", trades_df.get("max_favorable_excursion")), errors="coerce") if not trades_df.empty else pd.Series(dtype=float)
-    mae_values = pd.to_numeric(trades_df.get("mae_pct", trades_df.get("max_adverse_excursion")), errors="coerce") if not trades_df.empty else pd.Series(dtype=float)
+    pnl_values = pd.Series(dtype=float)
+    if not trades_df.empty and "trade_return" in trades_df.columns:
+        pnl_values = pd.to_numeric(trades_df.get("trade_return"), errors="coerce")
+    if pnl_values.dropna().empty and not trades_df.empty and "pnl_pct" in trades_df.columns:
+        pnl_values = pd.to_numeric(trades_df.get("pnl_pct"), errors="coerce") / 100.0
+
+    mfe_values = pd.Series(dtype=float)
+    if not trades_df.empty and "mfe" in trades_df.columns:
+        mfe_values = pd.to_numeric(trades_df.get("mfe"), errors="coerce")
+    if mfe_values.dropna().empty and not trades_df.empty:
+        mfe_values = pd.to_numeric(trades_df.get("mfe_pct", trades_df.get("max_favorable_excursion")), errors="coerce") / 100.0
+
+    mae_values = pd.Series(dtype=float)
+    if not trades_df.empty and "mae" in trades_df.columns:
+        mae_values = pd.to_numeric(trades_df.get("mae"), errors="coerce")
+    if mae_values.dropna().empty and not trades_df.empty:
+        mae_values = pd.to_numeric(trades_df.get("mae_pct", trades_df.get("max_adverse_excursion")), errors="coerce") / 100.0
     etd_values = pd.to_numeric(trades_df.get("etd"), errors="coerce") if "etd" in trades_df.columns else pd.Series(dtype=float)
     holding_bars = pd.to_numeric(trades_df.get("holding_bars"), errors="coerce") if "holding_bars" in trades_df.columns else pd.Series(dtype=float)
     shock_scores = pd.to_numeric(trades_df.get("shock_score_at_entry"), errors="coerce") if "shock_score_at_entry" in trades_df.columns else pd.Series(dtype=float)
@@ -241,13 +273,38 @@ def _build_row(
     avg_etd_from_trades = _avg(etd_values)
     total_return_simple = _compute_total_return_simple(metrics, meta, summary_row)
     total_return_log = _compute_total_return_log(metrics, meta, summary_row)
-    sum_trade_return_pct = _sum_trade_return_pct(pnl_values)
-    compound_trade_return_pct = _compound_trade_return_pct(pnl_values)
+    sum_trade_return = _sum_trade_return(pnl_values)
+    compound_trade_return = _compound_trade_return(pnl_values)
 
-    avg_pnl = float(_coalesce(avg_pnl_from_trades if not trades_df.empty else None, _safe_float(diagnostics_summary.get("avg_pnl"), None), 0.0))
-    avg_mfe = float(_coalesce(avg_mfe_from_trades if not trades_df.empty else None, _safe_float(diagnostics_summary.get("avg_mfe"), None), 0.0))
-    avg_mae = float(_coalesce(avg_mae_from_trades if not trades_df.empty else None, _safe_float(diagnostics_summary.get("avg_mae"), None), 0.0))
-    avg_etd = float(_coalesce(avg_etd_from_trades if not trades_df.empty else None, _safe_float(diagnostics_summary.get("avg_etd"), None), 0.0))
+    avg_return_per_trade = float(
+        _coalesce(
+            avg_pnl_from_trades if not trades_df.empty else None,
+            _safe_float(diagnostics_summary.get("avg_return_per_trade"), None),
+            _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_pnl"), None),
+            0.0,
+        )
+    )
+    avg_mfe = float(
+        _coalesce(
+            avg_mfe_from_trades if not trades_df.empty else None,
+            _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_mfe"), None),
+            0.0,
+        )
+    )
+    avg_mae = float(
+        _coalesce(
+            avg_mae_from_trades if not trades_df.empty else None,
+            _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_mae"), None),
+            0.0,
+        )
+    )
+    avg_etd = float(
+        _coalesce(
+            avg_etd_from_trades if not trades_df.empty else None,
+            _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_etd"), None),
+            0.0,
+        )
+    )
     executed_trades = int(_coalesce(len(trades_df.index) if not trades_df.empty else None, _safe_float(diagnostics_summary.get("executed_trades"), None), _safe_float(summary_row.get("num_trades"), None), 0.0))
 
     date_range = meta.get("date_range") if isinstance(meta.get("date_range"), dict) else {}
@@ -263,18 +320,24 @@ def _build_row(
         "margin_rate_annual": _coalesce(params.get("margin_rate_annual"), summary_row.get("margin_rate_annual")),
         "total_margin_interest_paid": float(_coalesce(_safe_float(metrics.get("total_margin_interest_paid"), None), 0.0)),
         "total_return": total_return_simple,
-        "sum_trade_return_pct": sum_trade_return_pct,
-        "compound_trade_return_pct": compound_trade_return_pct,
+        "sum_trade_return": sum_trade_return,
+        "compound_trade_return": compound_trade_return,
         "total_return_simple": total_return_simple,
         "total_return_log": total_return_log,
-        "avg_pnl": avg_pnl,
+        "avg_return_per_trade": avg_return_per_trade,
         "executed_trades": executed_trades,
         "sharpe": float(_coalesce(_safe_float(summary_row.get("sharpe"), None), _safe_float(metrics.get("sharpe"), None), 0.0)),
-        "max_drawdown": float(_coalesce(_safe_float(summary_row.get("max_drawdown"), None), _safe_float(metrics.get("max_drawdown"), None), 0.0)),
+        "max_drawdown": float(
+            _coalesce(
+                _normalize_drawdown(summary_row.get("max_drawdown"), None),
+                _normalize_drawdown(metrics.get("max_drawdown"), None),
+                0.0,
+            )
+        ),
         "avg_mfe": avg_mfe,
         "avg_mae": avg_mae,
         "avg_etd": avg_etd,
-        "pnl_capture_ratio": float(avg_pnl / avg_mfe) if avg_mfe > 0 else 0.0,
+        "pnl_capture_ratio": float(avg_return_per_trade / avg_mfe) if avg_mfe > 0 else 0.0,
         "entry_signals": int(_safe_float(diagnostics_summary.get("entry_signals"), 0.0) or 0.0),
         "blocked_by_multiple": int(_safe_float(diagnostics_summary.get("blocked_by_multiple"), 0.0) or 0.0),
         "stop_loss_share": _share(trades_df, "stop_loss"),
@@ -293,6 +356,9 @@ def _build_row(
         "stop_loss_pct": _coalesce(params.get("stop_loss_pct"), summary_row.get("stop_loss_pct")),
         "use_shock_score_filter": _coalesce(params.get("use_shock_score_filter"), summary_row.get("use_shock_score_filter")),
         "use_score_conditioned_exit": _coalesce(params.get("use_score_conditioned_exit"), summary_row.get("use_score_conditioned_exit")),
+        "sum_trade_return_pct": sum_trade_return,
+        "compound_trade_return_pct": compound_trade_return,
+        "avg_pnl": avg_return_per_trade,
     }
 
 

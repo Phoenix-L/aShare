@@ -142,7 +142,7 @@ def extract_results(cerebro: bt.Cerebro, strat: bt.Strategy) -> dict[str, Any]:
         "total_return_simple": total_return_simple,
         "total_return_log": total_return_log,
         "sharpe": sharpe_value,
-        "max_drawdown": strat.analyzers.drawdown.get_analysis()["max"]["drawdown"],
+        "max_drawdown": strat.analyzers.drawdown.get_analysis()["max"]["drawdown"] / 100.0,
         "max_drawdown_len": strat.analyzers.drawdown.get_analysis()["max"]["len"],
         "num_trades": num_trades,
     }

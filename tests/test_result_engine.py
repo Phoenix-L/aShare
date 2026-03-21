@@ -76,37 +76,37 @@ def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_
             "run_001",
             {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.4, "max_hold_bars": 12, "stop_loss_pct": 0.01},
             {"sharpe": 1.1, "total_return": 0.08, "max_drawdown": 0.05, "num_trades": 12},
-            {"executed_trades": 12, "avg_pnl": 1.5, "avg_mfe": 4.0, "avg_mae": -0.8, "avg_etd": 0.8},
+            {"executed_trades": 12, "avg_pnl": 0.015, "avg_mfe": 0.04, "avg_mae": -0.008, "avg_etd": 0.008},
         ),
         (
             "run_002",
             {"excursion_lookback_bars": 4, "excursion_threshold": 0.012, "take_profit_pct": 0.025, "recovery_frac": 0.45, "max_hold_bars": 10, "stop_loss_pct": 0.012},
             {"sharpe": 1.6, "total_return": 0.12, "max_drawdown": 0.04, "num_trades": 14},
-            {"executed_trades": 14, "avg_pnl": 1.8, "avg_mfe": 5.0, "avg_mae": -0.9, "avg_etd": 0.7},
+            {"executed_trades": 14, "avg_pnl": 0.018, "avg_mfe": 0.05, "avg_mae": -0.009, "avg_etd": 0.007},
         ),
         (
             "run_003",
             {"excursion_lookback_bars": 5, "excursion_threshold": 0.014, "take_profit_pct": 0.03, "recovery_frac": 0.5, "max_hold_bars": 9, "stop_loss_pct": 0.015},
             {"sharpe": 1.4, "total_return": 0.10, "max_drawdown": 0.06, "num_trades": 15},
-            {"executed_trades": 15, "avg_pnl": 1.6, "avg_mfe": 4.4, "avg_mae": -0.85, "avg_etd": 0.75},
+            {"executed_trades": 15, "avg_pnl": 0.016, "avg_mfe": 0.044, "avg_mae": -0.0085, "avg_etd": 0.0075},
         ),
         (
             "run_004",
             {"excursion_lookback_bars": 6, "excursion_threshold": 0.016, "take_profit_pct": 0.031, "recovery_frac": 0.55, "max_hold_bars": 8, "stop_loss_pct": 0.015},
             {"sharpe": 0.9, "total_return": 0.06, "max_drawdown": 0.07, "num_trades": 11},
-            {"executed_trades": 11, "avg_pnl": 1.2, "avg_mfe": 3.0, "avg_mae": -1.0, "avg_etd": 0.9},
+            {"executed_trades": 11, "avg_pnl": 0.012, "avg_mfe": 0.03, "avg_mae": -0.01, "avg_etd": 0.009},
         ),
         (
             "run_005",
             {"excursion_lookback_bars": 7, "excursion_threshold": 0.018, "take_profit_pct": 0.032, "recovery_frac": 0.6, "max_hold_bars": 7, "stop_loss_pct": 0.016},
             {"sharpe": 1.3, "total_return": 0.09, "max_drawdown": 0.03, "num_trades": 13},
-            {"executed_trades": 13, "avg_pnl": 1.4, "avg_mfe": 4.2, "avg_mae": -0.7, "avg_etd": 0.6},
+            {"executed_trades": 13, "avg_pnl": 0.014, "avg_mfe": 0.042, "avg_mae": -0.007, "avg_etd": 0.006},
         ),
         (
             "run_006",
             {"excursion_lookback_bars": 8, "excursion_threshold": 0.02, "take_profit_pct": 0.034, "recovery_frac": 0.65, "max_hold_bars": 6, "stop_loss_pct": 0.02},
             {"sharpe": 1.8, "total_return": 0.14, "max_drawdown": 0.05, "num_trades": 9},
-            {"executed_trades": 9, "avg_pnl": 2.0, "avg_mfe": 5.5, "avg_mae": -1.0, "avg_etd": 0.6},
+            {"executed_trades": 9, "avg_pnl": 0.02, "avg_mfe": 0.055, "avg_mae": -0.01, "avg_etd": 0.006},
         ),
     ]
 
@@ -126,7 +126,10 @@ def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_
                     "entry_price": 100.0,
                     "exit_price": 101.0,
                     "holding_bars": 3,
+                    "trade_return": diagnostics["avg_pnl"],
                     "pnl_pct": diagnostics["avg_pnl"],
+                    "mfe": diagnostics["avg_mfe"],
+                    "mae": diagnostics["avg_mae"],
                     "mfe_pct": diagnostics["avg_mfe"],
                     "mae_pct": diagnostics["avg_mae"],
                     "etd": diagnostics["avg_etd"],
@@ -178,9 +181,9 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
             {"trade_unit": 500, "use_margin": True, "margin_rate_annual": 0.0835, "bars_per_day": 8, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.4, "take_profit_pct": 0.02, "max_hold_bars": 12, "stop_loss_pct": 0.01, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80},
             {"final_value": 100624.56337900016, "total_return": 0.99, "total_return_log": 0.006226210650540601, "sharpe": 1.1, "max_drawdown": 0.05, "num_trades": 36, "total_margin_interest_paid": 12.5},
             {"strategy": "shock_reversion_intraday", "symbol": "600519.SH", "date_range": {"start": "2024-01-01", "end": "2024-01-20"}, "initial_cash": 100000.0},
-            {"entry_signals": 40, "executed_trades": 36, "blocked_by_multiple": 5, "avg_pnl": 0.35608091836527733, "avg_mfe": 2.5, "avg_mae": -0.5, "avg_etd": 0.25},
+            {"entry_signals": 40, "executed_trades": 36, "blocked_by_multiple": 5, "avg_pnl": 0.0035608091836527733, "avg_mfe": 0.025, "avg_mae": -0.005, "avg_etd": 0.0025},
             [
-                {"run_id": "run_001", "symbol": "600519.SH", "size": 500, "holding_bars": 3, "pnl_pct": 0.35608091836527733, "mfe_pct": 2.5, "mae_pct": -0.5, "etd": 0.25, "exit_reason": "recovery", "shock_score_at_entry": 70.0}
+                {"run_id": "run_001", "symbol": "600519.SH", "size": 500, "holding_bars": 3, "trade_return": 0.0035608091836527733, "pnl_pct": 0.0035608091836527733, "mfe": 0.025, "mae": -0.005, "mfe_pct": 0.025, "mae_pct": -0.005, "etd": 0.0025, "exit_reason": "recovery", "shock_score_at_entry": 70.0}
                 for _ in range(36)
             ],
         ),
@@ -189,9 +192,9 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
             {"trade_unit": 100, "use_margin": False, "margin_rate_annual": 0.0835, "bars_per_day": 8, "excursion_lookback_bars": 4, "excursion_threshold": 0.012, "recovery_frac": 0.45, "take_profit_pct": 0.025, "max_hold_bars": 10, "stop_loss_pct": 0.012, "use_shock_score_filter": False},
             {"final_value": 95000.0, "total_return": -0.50, "total_return_log": -0.05129329438755058, "sharpe": 0.6, "max_drawdown": 0.08, "num_trades": 1, "total_margin_interest_paid": 0.0},
             {"strategy": "shock_reversion_intraday", "symbol": "000858.SZ", "date_range": {"start": "2024-02-01", "end": "2024-02-20"}, "initial_cash": 100000.0},
-            {"entry_signals": 3, "executed_trades": 1, "blocked_by_multiple": 0, "avg_pnl": -2.0, "avg_mfe": 0.5, "avg_mae": -2.5, "avg_etd": 0.1},
+            {"entry_signals": 3, "executed_trades": 1, "blocked_by_multiple": 0, "avg_pnl": -0.02, "avg_mfe": 0.005, "avg_mae": -0.025, "avg_etd": 0.001},
             [
-                {"run_id": "run_002", "symbol": "000858.SZ", "size": 100, "holding_bars": 3, "pnl_pct": -2.0, "mfe_pct": 0.5, "mae_pct": -2.5, "etd": 0.1, "exit_reason": "max_hold", "shock_score_at_entry": 35.0},
+                {"run_id": "run_002", "symbol": "000858.SZ", "size": 100, "holding_bars": 3, "trade_return": -0.02, "pnl_pct": -0.02, "mfe": 0.005, "mae": -0.025, "mfe_pct": 0.005, "mae_pct": -0.025, "etd": 0.001, "exit_reason": "max_hold", "shock_score_at_entry": 35.0},
             ],
         ),
     ]
@@ -222,9 +225,10 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert first["total_return"] == pytest.approx(0.006245633790001739)
     assert first["total_return_simple"] == pytest.approx(0.006245633790001739)
     assert first["total_return_log"] == pytest.approx(0.006226210650540601)
-    assert first["sum_trade_return_pct"] == pytest.approx(12.81891306114998)
-    assert first["compound_trade_return_pct"] > first["sum_trade_return_pct"]
-    assert first["avg_pnl"] == pytest.approx(0.35608091836527733)
+    assert first["sum_trade_return"] == pytest.approx(0.12818913061149985)
+    assert first["compound_trade_return"] > first["sum_trade_return"]
+    assert first["avg_return_per_trade"] == pytest.approx(0.0035608091836527733)
+    assert first["avg_pnl"] == pytest.approx(0.0035608091836527733)
     assert first["executed_trades"] == 36
     assert first["entry_signals"] == 40
     assert first["blocked_by_multiple"] == 5
@@ -238,7 +242,7 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert first["shock_score_min"] == 60
     assert first["shock_score_max"] == 80
     assert first["use_shock_score_filter"]
-    assert first["sum_trade_return_pct"] > (first["total_return_simple"] * 100)
+    assert first["sum_trade_return"] > first["total_return_simple"]
 
     second = report_df.loc[report_df["run_id"] == "run_002"].iloc[0]
     assert second["trade_unit"] == 100
@@ -247,7 +251,7 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert second["total_return"] == pytest.approx(-0.05)
     assert second["total_return_simple"] == pytest.approx(-0.05)
     assert second["total_return_log"] == pytest.approx(-0.05129329438755058)
-    assert second["sum_trade_return_pct"] == pytest.approx(-2.0)
+    assert second["sum_trade_return"] == pytest.approx(-0.02)
     assert second["max_hold_share"] == 1.0
     assert second["use_shock_score_filter"] in {False, 0}
 
@@ -264,7 +268,7 @@ def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatc
         meta={"strategy": "shock_reversion_intraday"},
     )
     (output_root / "run_001" / "diagnostics_summary.json").write_text(
-        json.dumps({"executed_trades": 12, "avg_pnl": -1.5, "avg_mfe": 4.0, "avg_mae": -0.8, "avg_etd": 0.8}),
+        json.dumps({"executed_trades": 12, "avg_pnl": -0.015, "avg_mfe": 0.04, "avg_mae": -0.008, "avg_etd": 0.008}),
         encoding="utf-8",
     )
     pd.DataFrame(
@@ -282,7 +286,7 @@ def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatc
     mismatch_row = report_df.loc[report_df["run_id"] == "run_001"].iloc[0]
 
     assert mismatch_row["total_return"] == 0.08
-    assert mismatch_row["avg_trade_return"] == -1.5
+    assert mismatch_row["avg_trade_return"] == -0.015
     assert mismatch_row["return_sign_mismatch"]
     assert mismatch_row["return_alignment_warning"] == "sign_mismatch"
 
@@ -292,14 +296,14 @@ def test_build_summary_writes_selection_report_v2_with_expected_order(monkeypatc
     output_root.mkdir(parents=True, exist_ok=True)
 
     run_specs = [
-        ("run_001", 0.02, 5, 0.5, 0.10, 0.4, -0.3, 12.0, 0.80),
-        ("run_002", 0.03, 12, -0.2, 0.10, 0.4, -0.3, 15.0, 0.80),
-        ("run_003", 0.04, 12, 0.3, 0.35, 0.4, -0.3, 18.0, 0.80),
-        ("run_008", 0.09, 15, 1.1, 0.10, 2.1, -0.8, 14.0, 0.70),
-        ("run_009", 0.11, 18, 1.3, 0.09, 2.2, -0.7, 15.0, 0.50),
-        ("run_010", 0.10, 16, 1.2, 0.11, 2.0, -0.9, 15.5, 0.55),
-        ("run_011", 0.12, 20, 1.4, 0.08, 2.4, -0.8, 16.0, 0.45),
-        ("run_012", 0.13, 22, 1.6, 0.07, 2.5, -0.9, 16.5, 0.40),
+        ("run_001", 0.02, 5, 0.005, 0.10, 0.004, -0.003, 0.12, 0.0080),
+        ("run_002", 0.03, 12, -0.002, 0.10, 0.004, -0.003, 0.15, 0.0080),
+        ("run_003", 0.04, 12, 0.003, 0.35, 0.004, -0.003, 0.18, 0.0080),
+        ("run_008", 0.09, 15, 0.011, 0.10, 0.021, -0.008, 0.14, 0.0070),
+        ("run_009", 0.11, 18, 0.013, 0.09, 0.022, -0.007, 0.15, 0.0050),
+        ("run_010", 0.10, 16, 0.012, 0.11, 0.020, -0.009, 0.155, 0.0055),
+        ("run_011", 0.12, 20, 0.014, 0.08, 0.024, -0.008, 0.16, 0.0045),
+        ("run_012", 0.13, 22, 0.016, 0.07, 0.025, -0.009, 0.165, 0.0040),
     ]
 
     trade_rows: list[dict[str, object]] = []
@@ -320,7 +324,10 @@ def test_build_summary_writes_selection_report_v2_with_expected_order(monkeypatc
                     "entry_price": 100.0,
                     "exit_price": 101.0,
                     "holding_bars": 3,
+                    "trade_return": per_trade_pnl,
                     "pnl_pct": per_trade_pnl,
+                    "mfe": avg_mfe,
+                    "mae": avg_mae,
                     "mfe_pct": avg_mfe,
                     "mae_pct": avg_mae,
                     "etd": avg_etd,
@@ -349,7 +356,7 @@ def test_build_summary_writes_selection_report_v2_with_expected_order(monkeypatc
     assert list(report_df["rank"]) == [1, 2, 3, 4, 5]
     assert set(["capital_efficiency", "ladder_ready", "norm_return", "norm_efficiency", "norm_etd", "norm_trades"]).issubset(report_df.columns)
     assert report_df.loc[report_df["run_id"] == "run_012", "ladder_ready"].item()
-    assert pytest.approx(report_df.loc[report_df["run_id"] == "run_012", "capital_efficiency"].item(), rel=1e-6) == (100 * 0.13) / 16.5
+    assert pytest.approx(report_df.loc[report_df["run_id"] == "run_012", "capital_efficiency"].item(), rel=1e-6) == 0.13 / 0.165
     assert "run_001" not in set(report_df["run_id"])
     assert "run_002" not in set(report_df["run_id"])
     assert "run_003" not in set(report_df["run_id"])
@@ -360,13 +367,13 @@ def test_build_summary_selection_report_v2_keeps_positive_return_runs_with_perce
     output_root.mkdir(parents=True, exist_ok=True)
 
     run_specs = [
-        ("run_001", 0.08, 9, -0.5, 12.0, 2.0, -0.8, 12.0, 0.70),
-        ("run_002", -0.03, 16, -0.4, 11.0, 1.8, -0.7, -4.0, 0.65),
-        ("run_003", 0.07, 14, -0.2, 31.0, 2.1, -0.9, 10.0, 0.75),
-        ("run_009", 0.11, 18, -0.3, 14.0, 2.2, -0.7, 15.0, 0.50),
-        ("run_010", 0.10, 16, -0.1, 15.0, 2.0, -0.9, 15.5, 0.55),
-        ("run_011", 0.12, 20, -0.2, 13.0, 2.4, -0.8, 16.0, 0.45),
-        ("run_012", 0.13, 22, -0.4, 12.0, 2.5, -0.9, 16.5, 0.40),
+        ("run_001", 0.08, 9, -0.005, 12.0, 0.020, -0.008, 0.12, 0.0070),
+        ("run_002", -0.03, 16, -0.004, 11.0, 0.018, -0.007, -0.04, 0.0065),
+        ("run_003", 0.07, 14, -0.002, 31.0, 0.021, -0.009, 0.10, 0.0075),
+        ("run_009", 0.11, 18, -0.003, 14.0, 0.022, -0.007, 0.15, 0.0050),
+        ("run_010", 0.10, 16, -0.001, 15.0, 0.020, -0.009, 0.155, 0.0055),
+        ("run_011", 0.12, 20, -0.002, 13.0, 0.024, -0.008, 0.16, 0.0045),
+        ("run_012", 0.13, 22, -0.004, 12.0, 0.025, -0.009, 0.165, 0.0040),
     ]
 
     trade_rows: list[dict[str, object]] = []
@@ -387,7 +394,10 @@ def test_build_summary_selection_report_v2_keeps_positive_return_runs_with_perce
                     "entry_price": 100.0,
                     "exit_price": 101.0,
                     "holding_bars": 3,
+                    "trade_return": per_trade_pnl,
                     "pnl_pct": per_trade_pnl,
+                    "mfe": avg_mfe,
+                    "mae": avg_mae,
                     "mfe_pct": avg_mfe,
                     "mae_pct": avg_mae,
                     "etd": avg_etd,

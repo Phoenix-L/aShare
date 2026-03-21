@@ -15,6 +15,7 @@ SUMMARY_EXCLUDE_COLUMNS = {
     "total_return_log",
     "rtot",
     "avg_trade_return",
+    "avg_return_per_trade",
     "sharpe",
     "max_drawdown",
     "num_trades",
@@ -33,6 +34,22 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_ratio_maybe_percent(value: Any, default: float = 0.0) -> float:
+    normalized = _safe_float(value, default)
+    return normalized / 100.0 if abs(normalized) >= 1.0 else normalized
+
+
+def _normalize_drawdown(value: Any, default: float = 0.0) -> float:
+    normalized = _safe_float(value, default)
+    return normalized / 100.0 if normalized > 1.0 else normalized
+
+
+def _coerce_avg_return_per_trade(diagnostics_summary: dict[str, Any]) -> float:
+    if "avg_return_per_trade" in diagnostics_summary:
+        return _safe_float(diagnostics_summary.get("avg_return_per_trade"))
+    return _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_pnl"))
 
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -123,17 +140,18 @@ def _build_selection_frame(output_root: Path) -> pd.DataFrame:
                 "run_id": run_dir.name,
                 "total_return": _safe_float(summary_row.get(portfolio_return_column)),
                 "sharpe": _safe_float(summary_row.get("sharpe")),
-                "max_drawdown": _safe_float(summary_row.get("max_drawdown")),
+                "max_drawdown": _normalize_drawdown(summary_row.get("max_drawdown")),
                 "num_trades": _safe_float(summary_row.get("num_trades", summary_row.get("trade_count"))),
                 "executed_trades": _safe_float(diagnostics_summary.get("executed_trades")),
-                "avg_pnl": _safe_float(diagnostics_summary.get("avg_pnl")),
-                "avg_mfe": _safe_float(diagnostics_summary.get("avg_mfe")),
-                "avg_mae": _safe_float(diagnostics_summary.get("avg_mae")),
-                "avg_etd": _safe_float(diagnostics_summary.get("avg_etd")),
+                "avg_return_per_trade": _coerce_avg_return_per_trade(diagnostics_summary),
+                "avg_pnl": _coerce_avg_return_per_trade(diagnostics_summary),
+                "avg_mfe": _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_mfe")),
+                "avg_mae": _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_mae")),
+                "avg_etd": _normalize_ratio_maybe_percent(diagnostics_summary.get("avg_etd")),
                 "stop_loss_share": float(stop_loss_share_map.get(run_dir.name, 0.0)),
             }
         )
-        record["avg_trade_return"] = record["avg_pnl"]
+        record["avg_trade_return"] = record["avg_return_per_trade"]
         record["capture_ratio"] = record["avg_trade_return"] / record["avg_mfe"] if record["avg_mfe"] > 0 else 0.0
         record["pain_gain_ratio"] = abs(record["avg_mae"]) / record["avg_trade_return"] if record["avg_trade_return"] > 0 else float("inf")
         record["etd_ratio"] = record["avg_etd"] / record["avg_mfe"] if record["avg_mfe"] > 0 else float("inf")
@@ -215,7 +233,7 @@ SELECTION_V2_COLUMNS = [
     "rank",
     "score",
     "total_return_simple",
-    "sum_trade_return_pct",
+    "sum_trade_return",
     "capital_efficiency",
     "avg_etd",
     "executed_trades",
@@ -237,7 +255,7 @@ def _debug_selection_v2_stage(message: str, frame: pd.DataFrame) -> None:
     print(f"[selection_v2] {message}: {len(frame.index)}")
 
 def _debug_selection_v2_samples(report_df: pd.DataFrame) -> None:
-    sample_columns = ["run_id", "avg_pnl", "max_drawdown", "total_return_simple"]
+    sample_columns = ["run_id", "avg_return_per_trade", "max_drawdown", "total_return_simple"]
     available_columns = [column for column in sample_columns if column in report_df.columns]
     if available_columns:
         print("[selection_v2] sample run_performance_report values:")
@@ -259,9 +277,16 @@ def _build_selection_v2_frame(output_root: Path) -> pd.DataFrame:
     _debug_selection_v2_samples(report_df)
 
     evaluated = report_df.copy()
+    if "sum_trade_return" not in evaluated.columns and "sum_trade_return_pct" in evaluated.columns:
+        evaluated["sum_trade_return"] = pd.to_numeric(evaluated.get("sum_trade_return_pct"), errors="coerce") / 100.0
+    if "avg_return_per_trade" not in evaluated.columns and "avg_pnl" in evaluated.columns:
+        evaluated["avg_return_per_trade"] = pd.to_numeric(evaluated.get("avg_pnl"), errors="coerce")
+    evaluated["max_drawdown"] = pd.to_numeric(evaluated.get("max_drawdown"), errors="coerce").fillna(0.0).map(
+        lambda value: value / 100.0 if value > 1.0 else value
+    )
     evaluated["capital_efficiency"] = evaluated.apply(
-        lambda row: ((100.0 * _safe_float(row.get("total_return_simple"))) / _safe_float(row.get("sum_trade_return_pct")))
-        if _safe_float(row.get("sum_trade_return_pct")) != 0.0
+        lambda row: (_safe_float(row.get("total_return_simple")) / _safe_float(row.get("sum_trade_return")))
+        if _safe_float(row.get("sum_trade_return")) != 0.0
         else 0.0,
         axis=1,
     )
@@ -274,7 +299,7 @@ def _build_selection_v2_frame(output_root: Path) -> pd.DataFrame:
     survivors = survivors.loc[pd.to_numeric(survivors.get("total_return_simple"), errors="coerce").fillna(0.0) > 0.0].copy()
     _debug_selection_v2_stage("after total_return_simple filter", survivors)
 
-    survivors = survivors.loc[pd.to_numeric(survivors.get("max_drawdown"), errors="coerce").fillna(float("inf")) < 30.0].copy()
+    survivors = survivors.loc[pd.to_numeric(survivors.get("max_drawdown"), errors="coerce").fillna(float("inf")) < 0.30].copy()
     _debug_selection_v2_stage("after max_drawdown filter", survivors)
 
     if survivors.empty:
