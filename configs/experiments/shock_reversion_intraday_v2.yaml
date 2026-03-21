@@ -8,8 +8,8 @@ strategy: shock_reversion_intraday
 symbols:
   - 002850.SZ  # Example symbol.
 
-start: 2025-07-01  # Experiment start date.
-end: 2026-02-28    # Experiment end date.
+start: 2025-08-01  # Experiment start date.
+end: 2026-03-18    # Experiment end date.
 
 parameters:
   trade_unit: 500        # Fixed shares per entry.
