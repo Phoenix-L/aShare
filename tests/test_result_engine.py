@@ -293,3 +293,72 @@ def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatc
     assert mismatch_row["avg_trade_return"] == -1.5
     assert mismatch_row["return_sign_mismatch"]
     assert mismatch_row["return_alignment_warning"] == "sign_mismatch"
+
+
+def test_build_summary_writes_selection_report_v2_with_expected_order(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_root = tmp_path / "outputs" / "shock_selection_v2"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    run_specs = [
+        ("run_001", 0.02, 5, 0.5, 0.10, 0.4, -0.3, 12.0, 0.80),
+        ("run_002", 0.03, 12, -0.2, 0.10, 0.4, -0.3, 15.0, 0.80),
+        ("run_003", 0.04, 12, 0.3, 0.35, 0.4, -0.3, 18.0, 0.80),
+        ("run_008", 0.09, 15, 1.1, 0.10, 2.1, -0.8, 14.0, 0.70),
+        ("run_009", 0.11, 18, 1.3, 0.09, 2.2, -0.7, 15.0, 0.50),
+        ("run_010", 0.10, 16, 1.2, 0.11, 2.0, -0.9, 15.5, 0.55),
+        ("run_011", 0.12, 20, 1.4, 0.08, 2.4, -0.8, 16.0, 0.45),
+        ("run_012", 0.13, 22, 1.6, 0.07, 2.5, -0.9, 16.5, 0.40),
+    ]
+
+    trade_rows: list[dict[str, object]] = []
+    for run_id, total_return, executed_trades, avg_pnl, max_drawdown, avg_mfe, avg_mae, trade_sum, avg_etd in run_specs:
+        parameters = {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.4, "max_hold_bars": 10, "stop_loss_pct": 0.01}
+        metrics = {"sharpe": 1.0, "total_return": total_return, "max_drawdown": max_drawdown, "num_trades": executed_trades}
+        diagnostics = {"executed_trades": executed_trades, "avg_pnl": avg_pnl, "avg_mfe": avg_mfe, "avg_mae": avg_mae, "avg_etd": avg_etd}
+        _write_run(output_root, run_id, metrics=metrics, parameters=parameters, meta={"strategy": "shock_reversion_intraday", "initial_cash": 100000.0})
+        (output_root / run_id / "diagnostics_summary.json").write_text(json.dumps(diagnostics), encoding="utf-8")
+        per_trade_pnl = trade_sum / max(executed_trades, 1)
+        for trade_index in range(executed_trades):
+            trade_rows.append(
+                {
+                    "run_id": run_id,
+                    "symbol": "600519.SH",
+                    "entry_datetime": f"2024-01-01 09:{trade_index % 60:02d}:00",
+                    "exit_datetime": f"2024-01-01 10:{trade_index % 60:02d}:00",
+                    "entry_price": 100.0,
+                    "exit_price": 101.0,
+                    "holding_bars": 3,
+                    "pnl_pct": per_trade_pnl,
+                    "mfe_pct": avg_mfe,
+                    "mae_pct": avg_mae,
+                    "etd": avg_etd,
+                    "max_favorable_excursion": avg_mfe,
+                    "max_adverse_excursion": avg_mae,
+                    "mfe_price": 102.0,
+                    "mae_price": 99.0,
+                    "anchor_price_at_entry": 100.0,
+                    "excursion_at_entry": -0.02,
+                    "recovery_target": 101.5,
+                    "take_profit_price": 102.0,
+                    "effective_target_price": 101.8,
+                    "bars_to_mfe": 2,
+                    "bars_to_mae": 1,
+                    "exit_reason": "recovery",
+                    "exit_subtype": "recovery",
+                }
+            )
+    pd.DataFrame(trade_rows).to_csv(output_root / "trades.csv", index=False)
+
+    build_summary("shock_selection_v2")
+
+    report_df = pd.read_csv(output_root / "selection_report_v2.csv")
+
+    assert list(report_df["run_id"]) == ["run_012", "run_011", "run_009", "run_010", "run_008"]
+    assert list(report_df["rank"]) == [1, 2, 3, 4, 5]
+    assert set(["capital_efficiency", "ladder_ready", "norm_return", "norm_efficiency", "norm_etd", "norm_trades"]).issubset(report_df.columns)
+    assert report_df.loc[report_df["run_id"] == "run_012", "ladder_ready"].item()
+    assert pytest.approx(report_df.loc[report_df["run_id"] == "run_012", "capital_efficiency"].item(), rel=1e-6) == (100 * 0.13) / 16.5
+    assert "run_001" not in set(report_df["run_id"])
+    assert "run_002" not in set(report_df["run_id"])
+    assert "run_003" not in set(report_df["run_id"])
