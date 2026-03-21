@@ -13,8 +13,10 @@ def test_position_state_tracks_holding_bars_and_mfe_mae() -> None:
     update_trade_metrics(state, close=97.0, current_bar=14)
     assert get_holding_bars(state, 14) == 4
     metrics = export_trade_metrics(state)
-    assert metrics["mfe_pct"] == 3.0
-    assert metrics["mae_pct"] == -3.0
+    assert metrics["mfe"] == 0.03
+    assert metrics["mae"] == -0.03
+    assert metrics["mfe_pct"] == 0.03
+    assert metrics["mae_pct"] == -0.03
     assert metrics["bars_to_mfe"] == 2
     assert metrics["bars_to_mae"] == 4
     assert metrics["mfe_price"] == 103.0

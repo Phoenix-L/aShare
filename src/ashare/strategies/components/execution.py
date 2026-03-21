@@ -56,15 +56,15 @@ def get_holding_bars(state: PositionState, current_bar: int) -> int:
 def update_trade_metrics(state: PositionState, close: float, current_bar: int) -> None:
     """Update shared MFE/MAE metrics for an open position."""
     holding_bars = get_holding_bars(state, current_bar)
-    move_pct = ((float(close) - float(state.entry_price)) / float(state.entry_price)) * 100.0
-    if move_pct > state.mfe_pct:
-        state.mfe_pct = move_pct
-        state.max_favorable_excursion = move_pct
+    move_ratio = (float(close) - float(state.entry_price)) / float(state.entry_price)
+    if move_ratio > state.mfe_pct:
+        state.mfe_pct = move_ratio
+        state.max_favorable_excursion = move_ratio
         state.mfe_price = float(close)
         state.bars_to_mfe = holding_bars
-    if move_pct < state.mae_pct:
-        state.mae_pct = move_pct
-        state.max_adverse_excursion = move_pct
+    if move_ratio < state.mae_pct:
+        state.mae_pct = move_ratio
+        state.max_adverse_excursion = move_ratio
         state.mae_price = float(close)
         state.bars_to_mae = holding_bars
 
@@ -74,6 +74,8 @@ def export_trade_metrics(state: PositionState) -> dict[str, Any]:
     return {
         "entry_price": float(state.entry_price),
         "anchor_price_at_entry": None if state.anchor_price is None else float(state.anchor_price),
+        "mfe": float(state.mfe_pct),
+        "mae": float(state.mae_pct),
         "mfe_pct": float(state.mfe_pct),
         "mae_pct": float(state.mae_pct),
         "max_favorable_excursion": float(state.max_favorable_excursion),

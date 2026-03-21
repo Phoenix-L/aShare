@@ -507,7 +507,7 @@ def test_execute_experiment_writes_shock_score_bucket_analysis(monkeypatch, tmp_
     assert weak["executed_trades"] == 1
     assert weak["stop_loss_share"] == 1.0
     assert strong["executed_trades"] == 1
-    assert strong["avg_pnl"] == 1.0
+    assert strong["avg_pnl"] == 0.01
 
 
 def test_execute_experiment_writes_shock_score_overshock_analysis(monkeypatch, tmp_path: Path) -> None:

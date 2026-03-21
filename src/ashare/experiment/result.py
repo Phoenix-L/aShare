@@ -75,6 +75,16 @@ def _safe_float(value: Any, fallback: float) -> float:
         return fallback
 
 
+def _normalize_drawdown(value: Any, fallback: float) -> float:
+    raw = _safe_float(value, fallback)
+    return raw / 100.0 if raw > 1.0 else raw
+
+
+def _normalize_ratio_maybe_percent(value: Any, fallback: float = 0.0) -> float:
+    raw = _safe_float(value, fallback)
+    return raw / 100.0 if abs(raw) >= 1.0 else raw
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -190,7 +200,7 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "total_return_simple": total_return_simple,
             "total_return_log": total_return_log,
             "sharpe": _safe_float(metrics.get("sharpe"), RANKING_DEFAULTS["sharpe"]),
-            "max_drawdown": _safe_float(metrics.get("max_drawdown"), RANKING_DEFAULTS["max_drawdown"]),
+            "max_drawdown": _normalize_drawdown(metrics.get("max_drawdown"), RANKING_DEFAULTS["max_drawdown"]),
             "num_trades": metrics.get("num_trades", metrics.get("trade_count")),
             "total_margin_interest_paid": _safe_float(metrics.get("total_margin_interest_paid"), 0.0),
         }
@@ -266,9 +276,24 @@ def _bucket_for_score(score: float | None) -> tuple[float, float] | None:
 
 
 def _aggregate_trade_quality(trades: list[dict[str, Any]]) -> dict[str, float]:
-    pnl_values = [_safe_float(trade.get("pnl_pct"), 0.0) for trade in trades]
-    mfe_values = [_safe_float(trade.get("mfe_pct", trade.get("max_favorable_excursion")), 0.0) for trade in trades]
-    mae_values = [_safe_float(trade.get("mae_pct", trade.get("max_adverse_excursion")), 0.0) for trade in trades]
+    pnl_values = [
+        _safe_float(trade.get("trade_return"), 0.0)
+        if _safe_float(trade.get("trade_return"), None) is not None
+        else _normalize_ratio_maybe_percent(trade.get("pnl_pct"), 0.0)
+        for trade in trades
+    ]
+    mfe_values = [
+        _safe_float(trade.get("mfe"), 0.0)
+        if _safe_float(trade.get("mfe"), None) is not None
+        else _normalize_ratio_maybe_percent(trade.get("mfe_pct", trade.get("max_favorable_excursion")), 0.0)
+        for trade in trades
+    ]
+    mae_values = [
+        _safe_float(trade.get("mae"), 0.0)
+        if _safe_float(trade.get("mae"), None) is not None
+        else _normalize_ratio_maybe_percent(trade.get("mae_pct", trade.get("max_adverse_excursion")), 0.0)
+        for trade in trades
+    ]
     etd_values = [_safe_float(trade.get("etd"), 0.0) for trade in trades]
     holding_bars_values = [_safe_float(trade.get("holding_bars"), 0.0) for trade in trades]
     executed_trades = len(trades)

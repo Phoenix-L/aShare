@@ -28,6 +28,23 @@ def _safe_avg(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _normalized_ratio_from_trade(
+    trade: dict[str, Any],
+    *,
+    preferred_key: str,
+    legacy_key: str | None = None,
+    fallback_key: str | None = None,
+) -> float:
+    """Read decimal trade metrics, normalizing legacy percent-like keys when needed."""
+    if preferred_key in trade and trade.get(preferred_key) is not None:
+        return float(trade.get(preferred_key, 0.0))
+    if fallback_key and fallback_key in trade and trade.get(fallback_key) is not None:
+        return float(trade.get(fallback_key, 0.0))
+    if legacy_key and legacy_key in trade and trade.get(legacy_key) is not None:
+        return float(trade.get(legacy_key, 0.0)) / 100.0
+    return 0.0
+
+
 
 
 def _resolve_strategy_name(strategy_cls: Type[bt.Strategy]) -> str | None:
@@ -130,24 +147,31 @@ def _build_diagnostics_summary(
             summary["blocked_by_multiple"] += 1
 
     completed_trades = list(completed_trades or [])
-    mfe_values = [float(trade.get("mfe_pct", trade.get("max_favorable_excursion", 0.0))) for trade in completed_trades]
-    mae_values = [float(trade.get("mae_pct", trade.get("max_adverse_excursion", 0.0))) for trade in completed_trades]
-    pnl_values = [float(trade.get("pnl_pct", 0.0)) for trade in completed_trades]
+    mfe_values = [
+        _normalized_ratio_from_trade(trade, preferred_key="mfe", legacy_key="mfe_pct", fallback_key="max_favorable_excursion")
+        for trade in completed_trades
+    ]
+    mae_values = [
+        _normalized_ratio_from_trade(trade, preferred_key="mae", legacy_key="mae_pct", fallback_key="max_adverse_excursion")
+        for trade in completed_trades
+    ]
+    pnl_values = [_normalized_ratio_from_trade(trade, preferred_key="trade_return", legacy_key="pnl_pct") for trade in completed_trades]
     etd_values = [max(0.0, float(trade.get("etd", 0.0))) for trade in completed_trades]
 
     avg_mfe = _safe_avg(mfe_values)
     avg_mae = _safe_avg(mae_values)
-    avg_pnl = _safe_avg(pnl_values)
+    avg_return_per_trade = _safe_avg(pnl_values)
     avg_etd = _safe_avg(etd_values)
     summary["avg_mfe"] = avg_mfe
     summary["avg_mae"] = avg_mae
-    summary["avg_pnl"] = avg_pnl
+    summary["avg_return_per_trade"] = avg_return_per_trade
+    summary["avg_pnl"] = avg_return_per_trade
     summary["avg_etd"] = avg_etd
     summary["median_etd"] = statistics.median(etd_values) if etd_values else 0.0
     summary["max_etd"] = max(etd_values) if etd_values else 0.0
-    summary["mfe_pnl_gap"] = avg_mfe - avg_pnl
+    summary["mfe_pnl_gap"] = avg_mfe - avg_return_per_trade
     summary["etd_pnl_gap"] = avg_etd
-    summary["pnl_capture_ratio"] = avg_pnl / avg_mfe if avg_mfe > 0 else 0.0
+    summary["pnl_capture_ratio"] = avg_return_per_trade / avg_mfe if avg_mfe > 0 else 0.0
 
     exit_reasons = ["recovery", "take_profit", "stop_loss", "max_hold"]
     win_rate_by_exit_reason: dict[str, float] = {}
@@ -155,7 +179,7 @@ def _build_diagnostics_summary(
     for reason in exit_reasons:
         subset = [trade for trade in completed_trades if trade.get("exit_reason") == reason]
         win_rate_by_exit_reason[reason] = (
-            sum(1 for trade in subset if float(trade.get("pnl_pct", 0.0)) > 0) / len(subset)
+            sum(1 for trade in subset if _normalized_ratio_from_trade(trade, preferred_key="trade_return", legacy_key="pnl_pct") > 0) / len(subset)
             if subset else 0.0
         )
         avg_holding_bars_by_exit_reason[reason] = _safe_avg(

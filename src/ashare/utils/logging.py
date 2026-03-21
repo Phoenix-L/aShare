@@ -253,7 +253,7 @@ def log_backtest_metrics(
         f"final_value={metrics.get('final_value', 0):.2f} "
         f"total_return={metrics.get('rtot', 0) * 100:.2f}% "
         f"sharpe_ratio={sharpe_str} "
-        f"max_drawdown={metrics.get('max_drawdown', 0):.2f}% "
+        f"max_drawdown={metrics.get('max_drawdown', 0) * 100:.2f}% "
         f"max_drawdown_len={metrics.get('max_drawdown_len', 0)}"
     )
 
