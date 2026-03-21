@@ -23,9 +23,6 @@ def _to_date_str(value: Any, field_name: str) -> str:
     raise ValueError(f"'{field_name}' must be a YYYY-MM-DD string or date")
 
 
-REQUIRED_TOP_LEVEL_FIELDS = ("experiment_name", "strategy", "symbols", "date_range")
-
-
 def _require_mapping(value: Any, field_name: str) -> dict[str, Any]:
     if value is None:
         return {}
@@ -44,14 +41,18 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError("Experiment spec must be a YAML mapping")
 
-    for field in REQUIRED_TOP_LEVEL_FIELDS:
+    for field in ("strategy", "symbols"):
         if field not in raw:
             raise ValueError(f"Missing required field: '{field}'")
+    if "date_range" not in raw and ("start" not in raw or "end" not in raw):
+        raise ValueError("Missing required field: 'date_range' or top-level 'start'/'end'")
 
-    name = raw["experiment_name"]
+    name = raw.get("experiment_name", spec_path.stem)
     strategy = raw["strategy"]
     symbols = raw["symbols"]
     date_range = _require_mapping(raw.get("date_range"), "date_range")
+    start_value = date_range.get("start", raw.get("start"))
+    end_value = date_range.get("end", raw.get("end"))
 
     if not isinstance(name, str) or not name.strip():
         raise ValueError("'experiment_name' must be a non-empty string")
@@ -60,11 +61,13 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     if not isinstance(symbols, list) or not symbols or not all(isinstance(s, str) and s.strip() for s in symbols):
         raise ValueError("'symbols' must be a non-empty list of strings")
 
-    start = _to_date_str(date_range.get("start"), "date_range.start")
-    end = _to_date_str(date_range.get("end"), "date_range.end")
+    start = _to_date_str(start_value, "start")
+    end = _to_date_str(end_value, "end")
 
     parameters = _require_mapping(raw.get("parameters"), "parameters")
-    grid = _require_mapping(raw.get("grid_search"), "grid_search")
+    if "grid_search" in raw and "params" in raw:
+        raise ValueError("Use either 'grid_search' or 'params', not both")
+    grid = _require_mapping(raw.get("grid_search", raw.get("params")), "grid_search")
     for key, values in grid.items():
         if not isinstance(values, list) or not values:
             raise ValueError(f"'grid_search.{key}' must be a non-empty list")
