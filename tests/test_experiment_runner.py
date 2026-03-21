@@ -354,12 +354,10 @@ class _ShockBacktestStrategy:
             "entry_price": 100.0,
             "exit_price": 101.0,
             "holding_bars": 2,
-            "pnl_pct": 1.0,
-            "mfe_pct": 2.0,
-            "mae_pct": -0.5,
+            "trade_return": 0.01,
+            "mfe": 0.02,
+            "mae": -0.005,
             "etd": 0.3,
-            "max_favorable_excursion": 2.0,
-            "max_adverse_excursion": -0.5,
             "mfe_price": 102.0,
             "mae_price": 99.5,
             "anchor_price_at_entry": 103.0,
@@ -380,12 +378,10 @@ class _ShockBacktestStrategy:
             "entry_price": 100.0,
             "exit_price": 98.0,
             "holding_bars": 2,
-            "pnl_pct": -2.0,
-            "mfe_pct": 0.5,
-            "mae_pct": -2.5,
+            "trade_return": -0.02,
+            "mfe": 0.005,
+            "mae": -0.025,
             "etd": 0.1,
-            "max_favorable_excursion": 0.5,
-            "max_adverse_excursion": -2.5,
             "mfe_price": 100.5,
             "mae_price": 97.5,
             "anchor_price_at_entry": 101.0,
@@ -507,7 +503,7 @@ def test_execute_experiment_writes_shock_score_bucket_analysis(monkeypatch, tmp_
     assert weak["executed_trades"] == 1
     assert weak["stop_loss_share"] == 1.0
     assert strong["executed_trades"] == 1
-    assert strong["avg_pnl"] == 0.01
+    assert strong["avg_return_per_trade"] == 0.01
 
 
 def test_execute_experiment_writes_shock_score_overshock_analysis(monkeypatch, tmp_path: Path) -> None:
@@ -522,12 +518,10 @@ def test_execute_experiment_writes_shock_score_overshock_analysis(monkeypatch, t
                 "entry_price": 100.0,
                 "exit_price": 97.0,
                 "holding_bars": 3,
-                "pnl_pct": -3.0,
-                "mfe_pct": 0.2,
-                "mae_pct": -3.2,
+                "trade_return": -0.03,
+                "mfe": 0.002,
+                "mae": -0.032,
                 "etd": 0.4,
-                "max_favorable_excursion": 0.2,
-                "max_adverse_excursion": -3.2,
                 "mfe_price": 100.2,
                 "mae_price": 96.8,
                 "anchor_price_at_entry": 105.0,
@@ -599,4 +593,4 @@ def test_execute_experiment_writes_shock_score_overshock_analysis(monkeypatch, t
     overshock = overshock_df.loc[overshock_df["bucket"] == "80-100"].iloc[0]
     assert overshock["executed_trades"] == 1
     assert overshock["stop_loss_share"] == 1.0
-    assert overshock["pnl_diff_vs_60_80"] < 0.0
+    assert overshock["return_diff_vs_60_80"] < 0.0
