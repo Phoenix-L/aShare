@@ -21,7 +21,6 @@ SUMMARY_EXCLUDE_COLUMNS = {
     "trade_count",
 }
 
-
 def _safe_float(value: Any, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -35,7 +34,6 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
 
-
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -45,12 +43,10 @@ def _load_json(path: Path) -> dict[str, Any]:
         return {}
     return payload if isinstance(payload, dict) else {}
 
-
 def _read_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path)
-
 
 def _normalize_series(series: pd.Series) -> pd.Series:
     numeric = pd.to_numeric(series, errors="coerce")
@@ -63,6 +59,16 @@ def _normalize_series(series: pd.Series) -> pd.Series:
         return pd.Series([0.0] * len(series), index=series.index, dtype=float)
     return (numeric - minimum) / (maximum - minimum)
 
+def _normalize_series_unit(series: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    valid = numeric.dropna()
+    if valid.empty:
+        return pd.Series([1.0] * len(series), index=series.index, dtype=float)
+    minimum = float(valid.min())
+    maximum = float(valid.max())
+    if maximum == minimum:
+        return pd.Series([1.0] * len(series), index=series.index, dtype=float)
+    return ((numeric - minimum) / (maximum - minimum)).fillna(1.0)
 
 def _normalize_series_unit(series: pd.Series) -> pd.Series:
     numeric = pd.to_numeric(series, errors="coerce")
@@ -82,7 +88,6 @@ def _portfolio_return_column(summary_df: pd.DataFrame) -> str | None:
             return column
     return None
 
-
 def _build_stop_loss_share_map(trades_df: pd.DataFrame, run_ids: list[str]) -> dict[str, float]:
     if trades_df.empty:
         return {run_id: 0.0 for run_id in run_ids}
@@ -100,7 +105,6 @@ def _build_stop_loss_share_map(trades_df: pd.DataFrame, run_ids: list[str]) -> d
         exit_reasons = run_trades.get("exit_reason")
         shares[str(run_id)] = float((exit_reasons == "stop_loss").mean()) if exit_reasons is not None and len(run_trades.index) else 0.0
     return shares
-
 
 def _build_selection_frame(output_root: Path) -> pd.DataFrame:
     summary_df = _read_csv(output_root / "summary.csv")
@@ -153,7 +157,6 @@ def _build_selection_frame(output_root: Path) -> pd.DataFrame:
         records.append(record)
 
     return pd.DataFrame(records)
-
 
 def _apply_selection_rules(selection_df: pd.DataFrame) -> pd.DataFrame:
     if selection_df.empty:
@@ -218,6 +221,102 @@ def _apply_selection_rules(selection_df: pd.DataFrame) -> pd.DataFrame:
     )
     return evaluated
 
+SELECTION_V2_COLUMNS = [
+    "run_id",
+    "rank",
+    "score",
+    "total_return_simple",
+    "sum_trade_return_pct",
+    "capital_efficiency",
+    "avg_etd",
+    "executed_trades",
+    "ladder_ready",
+    "norm_return",
+    "norm_efficiency",
+    "norm_etd",
+    "norm_trades",
+    "score_return_component",
+    "score_efficiency_component",
+    "score_etd_component",
+    "score_trades_component",
+]
+
+def _empty_selection_v2_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=SELECTION_V2_COLUMNS)
+
+def _debug_selection_v2_stage(message: str, frame: pd.DataFrame) -> None:
+    print(f"[selection_v2] {message}: {len(frame.index)}")
+
+def _debug_selection_v2_samples(report_df: pd.DataFrame) -> None:
+    sample_columns = ["run_id", "avg_pnl", "max_drawdown", "total_return_simple"]
+    available_columns = [column for column in sample_columns if column in report_df.columns]
+    if available_columns:
+        print("[selection_v2] sample run_performance_report values:")
+        print(report_df.loc[:, available_columns].head(5).to_string(index=False))
+
+def _debug_selection_v2_top(label: str, frame: pd.DataFrame) -> None:
+    preview_columns = [column for column in ["run_id", "total_return_simple", "capital_efficiency", "avg_etd", "executed_trades", "score"] if column in frame.columns]
+    if preview_columns:
+        print(f"[selection_v2] {label}:")
+        print(frame.loc[:, preview_columns].head(5).to_string(index=False))
+
+def _build_selection_v2_frame(output_root: Path) -> pd.DataFrame:
+    report_df = _read_csv(output_root / "run_performance_report.csv")
+    if report_df.empty:
+        _debug_selection_v2_stage("initial rows", report_df)
+        return _empty_selection_v2_frame()
+
+    _debug_selection_v2_stage("initial rows", report_df)
+    _debug_selection_v2_samples(report_df)
+
+    evaluated = report_df.copy()
+    evaluated["capital_efficiency"] = evaluated.apply(
+        lambda row: ((100.0 * _safe_float(row.get("total_return_simple"))) / _safe_float(row.get("sum_trade_return_pct")))
+        if _safe_float(row.get("sum_trade_return_pct")) != 0.0
+        else 0.0,
+        axis=1,
+    )
+    evaluated["ladder_ready"] = pd.to_numeric(evaluated.get("avg_mfe"), errors="coerce").fillna(0.0) > pd.to_numeric(evaluated.get("avg_mae"), errors="coerce").fillna(0.0).abs()
+
+    survivors = evaluated.copy()
+    survivors = survivors.loc[pd.to_numeric(survivors.get("executed_trades"), errors="coerce").fillna(0.0) >= 10].copy()
+    _debug_selection_v2_stage("after executed_trades filter", survivors)
+
+    survivors = survivors.loc[pd.to_numeric(survivors.get("total_return_simple"), errors="coerce").fillna(0.0) > 0.0].copy()
+    _debug_selection_v2_stage("after total_return_simple filter", survivors)
+
+    survivors = survivors.loc[pd.to_numeric(survivors.get("max_drawdown"), errors="coerce").fillna(float("inf")) < 30.0].copy()
+    _debug_selection_v2_stage("after max_drawdown filter", survivors)
+
+    if survivors.empty:
+        return _empty_selection_v2_frame()
+
+    _debug_selection_v2_top("top 5 runs before scoring", survivors.sort_values(by=["total_return_simple", "capital_efficiency", "executed_trades", "run_id"], ascending=[False, False, False, True]).reset_index(drop=True))
+
+    survivors["log_executed_trades"] = pd.to_numeric(survivors.get("executed_trades"), errors="coerce").fillna(0.0).map(lambda value: math.log(max(value, 1.0)))
+    survivors["norm_return"] = _normalize_series_unit(survivors["total_return_simple"])
+    survivors["norm_efficiency"] = _normalize_series_unit(survivors["capital_efficiency"])
+    survivors["norm_etd"] = _normalize_series_unit(survivors["avg_etd"])
+    survivors["norm_trades"] = _normalize_series_unit(survivors["log_executed_trades"])
+
+    survivors["score_return_component"] = 0.5 * survivors["norm_return"]
+    survivors["score_efficiency_component"] = 0.2 * survivors["norm_efficiency"]
+    survivors["score_etd_component"] = -0.2 * survivors["norm_etd"]
+    survivors["score_trades_component"] = 0.1 * survivors["norm_trades"]
+    survivors["score"] = (
+        survivors["score_return_component"]
+        + survivors["score_efficiency_component"]
+        + survivors["score_etd_component"]
+        + survivors["score_trades_component"]
+    )
+    survivors = survivors.sort_values(by=["score", "total_return_simple", "capital_efficiency", "executed_trades", "run_id"], ascending=[False, False, False, False, True]).reset_index(drop=True)
+    survivors["rank"] = survivors.index + 1
+
+    _debug_selection_v2_stage("rows after filtering", survivors)
+    _debug_selection_v2_top("top 5 runs after scoring", survivors)
+
+    top_k = min(5, len(survivors.index))
+    return survivors.loc[: top_k - 1, SELECTION_V2_COLUMNS]
 
 def _build_selection_v2_frame(output_root: Path) -> pd.DataFrame:
     report_df = _read_csv(output_root / "run_performance_report.csv")
@@ -339,7 +438,6 @@ def _top_config_payload(row: pd.Series) -> dict[str, Any]:
             continue
         payload["params"][column] = value.item() if hasattr(value, "item") else value
     return payload
-
 
 def write_selection_artifacts(output_dir: str | Path) -> dict[str, Path | pd.DataFrame]:
     output_root = Path(output_dir)

@@ -7,7 +7,6 @@ import yaml
 
 from ashare.experiment.result import build_summary, collect_run_results, rank_results
 
-
 def _write_run(output_root: Path, run_id: str, metrics: dict | None, parameters: dict | None = None, meta: dict | None = None) -> None:
     run_dir = output_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -19,7 +18,6 @@ def _write_run(output_root: Path, run_id: str, metrics: dict | None, parameters:
     (run_dir / "metrics.json").write_text(json.dumps(metrics_payload), encoding="utf-8")
     snapshot = {"parameters": params_payload, "strategy": meta_payload.get("strategy"), "symbol": meta_payload.get("symbol"), "date_range": meta_payload.get("date_range")}
     (run_dir / "config_snapshot.yaml").write_text(yaml.safe_dump(snapshot, sort_keys=False), encoding="utf-8")
-
 
 def test_build_summary_omits_irrelevant_mean_reversion_columns(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
@@ -35,7 +33,6 @@ def test_build_summary_omits_irrelevant_mean_reversion_columns(monkeypatch, tmp_
     assert "z_entry,z_exit,use_trend_filter,use_atr_filter,use_art_filter,total_return,total_return_simple,total_return_log,sharpe,max_drawdown,num_trades" in summary_text
     assert "excursion_threshold" not in summary_text
     assert "signal_mode" not in summary_text
-
 
 def test_build_summary_omits_irrelevant_shock_columns(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
@@ -53,13 +50,11 @@ def test_build_summary_omits_irrelevant_shock_columns(monkeypatch, tmp_path: Pat
     assert "z_entry" not in summary_text
     assert "z_exit" not in summary_text
 
-
 def test_rank_results_handles_missing_metrics() -> None:
     records = [{"run_id": "run_001", "sharpe": None, "total_return": 0.2, "max_drawdown": 0.1}, {"run_id": "run_002", "sharpe": 1.1, "total_return": 0.1, "max_drawdown": 0.2}, {"run_id": "run_003", "total_return": None, "max_drawdown": None}]
     ranked = rank_results(records)
     assert ranked[0]["run_id"] == "run_002"
     assert ranked[-1]["run_id"] == "run_003"
-
 
 def test_collect_run_results_tolerates_missing_files(tmp_path: Path) -> None:
     output_root = tmp_path / "outputs" / "missing_metrics"
@@ -70,7 +65,6 @@ def test_collect_run_results_tolerates_missing_files(tmp_path: Path) -> None:
     assert records[0]["run_id"] == "run_001"
     assert records[0]["sharpe"] == -999.0
     assert set(records[0].keys()) >= {"params", "metrics", "meta"}
-
 
 def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
@@ -173,7 +167,6 @@ def test_build_summary_writes_shock_config_selection_artifacts(monkeypatch, tmp_
     assert "avg_trade_return" in top_config
     assert top_config["params"]["excursion_threshold"] == 0.012
 
-
 def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     output_root = tmp_path / "outputs" / "shock_run_report"
@@ -258,7 +251,6 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert second["max_hold_share"] == 1.0
     assert second["use_shock_score_filter"] in {False, 0}
 
-
 def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     output_root = tmp_path / "outputs" / "shock_selection_mismatch"
@@ -293,7 +285,6 @@ def test_build_summary_marks_return_sign_mismatch_in_selection_report(monkeypatc
     assert mismatch_row["avg_trade_return"] == -1.5
     assert mismatch_row["return_sign_mismatch"]
     assert mismatch_row["return_alignment_warning"] == "sign_mismatch"
-
 
 def test_build_summary_writes_selection_report_v2_with_expected_order(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
@@ -362,3 +353,73 @@ def test_build_summary_writes_selection_report_v2_with_expected_order(monkeypatc
     assert "run_001" not in set(report_df["run_id"])
     assert "run_002" not in set(report_df["run_id"])
     assert "run_003" not in set(report_df["run_id"])
+
+def test_build_summary_selection_report_v2_keeps_positive_return_runs_with_percent_drawdown(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_root = tmp_path / "outputs" / "shock_selection_v2_percent_drawdown"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    run_specs = [
+        ("run_001", 0.08, 9, -0.5, 12.0, 2.0, -0.8, 12.0, 0.70),
+        ("run_002", -0.03, 16, -0.4, 11.0, 1.8, -0.7, -4.0, 0.65),
+        ("run_003", 0.07, 14, -0.2, 31.0, 2.1, -0.9, 10.0, 0.75),
+        ("run_009", 0.11, 18, -0.3, 14.0, 2.2, -0.7, 15.0, 0.50),
+        ("run_010", 0.10, 16, -0.1, 15.0, 2.0, -0.9, 15.5, 0.55),
+        ("run_011", 0.12, 20, -0.2, 13.0, 2.4, -0.8, 16.0, 0.45),
+        ("run_012", 0.13, 22, -0.4, 12.0, 2.5, -0.9, 16.5, 0.40),
+    ]
+
+    trade_rows: list[dict[str, object]] = []
+    for run_id, total_return, executed_trades, avg_pnl, max_drawdown, avg_mfe, avg_mae, trade_sum, avg_etd in run_specs:
+        parameters = {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.4, "max_hold_bars": 10, "stop_loss_pct": 0.01}
+        metrics = {"sharpe": 1.0, "total_return": total_return, "max_drawdown": max_drawdown, "num_trades": executed_trades}
+        diagnostics = {"executed_trades": executed_trades, "avg_pnl": avg_pnl, "avg_mfe": avg_mfe, "avg_mae": avg_mae, "avg_etd": avg_etd}
+        _write_run(output_root, run_id, metrics=metrics, parameters=parameters, meta={"strategy": "shock_reversion_intraday", "initial_cash": 100000.0})
+        (output_root / run_id / "diagnostics_summary.json").write_text(json.dumps(diagnostics), encoding="utf-8")
+        per_trade_pnl = trade_sum / max(executed_trades, 1)
+        for trade_index in range(executed_trades):
+            trade_rows.append(
+                {
+                    "run_id": run_id,
+                    "symbol": "600519.SH",
+                    "entry_datetime": f"2024-01-01 09:{trade_index % 60:02d}:00",
+                    "exit_datetime": f"2024-01-01 10:{trade_index % 60:02d}:00",
+                    "entry_price": 100.0,
+                    "exit_price": 101.0,
+                    "holding_bars": 3,
+                    "pnl_pct": per_trade_pnl,
+                    "mfe_pct": avg_mfe,
+                    "mae_pct": avg_mae,
+                    "etd": avg_etd,
+                    "max_favorable_excursion": avg_mfe,
+                    "max_adverse_excursion": avg_mae,
+                    "mfe_price": 102.0,
+                    "mae_price": 99.0,
+                    "anchor_price_at_entry": 100.0,
+                    "excursion_at_entry": -0.02,
+                    "recovery_target": 101.5,
+                    "take_profit_price": 102.0,
+                    "effective_target_price": 101.8,
+                    "bars_to_mfe": 2,
+                    "bars_to_mae": 1,
+                    "exit_reason": "recovery",
+                    "exit_subtype": "recovery",
+                }
+            )
+    pd.DataFrame(trade_rows).to_csv(output_root / "trades.csv", index=False)
+
+    build_summary("shock_selection_v2_percent_drawdown")
+
+    report_df = pd.read_csv(output_root / "selection_report_v2.csv")
+    captured = capsys.readouterr().out
+
+    assert len(report_df.index) >= 3
+    assert not report_df.empty
+    assert set(["run_009", "run_010", "run_011", "run_012"]).issubset(set(report_df["run_id"]))
+    assert "[selection_v2] initial rows: 7" in captured
+    assert "[selection_v2] after executed_trades filter: 6" in captured
+    assert "[selection_v2] after total_return_simple filter: 5" in captured
+    assert "[selection_v2] after max_drawdown filter: 4" in captured
+    assert "[selection_v2] sample run_performance_report values:" in captured
+    assert "[selection_v2] top 5 runs before scoring:" in captured
+    assert "[selection_v2] top 5 runs after scoring:" in captured
