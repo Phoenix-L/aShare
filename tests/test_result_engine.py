@@ -182,23 +182,23 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     runs = [
         (
             "run_001",
-            {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.4, "take_profit_pct": 0.02, "max_hold_bars": 12, "stop_loss_pct": 0.01, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80},
-            {"final_value": 100624.56337900016, "total_return": 0.99, "total_return_log": 0.006226210650540601, "sharpe": 1.1, "max_drawdown": 0.05, "num_trades": 36},
+            {"trade_unit": 500, "use_margin": True, "margin_rate_annual": 0.0835, "bars_per_day": 8, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.4, "take_profit_pct": 0.02, "max_hold_bars": 12, "stop_loss_pct": 0.01, "use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 80},
+            {"final_value": 100624.56337900016, "total_return": 0.99, "total_return_log": 0.006226210650540601, "sharpe": 1.1, "max_drawdown": 0.05, "num_trades": 36, "total_margin_interest_paid": 12.5},
             {"strategy": "shock_reversion_intraday", "symbol": "600519.SH", "date_range": {"start": "2024-01-01", "end": "2024-01-20"}, "initial_cash": 100000.0},
             {"entry_signals": 40, "executed_trades": 36, "blocked_by_multiple": 5, "avg_pnl": 0.35608091836527733, "avg_mfe": 2.5, "avg_mae": -0.5, "avg_etd": 0.25},
             [
-                {"run_id": "run_001", "symbol": "600519.SH", "holding_bars": 3, "pnl_pct": 0.35608091836527733, "mfe_pct": 2.5, "mae_pct": -0.5, "etd": 0.25, "exit_reason": "recovery", "shock_score_at_entry": 70.0}
+                {"run_id": "run_001", "symbol": "600519.SH", "size": 500, "holding_bars": 3, "pnl_pct": 0.35608091836527733, "mfe_pct": 2.5, "mae_pct": -0.5, "etd": 0.25, "exit_reason": "recovery", "shock_score_at_entry": 70.0}
                 for _ in range(36)
             ],
         ),
         (
             "run_002",
-            {"excursion_lookback_bars": 4, "excursion_threshold": 0.012, "recovery_frac": 0.45, "take_profit_pct": 0.025, "max_hold_bars": 10, "stop_loss_pct": 0.012, "use_shock_score_filter": False},
-            {"final_value": 95000.0, "total_return": -0.50, "total_return_log": -0.05129329438755058, "sharpe": 0.6, "max_drawdown": 0.08, "num_trades": 1},
+            {"trade_unit": 100, "use_margin": False, "margin_rate_annual": 0.0835, "bars_per_day": 8, "excursion_lookback_bars": 4, "excursion_threshold": 0.012, "recovery_frac": 0.45, "take_profit_pct": 0.025, "max_hold_bars": 10, "stop_loss_pct": 0.012, "use_shock_score_filter": False},
+            {"final_value": 95000.0, "total_return": -0.50, "total_return_log": -0.05129329438755058, "sharpe": 0.6, "max_drawdown": 0.08, "num_trades": 1, "total_margin_interest_paid": 0.0},
             {"strategy": "shock_reversion_intraday", "symbol": "000858.SZ", "date_range": {"start": "2024-02-01", "end": "2024-02-20"}, "initial_cash": 100000.0},
             {"entry_signals": 3, "executed_trades": 1, "blocked_by_multiple": 0, "avg_pnl": -2.0, "avg_mfe": 0.5, "avg_mae": -2.5, "avg_etd": 0.1},
             [
-                {"run_id": "run_002", "symbol": "000858.SZ", "holding_bars": 3, "pnl_pct": -2.0, "mfe_pct": 0.5, "mae_pct": -2.5, "etd": 0.1, "exit_reason": "max_hold", "shock_score_at_entry": 35.0},
+                {"run_id": "run_002", "symbol": "000858.SZ", "size": 100, "holding_bars": 3, "pnl_pct": -2.0, "mfe_pct": 0.5, "mae_pct": -2.5, "etd": 0.1, "exit_reason": "max_hold", "shock_score_at_entry": 35.0},
             ],
         ),
     ]
@@ -221,6 +221,11 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert first["symbol"] == "600519.SH"
     assert first["start_date"] == "2024-01-01"
     assert first["end_date"] == "2024-01-20"
+    assert first["initial_cash"] == 100000.0
+    assert first["trade_unit"] == 500
+    assert first["use_margin"]
+    assert first["margin_rate_annual"] == pytest.approx(0.0835)
+    assert first["total_margin_interest_paid"] == pytest.approx(12.5)
     assert first["total_return"] == pytest.approx(0.006245633790001739)
     assert first["total_return_simple"] == pytest.approx(0.006245633790001739)
     assert first["total_return_log"] == pytest.approx(0.006226210650540601)
@@ -243,6 +248,9 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert first["sum_trade_return_pct"] > (first["total_return_simple"] * 100)
 
     second = report_df.loc[report_df["run_id"] == "run_002"].iloc[0]
+    assert second["trade_unit"] == 100
+    assert second["use_margin"] in {False, 0}
+    assert second["margin_rate_annual"] == pytest.approx(0.0835)
     assert second["total_return"] == pytest.approx(-0.05)
     assert second["total_return_simple"] == pytest.approx(-0.05)
     assert second["total_return_log"] == pytest.approx(-0.05129329438755058)

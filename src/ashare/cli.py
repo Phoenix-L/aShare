@@ -43,8 +43,11 @@ def _ranking_param_items(strategy_name: str, row: dict) -> list[tuple[str, objec
     """Return strategy-aware parameter items for ranked CLI output."""
     params = dict(row.get("params") or {})
     strategy_specific = {
-        "mean_reversion_advanced": [("z_entry", "z_entry"), ("z_exit", "z_exit")],
+        "mean_reversion_advanced": [("trade_unit", "trade_unit"), ("z_entry", "z_entry"), ("z_exit", "z_exit")],
         "shock_reversion_intraday": [
+            ("trade_unit", "trade_unit"),
+            ("use_margin", "use_margin"),
+            ("margin_rate_annual", "margin_rate_annual"),
             ("excursion_lookback_bars", "lookback"),
             ("excursion_threshold", "excursion_threshold"),
             ("recovery_frac", "recovery_frac"),
@@ -57,11 +60,15 @@ def _ranking_param_items(strategy_name: str, row: dict) -> list[tuple[str, objec
         ],
     }
     if strategy_name in strategy_specific:
-        return [
+        items = [
             (label, params[key])
             for key, label in strategy_specific[strategy_name]
             if params.get(key) is not None
         ]
+        initial_cash = row.get("initial_cash")
+        if initial_cash is not None:
+            items.append(("initial_cash", initial_cash))
+        return items
 
     return [
         (key, value)
@@ -230,9 +237,20 @@ def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> d
 @click.option("--strategy", required=False, help="Strategy name (e.g. mid_freq_ma)")
 @click.option("--symbols", required=False, help="Comma-separated symbols (e.g. 600519.SH,000858.SZ)")
 @click.option("--param", "param_options", multiple=True, help="Parameter grid entry: key=v1,v2,v3")
+@click.option("--initial-cash", type=float, default=None, help="Override initial cash for this experiment run")
+@click.option("--no-clean-output", is_flag=True, help="Keep existing files in the experiment output directory")
 @click.option("--start", type=str, default=None, help="Override start date")
 @click.option("--end", type=str, default=None, help="Override end date")
-def experiment(spec_path: str | None, strategy: str | None, symbols: str | None, param_options: tuple[str, ...], start: str | None, end: str | None) -> None:
+def experiment(
+    spec_path: str | None,
+    strategy: str | None,
+    symbols: str | None,
+    param_options: tuple[str, ...],
+    initial_cash: float | None,
+    no_clean_output: bool,
+    start: str | None,
+    end: str | None,
+) -> None:
     """Run a multi-symbol parameter sweep experiment."""
     try:
         start = _validate_date_arg("start", start)
@@ -297,14 +315,15 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
         spec["end"] = end
         date_range_overridden = True
 
-    execution = spec.get("execution", {})
-    run_config = config
-    if execution:
-        run_config = replace(
-            config,
-            initial_cash=float(execution.get("initial_cash", config.initial_cash)),
-            commission=float(execution.get("commission", config.commission)),
-        )
+    execution = dict(spec.get("execution", {}))
+    if initial_cash is not None:
+        execution["initial_cash"] = float(initial_cash)
+    spec["execution"] = execution
+    run_config = replace(
+        config,
+        initial_cash=float(execution.get("initial_cash", config.initial_cash)),
+        commission=float(execution.get("commission", config.commission)),
+    )
 
     total_runs = len(generate_parameter_sets({"strategy": strategy_name, "parameters": parameters, "grid": grid})) * len(spec["symbols"])
     click.echo(f"Running experiment: {spec['name']}")
@@ -318,6 +337,7 @@ def experiment(spec_path: str | None, strategy: str | None, symbols: str | None,
             strategy_name=strategy_name,
             spec=spec,
             config=run_config,
+            clean_output=not no_clean_output,
         )
     except ValueError as exc:
         raise click.ClickException(str(exc))

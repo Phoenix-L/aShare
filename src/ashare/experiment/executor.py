@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ TRADE_EXPORT_COLUMNS = [
     "symbol",
     "entry_datetime",
     "exit_datetime",
+    "size",
     "entry_price",
     "exit_price",
     "holding_bars",
@@ -87,14 +90,36 @@ def _report_grid_size(original_grid_size: int, deduplicated_runs: int) -> None:
         print(f"Deduplicated runs: {deduplicated_runs}")
 
 
+def prepare_output_dir(output_dir: str | Path, *, clean: bool = True) -> Path:
+    """Create an experiment output directory and optionally clear existing contents."""
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    if not clean:
+        return output_root
+
+    for child in output_root.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    return output_root
+
+
 def execute_experiment_spec(
     *,
     strategy_cls,
     strategy_name: str,
     spec: dict[str, Any],
     config: BacktestConfig,
+    clean_output: bool = True,
 ) -> dict[str, Any]:
     """Execute an experiment spec and write canonical output artifacts."""
+    execution = dict(spec.get("execution", {}))
+    run_config = replace(
+        config,
+        initial_cash=float(execution.get("initial_cash", config.initial_cash)),
+        commission=float(execution.get("commission", config.commission)),
+    )
     parameters = validate_strategy_params(strategy_name, dict(spec.get("parameters", {})))
     grid = dict(spec.get("grid", {}))
     for key, values in grid.items():
@@ -106,8 +131,7 @@ def execute_experiment_spec(
     _report_grid_size(len(all_combinations), len(final_runs))
 
     experiment_name = spec["name"]
-    output_root = Path("outputs") / experiment_name
-    output_root.mkdir(parents=True, exist_ok=True)
+    output_root = prepare_output_dir(Path("outputs") / experiment_name, clean=clean_output)
 
     symbol_data = {
         symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
@@ -137,7 +161,7 @@ def execute_experiment_spec(
             _, strat, metrics = run_backtest(
                 strategy_cls=strategy_cls,
                 data_df=data_df,
-                config=config,
+                config=run_config,
                 strategy_params=params,
                 symbol=symbol,
                 experiment_name=experiment_name,
@@ -175,7 +199,7 @@ def execute_experiment_spec(
                 "parameters": params,
                 "symbol": symbol,
                 "date_range": {"start": spec["start"], "end": spec["end"]},
-                "initial_cash": config.initial_cash,
+                "initial_cash": run_config.initial_cash,
             }
             (run_dir / "config_snapshot.yaml").write_text(
                 yaml.safe_dump(snapshot, sort_keys=False),
@@ -190,7 +214,7 @@ def execute_experiment_spec(
                     "symbol": symbol,
                     "experiment_name": experiment_name,
                     "date_range": {"start": spec["start"], "end": spec["end"]},
-                    "initial_cash": config.initial_cash,
+                    "initial_cash": run_config.initial_cash,
                 },
             }
             (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
