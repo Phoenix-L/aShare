@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,18 @@ def _normalize_series(series: pd.Series) -> pd.Series:
     if maximum == minimum:
         return pd.Series([0.0] * len(series), index=series.index, dtype=float)
     return (numeric - minimum) / (maximum - minimum)
+
+
+def _normalize_series_unit(series: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    valid = numeric.dropna()
+    if valid.empty:
+        return pd.Series([1.0] * len(series), index=series.index, dtype=float)
+    minimum = float(valid.min())
+    maximum = float(valid.max())
+    if maximum == minimum:
+        return pd.Series([1.0] * len(series), index=series.index, dtype=float)
+    return ((numeric - minimum) / (maximum - minimum)).fillna(1.0)
 
 
 def _portfolio_return_column(summary_df: pd.DataFrame) -> str | None:
@@ -206,6 +219,102 @@ def _apply_selection_rules(selection_df: pd.DataFrame) -> pd.DataFrame:
     return evaluated
 
 
+def _build_selection_v2_frame(output_root: Path) -> pd.DataFrame:
+    report_df = _read_csv(output_root / "run_performance_report.csv")
+    if report_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "run_id",
+                "rank",
+                "score",
+                "total_return_simple",
+                "sum_trade_return_pct",
+                "capital_efficiency",
+                "avg_etd",
+                "executed_trades",
+                "ladder_ready",
+                "norm_return",
+                "norm_efficiency",
+                "norm_etd",
+                "norm_trades",
+            ]
+        )
+
+    evaluated = report_df.copy()
+    evaluated["capital_efficiency"] = evaluated.apply(
+        lambda row: ((100.0 * _safe_float(row.get("total_return_simple"))) / _safe_float(row.get("sum_trade_return_pct")))
+        if _safe_float(row.get("sum_trade_return_pct")) != 0.0
+        else 0.0,
+        axis=1,
+    )
+    evaluated["ladder_ready"] = pd.to_numeric(evaluated.get("avg_mfe"), errors="coerce").fillna(0.0) > pd.to_numeric(evaluated.get("avg_mae"), errors="coerce").fillna(0.0).abs()
+
+    survivors = evaluated.loc[
+        (pd.to_numeric(evaluated.get("executed_trades"), errors="coerce").fillna(0.0) >= 10)
+        & (pd.to_numeric(evaluated.get("avg_pnl"), errors="coerce").fillna(0.0) > 0.0)
+        & (pd.to_numeric(evaluated.get("max_drawdown"), errors="coerce").fillna(float("inf")) < 0.30)
+    ].copy()
+
+    if survivors.empty:
+        return pd.DataFrame(
+            columns=[
+                "run_id",
+                "rank",
+                "score",
+                "total_return_simple",
+                "sum_trade_return_pct",
+                "capital_efficiency",
+                "avg_etd",
+                "executed_trades",
+                "ladder_ready",
+                "norm_return",
+                "norm_efficiency",
+                "norm_etd",
+                "norm_trades",
+            ]
+        )
+
+    survivors["log_executed_trades"] = pd.to_numeric(survivors.get("executed_trades"), errors="coerce").fillna(0.0).map(lambda value: math.log(max(value, 1.0)))
+    survivors["norm_return"] = _normalize_series_unit(survivors["total_return_simple"])
+    survivors["norm_efficiency"] = _normalize_series_unit(survivors["capital_efficiency"])
+    survivors["norm_etd"] = _normalize_series_unit(survivors["avg_etd"])
+    survivors["norm_trades"] = _normalize_series_unit(survivors["log_executed_trades"])
+
+    survivors["score_return_component"] = 0.5 * survivors["norm_return"]
+    survivors["score_efficiency_component"] = 0.2 * survivors["norm_efficiency"]
+    survivors["score_etd_component"] = -0.2 * survivors["norm_etd"]
+    survivors["score_trades_component"] = 0.1 * survivors["norm_trades"]
+    survivors["score"] = (
+        survivors["score_return_component"]
+        + survivors["score_efficiency_component"]
+        + survivors["score_etd_component"]
+        + survivors["score_trades_component"]
+    )
+    survivors = survivors.sort_values(by=["score", "total_return_simple", "capital_efficiency", "executed_trades", "run_id"], ascending=[False, False, False, False, True]).reset_index(drop=True)
+    survivors["rank"] = survivors.index + 1
+
+    top_k = min(5, len(survivors.index))
+    return survivors.loc[: top_k - 1, [
+        "run_id",
+        "rank",
+        "score",
+        "total_return_simple",
+        "sum_trade_return_pct",
+        "capital_efficiency",
+        "avg_etd",
+        "executed_trades",
+        "ladder_ready",
+        "norm_return",
+        "norm_efficiency",
+        "norm_etd",
+        "norm_trades",
+        "score_return_component",
+        "score_efficiency_component",
+        "score_etd_component",
+        "score_trades_component",
+    ]]
+
+
 def _top_config_payload(row: pd.Series) -> dict[str, Any]:
     payload = {
         "run_id": row["run_id"],
@@ -235,25 +344,31 @@ def _top_config_payload(row: pd.Series) -> dict[str, Any]:
 def write_selection_artifacts(output_dir: str | Path) -> dict[str, Path | pd.DataFrame]:
     output_root = Path(output_dir)
     selection_df = _apply_selection_rules(_build_selection_frame(output_root))
+    selection_v2_df = _build_selection_v2_frame(output_root)
 
     report_path = output_root / "selection_report.csv"
     ranked_path = output_root / "selection_ranked.csv"
     top_config_path = output_root / "top_config.json"
+    report_v2_path = output_root / "selection_report_v2.csv"
 
     if selection_df.empty:
         pd.DataFrame().to_csv(report_path, index=False)
         pd.DataFrame().to_csv(ranked_path, index=False)
+        selection_v2_df.to_csv(report_v2_path, index=False)
         top_config_path.write_text(json.dumps({"selected": False, "reason": "no_runs"}, indent=2), encoding="utf-8")
         return {
             "selection_report_path": report_path,
             "selection_ranked_path": ranked_path,
+            "selection_report_v2_path": report_v2_path,
             "top_config_path": top_config_path,
             "selection_frame": selection_df,
+            "selection_v2_frame": selection_v2_df,
         }
 
     selection_df.to_csv(report_path, index=False)
     ranked_df = selection_df.loc[selection_df["selected"]].sort_values(by=["score", "total_return", "sharpe"], ascending=[False, False, False]).head(5)
     ranked_df.to_csv(ranked_path, index=False)
+    selection_v2_df.to_csv(report_v2_path, index=False)
 
     if ranked_df.empty:
         top_payload: dict[str, Any] = {"selected": False, "reason": "no_qualified_configs"}
@@ -264,6 +379,8 @@ def write_selection_artifacts(output_dir: str | Path) -> dict[str, Path | pd.Dat
     return {
         "selection_report_path": report_path,
         "selection_ranked_path": ranked_path,
+        "selection_report_v2_path": report_v2_path,
         "top_config_path": top_config_path,
         "selection_frame": selection_df,
+        "selection_v2_frame": selection_v2_df,
     }
