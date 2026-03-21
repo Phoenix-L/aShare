@@ -108,6 +108,50 @@ def test_cli_initial_cash_override_has_highest_precedence(monkeypatch, tmp_path)
     run_payload = json.loads((run_dir / "run_result.json").read_text(encoding="utf-8"))
     assert run_payload["meta"]["initial_cash"] == 300000.0
 
+
+def test_yaml_experiment_uses_filename_for_output_dir_but_keeps_experiment_name_for_display(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig(initial_cash=100_000))
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", lambda *args, **kwargs: pd.DataFrame({
+        "open": [1.0, 1.0, 1.0],
+        "high": [1.0, 1.0, 1.0],
+        "low": [1.0, 1.0, 1.0],
+        "close": [1.0, 1.0, 1.0],
+        "volume": [100, 100, 100],
+    }, index=pd.date_range("2024-01-01", periods=3, freq="D")))
+    monkeypatch.setattr(
+        "ashare.experiment.executor.run_backtest",
+        lambda *args, **kwargs: (None, None, {"final_value": 101000.0, "rtot": 0.01, "max_drawdown": 0.01, "total_return": 0.01, "sharpe": 1.0}),
+    )
+
+    spec_path = tmp_path / "configs" / "experiments" / "shock_reversion_intraday_v2.yaml"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(
+        """
+experiment_name: shock_reversion_intraday_template
+strategy: shock_reversion_intraday
+symbols:
+  - 002850.SZ
+start: 2024-01-01
+end: 2024-01-03
+parameters:
+  trade_unit: 100
+params:
+  max_hold_bars:
+    - 10
+""".strip(),
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["experiment", str(spec_path)])
+
+    assert result.exit_code == 0
+    assert "Running experiment: shock_reversion_intraday_template" in result.output
+    assert f"Output directory: outputs/{spec_path.stem}" in result.output
+    assert (tmp_path / "outputs" / spec_path.stem / "run_001" / "run_result.json").exists()
+    assert not (tmp_path / "outputs" / "shock_reversion_intraday_template").exists()
+
 def test_executor_logs_running_parameters(monkeypatch, caplog, tmp_path) -> None:
     from ashare.experiment.executor import execute_experiment_spec
 

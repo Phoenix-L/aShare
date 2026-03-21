@@ -76,6 +76,7 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
 
     return {
         "name": name.strip(),
+        "output_name": spec_path.stem,
         "strategy": strategy.strip(),
         "symbols": [symbol.strip() for symbol in symbols],
         "start": start,

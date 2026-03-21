@@ -32,6 +32,7 @@ execution:
     spec = load_experiment_spec(spec_file)
 
     assert spec["name"] == "demo_exp"
+    assert spec["output_name"] == "demo"
     assert spec["strategy"] == "mid_freq_ma"
     assert spec["symbols"] == ["600519.SH"]
     assert spec["start"] == "2024-01-01"
@@ -74,6 +75,7 @@ params:
     spec = load_experiment_spec(spec_file)
 
     assert spec["name"] == "shock_reversion_intraday_template"
+    assert spec["output_name"] == "shock_reversion_intraday_template"
     assert spec["start"] == "2025-07-01"
     assert spec["end"] == "2026-02-28"
     assert spec["parameters"] == {"trade_unit": 500}

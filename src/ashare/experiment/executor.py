@@ -129,7 +129,8 @@ def execute_experiment_spec(
     _report_grid_size(len(all_combinations), len(final_runs))
 
     experiment_name = spec["name"]
-    output_root = prepare_output_dir(Path("outputs") / experiment_name, clean=clean_output)
+    output_name = str(spec.get("output_name") or experiment_name)
+    output_root = prepare_output_dir(Path("outputs") / output_name, clean=clean_output)
 
     symbol_data = {
         symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
@@ -222,10 +223,11 @@ def execute_experiment_spec(
     _write_csv(trades_path, experiment_trades, TRADE_EXPORT_COLUMNS)
     _write_csv(signals_path, experiment_signals, SIGNAL_EXPORT_COLUMNS)
 
-    summary_path, summary_sorted_path, ranked_records = build_summary(experiment_name)
+    summary_path, summary_sorted_path, ranked_records = build_summary(output_name)
     run_performance_report_path = output_root / "run_performance_report.csv"
     return {
         "experiment_name": experiment_name,
+        "output_name": output_name,
         "output_dir": str(output_root),
         "summary_path": str(summary_path),
         "summary_sorted_path": str(summary_sorted_path),
