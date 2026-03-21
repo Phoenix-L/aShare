@@ -12,10 +12,12 @@ import yaml
 
 from ashare.evaluation.run_report import write_run_performance_report
 from ashare.research.config_selector import write_selection_artifacts
+from ashare.strategies import get_strategy_class
 
 METRIC_COLUMNS = ["total_return", "total_return_simple", "total_return_log", "sharpe", "max_drawdown", "num_trades"]
 PARAMETER_COLUMN_PREFERENCE = {
     "mean_reversion_advanced": [
+        "trade_unit",
         "z_entry",
         "z_exit",
         "use_trend_filter",
@@ -24,6 +26,7 @@ PARAMETER_COLUMN_PREFERENCE = {
         "atr_ratio_min",
     ],
     "shock_reversion_intraday": [
+        "trade_unit",
         "excursion_lookback_bars",
         "excursion_threshold",
         "speed_scale",
@@ -86,6 +89,24 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def _strategy_default_param(strategy_name: str | None, param_name: str) -> Any:
+    if not strategy_name:
+        return None
+    try:
+        strategy_cls = get_strategy_class(strategy_name)
+    except KeyError:
+        return None
+
+    defaults = getattr(strategy_cls, "params", {})
+    if hasattr(defaults, "_getitems"):
+        defaults = dict(defaults._getitems())
+    elif isinstance(defaults, tuple):
+        defaults = dict(defaults)
+    elif not isinstance(defaults, dict):
+        defaults = {}
+    return defaults.get(param_name)
+
+
 def _normalize_run_payload(run_dir: Path) -> dict[str, Any]:
     run_payload = _load_json(run_dir / "run_result.json")
     if run_payload:
@@ -117,6 +138,7 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
         meta = run_payload["meta"]
         use_atr_filter = params.get("use_atr_filter", params.get("use_art_filter"))
         atr_ratio_min = params.get("atr_ratio_min", params.get("art_threshold"))
+        strategy_name = meta.get("strategy")
         total_return_log = _safe_float(metrics.get("total_return_log", metrics.get("rtot")), RANKING_DEFAULTS["total_return"])
         total_return_simple = _safe_float(
             metrics.get("total_return_simple"),
@@ -131,6 +153,8 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "params": params,
             "metrics": metrics,
             "meta": meta,
+            "initial_cash": meta.get("initial_cash"),
+            "trade_unit": params.get("trade_unit", _strategy_default_param(strategy_name, "trade_unit")),
             "signal_mode": params.get("signal_mode", "zscore"),
             "z_entry": params.get("z_entry"),
             "z_exit": params.get("z_exit"),
@@ -175,9 +199,16 @@ def _summary_columns(records: list[dict[str, Any]]) -> list[str]:
     strategy_name = records[0].get("meta", {}).get("strategy")
     preferred = PARAMETER_COLUMN_PREFERENCE.get(strategy_name, DEFAULT_PARAMETER_COLUMN_PREFERENCE)
     columns = []
+    if any(record.get("initial_cash") is not None for record in records):
+        columns.append("initial_cash")
+    if any(record.get("trade_unit") is not None for record in records):
+        columns.append("trade_unit")
     for column in preferred:
+        if column in columns:
+            continue
         if any(
             column in (record.get("params") or {})
+            or (column == "trade_unit" and record.get("trade_unit") is not None)
             or (column == "use_atr_filter" and any(key in (record.get("params") or {}) for key in {"use_atr_filter", "use_art_filter"}))
             or (column == "use_art_filter" and any(key in (record.get("params") or {}) for key in {"use_atr_filter", "use_art_filter"}))
             or (column == "atr_ratio_min" and any(key in (record.get("params") or {}) for key in {"atr_ratio_min", "art_threshold"}))

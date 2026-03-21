@@ -90,6 +90,7 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
     results_df = pd.read_csv(results_path)
     assert len(results_df) == 4
     assert list(results_df.columns) == [
+        "initial_cash",
         "total_return",
         "total_return_simple",
         "total_return_log",
@@ -104,6 +105,53 @@ def test_run_experiment_creates_outputs_and_metrics(monkeypatch, tmp_path: Path)
     run_payload = json.loads((experiment_dir / "run_001" / "run_result.json").read_text(encoding="utf-8"))
     assert set(run_payload.keys()) == {"params", "metrics", "meta"}
     assert run_payload["meta"]["initial_cash"] == BacktestConfig().initial_cash
+
+
+def test_execute_experiment_spec_applies_yaml_execution_initial_cash(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    captured_configs: list[BacktestConfig] = []
+
+    def _fake_backtest(
+        strategy_cls,
+        data_df,
+        config,
+        strategy_params=None,
+        symbol=None,
+        experiment_name=None,
+        run_id=None,
+        output_dir=None,
+    ):
+        _ = (strategy_cls, data_df, strategy_params, symbol, experiment_name, run_id, output_dir)
+        captured_configs.append(config)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    result = execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec={
+            "name": "execution_initial_cash",
+            "strategy": "mid_freq_ma",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {},
+            "grid": {"short_period": [3], "long_period": [8], "turnover_thresh": [1.0]},
+            "execution": {"initial_cash": 250000},
+        },
+        config=BacktestConfig(initial_cash=100000),
+    )
+
+    assert captured_configs[0].initial_cash == 250000.0
+    run_payload = json.loads((Path(result["output_dir"]) / "run_001" / "run_result.json").read_text(encoding="utf-8"))
+    assert run_payload["meta"]["initial_cash"] == 250000.0
 
 
 def test_execute_experiment_does_not_print_grid_diagnostics_when_not_deduplicated(monkeypatch, tmp_path: Path, capsys) -> None:

@@ -148,6 +148,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         if order.isbuy():
             context = self.pending_entry_context or {}
             entry_price = float(order.executed.price)
+            executed_size = int(order.executed.size)
             anchor_price = float(context.get("anchor_price_at_entry", entry_price))
             self.position_state = create_position_state(
                 entry_price=entry_price,
@@ -166,6 +167,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             self.current_trade_record = {
                 "symbol": self._get_symbol(),
                 "entry_datetime": self._current_datetime(),
+                "size": executed_size,
                 "entry_price": entry_price,
                 "anchor_price_at_entry": anchor_price,
                 "excursion_at_entry": float(context.get("excursion_at_entry", 0.0)),

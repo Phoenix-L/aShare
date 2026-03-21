@@ -174,11 +174,29 @@ def test_shock_reversion_trade_records_include_score_at_entry() -> None:
 
     assert strat.completed_trades[0]["shock_score_at_entry"] >= 0.0
 
+
+def test_shock_reversion_completed_trade_records_use_full_configured_size() -> None:
+    closes = [100.0] * 180 + [97.0, 98.0, 100.0, 100.0]
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 500,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "take_profit_pct": 0.02,
+            "recovery_frac": 1.0,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+    )
+
+    assert strat.completed_trades[0]["size"] == 500
+
 def test_shock_reversion_enters_on_excursion_signal() -> None:
     closes = [100.0] * 180 + [97.0, 97.0, 97.0]
     strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert strat.buy_events >= 1
-    assert strat.position.size > 0
+    assert strat.position.size == 500
 
 
 def test_shock_reversion_entry_depends_only_on_excursion_signal() -> None:
