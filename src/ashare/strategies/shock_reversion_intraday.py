@@ -26,6 +26,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
     params = dict(
         trade_unit=500,
+        use_margin=False,
+        margin_rate_annual=0.0835,
+        bars_per_day=8,
         excursion_lookback_bars=3,
         excursion_threshold=0.01,
         take_profit_pct=0.02,
@@ -65,6 +68,8 @@ class ShockReversionIntradayStrategy(bt.Strategy):
     def __init__(self) -> None:
         if self.p.excursion_lookback_bars is None:
             raise ValueError("Invalid config: excursion_lookback_bars required")
+        if int(self.p.bars_per_day) <= 0:
+            raise ValueError("Invalid config: bars_per_day must be positive")
 
         self.rolling_max_close = bt.indicators.Highest(self.data.close, period=self.p.excursion_lookback_bars)
         self.excursion = (self.data.close - self.rolling_max_close) / self.rolling_max_close
@@ -87,6 +92,46 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.pending_entry_context: dict | None = None
         self.pending_exit_reason: str | None = None
         self.active_order = None
+        self.total_margin_interest_paid = 0.0
+        self.margin_interest_events: list[dict] = []
+        self.min_cash = float(self.broker.getcash())
+
+    def _per_bar_margin_rate(self) -> float:
+        """Return per-bar interest rate implied by annual margin cost."""
+        daily_rate = float(self.p.margin_rate_annual) / 252.0
+        return daily_rate / float(self.p.bars_per_day)
+
+    def _apply_margin_interest(self) -> None:
+        """Deduct borrowing cost whenever the cash balance is negative."""
+        cash_before = float(self.broker.getcash())
+        self.min_cash = min(self.min_cash, cash_before)
+        if not self.p.use_margin or cash_before >= 0.0:
+            return
+
+        interest_cost = abs(cash_before) * self._per_bar_margin_rate()
+        if interest_cost <= 0.0:
+            return
+
+        charge_cash = getattr(self.broker, "charge_cash", None)
+        if callable(charge_cash):
+            charge_cash(interest_cost)
+        else:
+            self.broker.add_cash(-interest_cost)
+            refresh_value = getattr(self.broker, "_get_value", None)
+            if callable(refresh_value):
+                refresh_value()
+
+        cash_after = float(self.broker.getcash())
+        self.total_margin_interest_paid += interest_cost
+        self.min_cash = min(self.min_cash, cash_after)
+        self.margin_interest_events.append(
+            {
+                "datetime": self._current_datetime(),
+                "cash_before": cash_before,
+                "cash_after": cash_after,
+                "interest_cost": interest_cost,
+            }
+        )
 
     def _get_symbol(self) -> str:
         """Return the current primary symbol name."""
@@ -217,6 +262,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self._clear_trade_state()
 
     def next(self) -> None:
+        self._apply_margin_interest()
         close = float(self.data.close[0])
         rolling_max_close = float(self.rolling_max_close[0])
         excursion_value = float(self.excursion[0])

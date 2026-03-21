@@ -227,6 +227,10 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
 
 class _ShockStrategy:
     params = (
+        ("trade_unit", 500),
+        ("use_margin", False),
+        ("margin_rate_annual", 0.0835),
+        ("bars_per_day", 8),
         ("excursion_lookback_bars", 3),
         ("excursion_threshold", 0.01),
         ("recovery_frac", 0.5),
@@ -278,6 +282,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
                     "sharpe": 2.02,
                     "total_return": 0.1334,
                     "params": {
+                        "trade_unit": 500,
+                        "use_margin": True,
+                        "margin_rate_annual": 0.0835,
                         "excursion_lookback_bars": 5,
                         "excursion_threshold": 0.05,
                         "recovery_frac": 0.5,
@@ -313,6 +320,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "excursion_threshold=0.05" in result.output
+    assert "trade_unit=500" in result.output
+    assert "use_margin=true" in result.output
+    assert "margin_rate_annual=0.0835" in result.output
     assert "recovery_frac=0.5" in result.output
     assert "tp=0.05" in result.output
     assert "hold=8" in result.output

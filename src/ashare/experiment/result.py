@@ -27,6 +27,9 @@ PARAMETER_COLUMN_PREFERENCE = {
     ],
     "shock_reversion_intraday": [
         "trade_unit",
+        "use_margin",
+        "margin_rate_annual",
+        "bars_per_day",
         "excursion_lookback_bars",
         "excursion_threshold",
         "speed_scale",
@@ -155,6 +158,9 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "meta": meta,
             "initial_cash": meta.get("initial_cash"),
             "trade_unit": params.get("trade_unit", _strategy_default_param(strategy_name, "trade_unit")),
+            "use_margin": params.get("use_margin", _strategy_default_param(strategy_name, "use_margin")),
+            "margin_rate_annual": params.get("margin_rate_annual", _strategy_default_param(strategy_name, "margin_rate_annual")),
+            "bars_per_day": params.get("bars_per_day", _strategy_default_param(strategy_name, "bars_per_day")),
             "signal_mode": params.get("signal_mode", "zscore"),
             "z_entry": params.get("z_entry"),
             "z_exit": params.get("z_exit"),
@@ -186,6 +192,7 @@ def collect_run_results(output_root: Path) -> list[dict[str, Any]]:
             "sharpe": _safe_float(metrics.get("sharpe"), RANKING_DEFAULTS["sharpe"]),
             "max_drawdown": _safe_float(metrics.get("max_drawdown"), RANKING_DEFAULTS["max_drawdown"]),
             "num_trades": metrics.get("num_trades", metrics.get("trade_count")),
+            "total_margin_interest_paid": _safe_float(metrics.get("total_margin_interest_paid"), 0.0),
         }
         records.append(record)
 
@@ -201,14 +208,15 @@ def _summary_columns(records: list[dict[str, Any]]) -> list[str]:
     columns = []
     if any(record.get("initial_cash") is not None for record in records):
         columns.append("initial_cash")
-    if any(record.get("trade_unit") is not None for record in records):
-        columns.append("trade_unit")
+    for derived_column in ("trade_unit", "use_margin", "margin_rate_annual", "bars_per_day"):
+        if any(record.get(derived_column) is not None for record in records):
+            columns.append(derived_column)
     for column in preferred:
         if column in columns:
             continue
         if any(
             column in (record.get("params") or {})
-            or (column == "trade_unit" and record.get("trade_unit") is not None)
+            or (column in {"trade_unit", "use_margin", "margin_rate_annual", "bars_per_day"} and record.get(column) is not None)
             or (column == "use_atr_filter" and any(key in (record.get("params") or {}) for key in {"use_atr_filter", "use_art_filter"}))
             or (column == "use_art_filter" and any(key in (record.get("params") or {}) for key in {"use_atr_filter", "use_art_filter"}))
             or (column == "atr_ratio_min" and any(key in (record.get("params") or {}) for key in {"atr_ratio_min", "art_threshold"}))

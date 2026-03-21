@@ -55,6 +55,17 @@ def _run(closes: list[float], strategy_params: dict) -> ShockReversionIntradaySt
     return strat
 
 
+def _run_with_metrics(closes: list[float], strategy_params: dict, *, initial_cash: float = 500_000) -> tuple[ShockReversionIntradayStrategy, dict]:
+    _, strat, metrics = run_backtest(
+        strategy_cls=ShockReversionIntradayStrategy,
+        data_df=_synthetic_df(closes),
+        config=BacktestConfig(initial_cash=initial_cash, commission=0.0, stamp_duty=0.0, slippage_perc=0.0),
+        strategy_params=strategy_params,
+        symbol="SYNTH",
+    )
+    return strat, metrics
+
+
 
 
 def test_compute_shock_score_v1_breakdown_matches_formula() -> None:
@@ -197,6 +208,75 @@ def test_shock_reversion_enters_on_excursion_signal() -> None:
     strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert strat.buy_events >= 1
     assert strat.position.size == 500
+
+
+def test_shock_reversion_margin_allows_negative_cash_and_executes_trade() -> None:
+    closes = [500.0] * 180 + [490.0, 491.0, 500.0, 500.0]
+    strat, metrics = _run_with_metrics(
+        closes,
+        {
+            "trade_unit": 500,
+            "use_margin": True,
+            "margin_rate_annual": 0.0835,
+            "bars_per_day": 8,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "take_profit_pct": 0.02,
+            "recovery_frac": 1.0,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+        initial_cash=100_000,
+    )
+
+    assert len(strat.completed_trades) == 1
+    assert strat.completed_trades[0]["size"] == 500
+    assert metrics["min_cash"] < 0.0
+    assert metrics["total_margin_interest_paid"] > 0.0
+    assert strat.margin_interest_events
+
+
+def test_shock_reversion_without_margin_rejects_same_insufficient_cash_trade() -> None:
+    closes = [500.0] * 180 + [490.0, 491.0, 500.0, 500.0]
+    strat, metrics = _run_with_metrics(
+        closes,
+        {
+            "trade_unit": 500,
+            "use_margin": False,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "take_profit_pct": 0.02,
+            "recovery_frac": 1.0,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+        initial_cash=100_000,
+    )
+
+    assert len(strat.completed_trades) == 0
+    assert metrics["num_trades"] == 0
+    assert metrics["min_cash"] >= 0.0
+
+
+def test_shock_reversion_margin_interest_reduces_total_return_without_changing_trade_pnl_pct() -> None:
+    closes = [500.0] * 180 + [490.0, 491.0, 500.0, 500.0]
+    base_params = {
+        "trade_unit": 500,
+        "use_margin": True,
+        "bars_per_day": 8,
+        "excursion_lookback_bars": 3,
+        "excursion_threshold": 0.01,
+        "take_profit_pct": 0.02,
+        "recovery_frac": 1.0,
+        "max_hold_bars": 10,
+        "stop_loss_pct": 0.10,
+    }
+    strat_zero, metrics_zero = _run_with_metrics(closes, {**base_params, "margin_rate_annual": 0.0}, initial_cash=100_000)
+    strat_interest, metrics_interest = _run_with_metrics(closes, {**base_params, "margin_rate_annual": 0.0835}, initial_cash=100_000)
+
+    assert strat_zero.completed_trades[0]["pnl_pct"] == pytest.approx(strat_interest.completed_trades[0]["pnl_pct"])
+    assert metrics_interest["total_margin_interest_paid"] > metrics_zero["total_margin_interest_paid"]
+    assert metrics_interest["total_return"] < metrics_zero["total_return"]
 
 
 def test_shock_reversion_entry_depends_only_on_excursion_signal() -> None:

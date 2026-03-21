@@ -46,6 +46,8 @@ def _ranking_param_items(strategy_name: str, row: dict) -> list[tuple[str, objec
         "mean_reversion_advanced": [("trade_unit", "trade_unit"), ("z_entry", "z_entry"), ("z_exit", "z_exit")],
         "shock_reversion_intraday": [
             ("trade_unit", "trade_unit"),
+            ("use_margin", "use_margin"),
+            ("margin_rate_annual", "margin_rate_annual"),
             ("excursion_lookback_bars", "lookback"),
             ("excursion_threshold", "excursion_threshold"),
             ("recovery_frac", "recovery_frac"),
