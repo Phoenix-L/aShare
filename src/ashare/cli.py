@@ -238,6 +238,7 @@ def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> d
 @click.option("--symbols", required=False, help="Comma-separated symbols (e.g. 600519.SH,000858.SZ)")
 @click.option("--param", "param_options", multiple=True, help="Parameter grid entry: key=v1,v2,v3")
 @click.option("--initial-cash", type=float, default=None, help="Override initial cash for this experiment run")
+@click.option("--no-clean-output", is_flag=True, help="Keep existing files in the experiment output directory")
 @click.option("--start", type=str, default=None, help="Override start date")
 @click.option("--end", type=str, default=None, help="Override end date")
 def experiment(
@@ -246,6 +247,7 @@ def experiment(
     symbols: str | None,
     param_options: tuple[str, ...],
     initial_cash: float | None,
+    no_clean_output: bool,
     start: str | None,
     end: str | None,
 ) -> None:
@@ -335,6 +337,7 @@ def experiment(
             strategy_name=strategy_name,
             spec=spec,
             config=run_config,
+            clean_output=not no_clean_output,
         )
     except ValueError as exc:
         raise click.ClickException(str(exc))

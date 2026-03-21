@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -89,12 +90,28 @@ def _report_grid_size(original_grid_size: int, deduplicated_runs: int) -> None:
         print(f"Deduplicated runs: {deduplicated_runs}")
 
 
+def prepare_output_dir(output_dir: str | Path, *, clean: bool = True) -> Path:
+    """Create an experiment output directory and optionally clear existing contents."""
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    if not clean:
+        return output_root
+
+    for child in output_root.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    return output_root
+
+
 def execute_experiment_spec(
     *,
     strategy_cls,
     strategy_name: str,
     spec: dict[str, Any],
     config: BacktestConfig,
+    clean_output: bool = True,
 ) -> dict[str, Any]:
     """Execute an experiment spec and write canonical output artifacts."""
     execution = dict(spec.get("execution", {}))
@@ -114,8 +131,7 @@ def execute_experiment_spec(
     _report_grid_size(len(all_combinations), len(final_runs))
 
     experiment_name = spec["name"]
-    output_root = Path("outputs") / experiment_name
-    output_root.mkdir(parents=True, exist_ok=True)
+    output_root = prepare_output_dir(Path("outputs") / experiment_name, clean=clean_output)
 
     symbol_data = {
         symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])

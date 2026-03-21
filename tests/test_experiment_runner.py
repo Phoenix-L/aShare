@@ -4,7 +4,7 @@ import json
 import pandas as pd
 
 from ashare.config.settings import BacktestConfig
-from ashare.experiment.executor import execute_experiment_spec
+from ashare.experiment.executor import execute_experiment_spec, prepare_output_dir
 from ashare.research.experiment_runner import generate_param_combinations
 from ashare.strategies.mid_freq_ma import MidFreqMA
 
@@ -152,6 +152,128 @@ def test_execute_experiment_spec_applies_yaml_execution_initial_cash(monkeypatch
     assert captured_configs[0].initial_cash == 250000.0
     run_payload = json.loads((Path(result["output_dir"]) / "run_001" / "run_result.json").read_text(encoding="utf-8"))
     assert run_payload["meta"]["initial_cash"] == 250000.0
+
+
+def test_prepare_output_dir_cleans_existing_contents_but_keeps_parent(tmp_path: Path) -> None:
+    output_root = tmp_path / "outputs" / "cleanup_case"
+    (output_root / "run_001").mkdir(parents=True)
+    (output_root / "run_001" / "metrics.json").write_text("{}", encoding="utf-8")
+    (output_root / "summary.csv").write_text("stale", encoding="utf-8")
+
+    prepared = prepare_output_dir(output_root)
+
+    assert prepared == output_root
+    assert output_root.exists()
+    assert list(output_root.iterdir()) == []
+
+
+def test_execute_experiment_overwrites_existing_output_directory_by_default(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    def _fake_backtest(
+        strategy_cls,
+        data_df,
+        config,
+        strategy_params=None,
+        symbol=None,
+        experiment_name=None,
+        run_id=None,
+        output_dir=None,
+    ):
+        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id, output_dir)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    experiment_name = "cleanup_overwrite"
+    base_spec = {
+        "name": experiment_name,
+        "strategy": "mid_freq_ma",
+        "symbols": ["600519.SH"],
+        "start": "2024-01-01",
+        "end": "2024-01-20",
+        "parameters": {},
+        "execution": {},
+    }
+
+    execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec={**base_spec, "grid": {"short_period": [3, 5, 7, 9], "long_period": [8, 10, 12, 14, 16, 18, 20, 22]}},
+        config=BacktestConfig(),
+    )
+
+    output_root = tmp_path / "outputs" / experiment_name
+    assert (output_root / "run_032").exists()
+
+    execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec={**base_spec, "grid": {"short_period": [3, 5, 7], "long_period": [8, 10, 12, 14, 16, 18, 20, 22]}},
+        config=BacktestConfig(),
+    )
+
+    run_dirs = sorted(path.name for path in output_root.iterdir() if path.is_dir() and path.name.startswith("run_"))
+    report_df = pd.read_csv(output_root / "run_performance_report.csv")
+
+    assert len(run_dirs) == 24
+    assert run_dirs[0] == "run_001"
+    assert run_dirs[-1] == "run_024"
+    assert not (output_root / "run_025").exists()
+    assert len(report_df.index) == 24
+
+
+def test_execute_experiment_can_preserve_existing_outputs_when_clean_disabled(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    def _fake_backtest(
+        strategy_cls,
+        data_df,
+        config,
+        strategy_params=None,
+        symbol=None,
+        experiment_name=None,
+        run_id=None,
+        output_dir=None,
+    ):
+        _ = (strategy_cls, data_df, config, strategy_params, symbol, experiment_name, run_id, output_dir)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    experiment_name = "cleanup_disabled"
+    output_root = tmp_path / "outputs" / experiment_name
+    output_root.mkdir(parents=True, exist_ok=True)
+    (output_root / "stale.txt").write_text("keep me", encoding="utf-8")
+
+    execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec={
+            "name": experiment_name,
+            "strategy": "mid_freq_ma",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {},
+            "grid": {"short_period": [3], "long_period": [8], "turnover_thresh": [1.0]},
+            "execution": {},
+        },
+        config=BacktestConfig(),
+        clean_output=False,
+    )
+
+    assert (output_root / "stale.txt").exists()
 
 
 def test_execute_experiment_does_not_print_grid_diagnostics_when_not_deduplicated(monkeypatch, tmp_path: Path, capsys) -> None:
