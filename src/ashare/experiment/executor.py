@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ TRADE_EXPORT_COLUMNS = [
     "symbol",
     "entry_datetime",
     "exit_datetime",
+    "size",
     "entry_price",
     "exit_price",
     "holding_bars",
@@ -95,6 +97,12 @@ def execute_experiment_spec(
     config: BacktestConfig,
 ) -> dict[str, Any]:
     """Execute an experiment spec and write canonical output artifacts."""
+    execution = dict(spec.get("execution", {}))
+    run_config = replace(
+        config,
+        initial_cash=float(execution.get("initial_cash", config.initial_cash)),
+        commission=float(execution.get("commission", config.commission)),
+    )
     parameters = validate_strategy_params(strategy_name, dict(spec.get("parameters", {})))
     grid = dict(spec.get("grid", {}))
     for key, values in grid.items():
@@ -137,7 +145,7 @@ def execute_experiment_spec(
             _, strat, metrics = run_backtest(
                 strategy_cls=strategy_cls,
                 data_df=data_df,
-                config=config,
+                config=run_config,
                 strategy_params=params,
                 symbol=symbol,
                 experiment_name=experiment_name,
@@ -175,7 +183,7 @@ def execute_experiment_spec(
                 "parameters": params,
                 "symbol": symbol,
                 "date_range": {"start": spec["start"], "end": spec["end"]},
-                "initial_cash": config.initial_cash,
+                "initial_cash": run_config.initial_cash,
             }
             (run_dir / "config_snapshot.yaml").write_text(
                 yaml.safe_dump(snapshot, sort_keys=False),
@@ -190,7 +198,7 @@ def execute_experiment_spec(
                     "symbol": symbol,
                     "experiment_name": experiment_name,
                     "date_range": {"start": spec["start"], "end": spec["end"]},
-                    "initial_cash": config.initial_cash,
+                    "initial_cash": run_config.initial_cash,
                 },
             }
             (run_dir / "run_result.json").write_text(json.dumps(run_payload, indent=2), encoding="utf-8")

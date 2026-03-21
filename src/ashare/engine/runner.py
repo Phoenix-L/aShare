@@ -231,6 +231,10 @@ def run_backtest(
     strategy_name = _resolve_strategy_name(strategy_cls)
     if strategy_name is not None:
         strategy_params = validate_strategy_params(strategy_name, strategy_params)
+    if strategy_name == "shock_reversion_intraday" and strategy_params.get("use_margin", False):
+        set_allow_negative_cash = getattr(cerebro.broker, "set_allow_negative_cash", None)
+        if callable(set_allow_negative_cash):
+            set_allow_negative_cash(True)
     _validate_shock_score_filter_params(strategy_name, strategy_params)
     _validate_strategy_history_requirements(strategy_cls, data_df, strategy_params)
     logger.debug(f"Adding strategy: {strategy_cls.__name__} with params: {strategy_params}")
@@ -245,6 +249,12 @@ def run_backtest(
 
         strat = results[0]
         metrics = extract_results(cerebro, strat)
+        total_margin_interest_paid = getattr(strat, "total_margin_interest_paid", None)
+        if total_margin_interest_paid is not None:
+            metrics["total_margin_interest_paid"] = float(total_margin_interest_paid)
+        min_cash = getattr(strat, "min_cash", None)
+        if min_cash is not None:
+            metrics["min_cash"] = float(min_cash)
 
         diagnostics = getattr(strat, "diagnostics", None)
         if diagnostics is not None:

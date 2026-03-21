@@ -70,6 +70,44 @@ def test_cli_param_and_date_overrides_have_highest_precedence(monkeypatch, tmp_p
     assert snapshot["parameters"]["z_exit"] == 0.3
     assert snapshot["parameters"]["use_art_filter"] is True
 
+
+def test_cli_initial_cash_override_has_highest_precedence(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig(initial_cash=100_000))
+    monkeypatch.setattr("ashare.cli.get_strategy_class", lambda _: _DummyStrategy)
+    monkeypatch.setattr("ashare.cli.load_experiment_spec", lambda _: {**_spec(), "execution": {"initial_cash": 200_000}})
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", lambda *args, **kwargs: pd.DataFrame({
+        "open": [1.0, 1.0, 1.0],
+        "high": [1.0, 1.0, 1.0],
+        "low": [1.0, 1.0, 1.0],
+        "close": [1.0, 1.0, 1.0],
+        "volume": [100, 100, 100],
+    }, index=pd.date_range("2024-01-01", periods=3, freq="D")))
+
+    monkeypatch.setattr(
+        "ashare.experiment.executor.run_backtest",
+        lambda *args, **kwargs: (None, None, {"final_value": 1.0, "rtot": 0.01, "max_drawdown": 1.0, "total_return": 0.01, "sharpe": 1.0}),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "spec.yaml",
+            "--initial-cash",
+            "300000",
+        ],
+    )
+
+    assert result.exit_code == 0
+    run_dir = tmp_path / "outputs" / "exp_param_flow" / "run_001"
+    snapshot = yaml.safe_load((run_dir / "config_snapshot.yaml").read_text())
+    assert snapshot["initial_cash"] == 300000.0
+    run_payload = json.loads((run_dir / "run_result.json").read_text(encoding="utf-8"))
+    assert run_payload["meta"]["initial_cash"] == 300000.0
+
 def test_executor_logs_running_parameters(monkeypatch, caplog, tmp_path) -> None:
     from ashare.experiment.executor import execute_experiment_spec
 
@@ -167,7 +205,10 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert run_payload["metrics"]["num_trades"] >= 1
     assert "excursion_lookback_bars" in summary_text
     assert "excursion_threshold" in summary_text
+    assert "trade_unit" in summary_text
+    assert "initial_cash" in summary_text
     assert "entry_datetime" in trades_text
+    assert "size" in trades_text
     assert "anchor_price_at_entry" in trades_text
     assert "recovery_target" in trades_text
     assert "take_profit_price" in trades_text
@@ -186,6 +227,10 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
 
 class _ShockStrategy:
     params = (
+        ("trade_unit", 500),
+        ("use_margin", False),
+        ("margin_rate_annual", 0.0835),
+        ("bars_per_day", 8),
         ("excursion_lookback_bars", 3),
         ("excursion_threshold", 0.01),
         ("recovery_frac", 0.5),
@@ -237,6 +282,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
                     "sharpe": 2.02,
                     "total_return": 0.1334,
                     "params": {
+                        "trade_unit": 500,
+                        "use_margin": True,
+                        "margin_rate_annual": 0.0835,
                         "excursion_lookback_bars": 5,
                         "excursion_threshold": 0.05,
                         "recovery_frac": 0.5,
@@ -272,6 +320,9 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "excursion_threshold=0.05" in result.output
+    assert "trade_unit=500" in result.output
+    assert "use_margin=true" in result.output
+    assert "margin_rate_annual=0.0835" in result.output
     assert "recovery_frac=0.5" in result.output
     assert "tp=0.05" in result.output
     assert "hold=8" in result.output
