@@ -353,14 +353,14 @@ def test_generate_parameter_sets_keeps_shock_ladder_grid_dimensions() -> None:
         "strategy": "shock_reversion_intraday",
         "parameters": {
             "trade_unit": 500,
-            "enable_ladder_simulation": False,
+            "enable_ladder": False,
             "max_legs": 1,
             "ladder_min_drop_pct": 0.02,
             "ladder_min_bars_between_legs": 1,
             "ladder_score_min_add": 0,
         },
         "grid": {
-            "enable_ladder_simulation": [False, True],
+            "enable_ladder": [False, True],
             "max_legs": [1, 3],
         },
     }
@@ -375,7 +375,7 @@ def test_generate_parameter_sets_keeps_shock_ladder_grid_dimensions() -> None:
             sorted(
                 {
                     "trade_unit": 500,
-                    "enable_ladder_simulation": enable_ladder_simulation,
+                    "enable_ladder": enable_ladder,
                     "max_legs": max_legs,
                     "ladder_min_drop_pct": 0.02,
                     "ladder_min_bars_between_legs": 1,
@@ -383,7 +383,7 @@ def test_generate_parameter_sets_keeps_shock_ladder_grid_dimensions() -> None:
                 }.items()
             )
         )
-        for enable_ladder_simulation in [False, True]
+        for enable_ladder in [False, True]
         for max_legs in [1, 3]
     }
 
@@ -431,14 +431,14 @@ def test_execute_experiment_spec_runs_all_shock_ladder_grid_combinations(monkeyp
                 "take_profit_pct": 0.02,
                 "max_hold_bars": 10,
                 "stop_loss_pct": 0.1,
-                "enable_ladder_simulation": False,
+                "enable_ladder": False,
                 "max_legs": 1,
                 "ladder_min_drop_pct": 0.02,
                 "ladder_min_bars_between_legs": 1,
                 "ladder_score_min_add": 0,
             },
             "grid": {
-                "enable_ladder_simulation": [False, True],
+                "enable_ladder": [False, True],
                 "max_legs": [1, 3],
             },
         },
@@ -449,7 +449,7 @@ def test_execute_experiment_spec_runs_all_shock_ladder_grid_combinations(monkeyp
 
     assert result["num_runs"] == 4
     assert len(captured_params) == 4
-    assert {tuple((params["enable_ladder_simulation"], params["max_legs"])) for params in captured_params} == {
+    assert {tuple((params["enable_ladder"], params["max_legs"])) for params in captured_params} == {
         (False, 1),
         (False, 3),
         (True, 1),

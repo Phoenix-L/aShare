@@ -205,31 +205,23 @@ def test_shock_reversion_trade_records_include_score_at_entry() -> None:
     strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 1.0, "max_hold_bars": 10, "stop_loss_pct": 0.10})
 
     assert strat.completed_trades[0]["shock_score_at_entry"] >= 0.0
-    assert strat.completed_trades[0]["num_legs"] == 1
+    assert strat.completed_trades[0]["leg_count"] == 1
+    assert strat.completed_trades[0]["position_size"] == 500
     assert strat.completed_trades[0]["avg_entry_price"] == pytest.approx(strat.completed_trades[0]["entry_price"])
     assert strat.completed_trades[0]["effective_anchor_price"] == pytest.approx(strat.completed_trades[0]["anchor_price_at_entry"])
-    assert strat.completed_trades[0]["sim_num_legs"] == 1
-    assert strat.completed_trades[0]["sim_avg_entry_price"] == pytest.approx(strat.completed_trades[0]["entry_price"])
-    assert strat.completed_trades[0]["sim_effective_anchor_price"] == pytest.approx(strat.completed_trades[0]["anchor_price_at_entry"])
-    assert strat.completed_trades[0]["sim_trade_return"] == pytest.approx(strat.completed_trades[0]["trade_return"])
-    assert strat.completed_trades[0]["sim_mfe"] == pytest.approx(strat.completed_trades[0]["mfe"])
-    assert strat.completed_trades[0]["sim_mae"] == pytest.approx(strat.completed_trades[0]["mae"])
-    assert strat.completed_trades[0]["sim_etd"] == pytest.approx(strat.completed_trades[0]["etd"])
     assert strat.completed_trades[0]["trade_pnl_amount"] == pytest.approx(
         (strat.completed_trades[0]["exit_price"] - strat.completed_trades[0]["entry_price"]) * 500
     )
-    assert strat.completed_trades[0]["sim_trade_pnl_amount"] == pytest.approx(strat.completed_trades[0]["trade_pnl_amount"])
-    assert strat.completed_trades[0]["incremental_pnl_amount"] == pytest.approx(0.0)
-    assert strat.completed_trades[0]["incremental_capital_efficiency"] == pytest.approx(0.0)
+    assert strat.completed_trades[0]["holding_period"] == 2
 
 
-def test_shock_reversion_ladder_simulation_tracks_virtual_adds_without_extra_orders() -> None:
+def test_shock_reversion_ladder_executes_real_adds() -> None:
     closes = [100.0] * 180 + [97.0, 96.0, 94.0, 92.0, 100.0, 100.0]
     strat = _run(
         closes,
         {
             "trade_unit": 100,
-            "enable_ladder_simulation": True,
+            "enable_ladder": True,
             "ladder_min_drop_pct": 0.01,
             "ladder_min_bars_between_legs": 1,
             "ladder_score_min_add": 0.0,
@@ -244,16 +236,12 @@ def test_shock_reversion_ladder_simulation_tracks_virtual_adds_without_extra_ord
     )
 
     trade = strat.completed_trades[0]
-    assert strat.buy_events == 1
-    assert trade["num_legs"] == 1
-    assert trade["sim_num_legs"] > 1
-    assert trade["sim_avg_entry_price"] < trade["entry_price"]
-    assert trade["sim_effective_anchor_price"] == pytest.approx(100.0)
-    assert trade["sim_trade_return"] != pytest.approx(trade["trade_return"])
-    assert trade["sim_etd"] >= trade["etd"]
-    assert trade["sim_trade_pnl_amount"] != pytest.approx(trade["trade_pnl_amount"])
-    assert trade["incremental_pnl_amount"] == pytest.approx(trade["sim_trade_pnl_amount"] - trade["trade_pnl_amount"])
-    assert trade["incremental_capital_efficiency"] != pytest.approx(0.0)
+    assert strat.buy_events > 1
+    assert trade["leg_count"] > 1
+    assert trade["position_size"] > 100
+    assert trade["avg_entry_price"] < trade["entry_price"]
+    assert trade["effective_anchor_price"] == pytest.approx(100.0)
+    assert trade["trade_pnl_amount"] == pytest.approx((trade["exit_price"] - trade["avg_entry_price"]) * trade["position_size"])
 
 
 def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
@@ -279,7 +267,8 @@ def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
     strat.notify_order(_FakeOrder(side="sell", price=99.0, size=300))
 
     trade = strat.completed_trades[-1]
-    assert trade["num_legs"] == 2
+    assert trade["leg_count"] == 2
+    assert trade["position_size"] == 300
     assert trade["avg_entry_price"] == pytest.approx((95.0 * 100 + 94.0 * 200) / 300)
     assert trade["effective_anchor_price"] == pytest.approx(101.0)
 
@@ -299,7 +288,7 @@ def test_shock_reversion_completed_trade_records_use_full_configured_size() -> N
         },
     )
 
-    assert strat.completed_trades[0]["size"] == 500
+    assert strat.completed_trades[0]["position_size"] == 500
 
 def test_shock_reversion_enters_on_excursion_signal() -> None:
     closes = [100.0] * 180 + [97.0, 97.0, 97.0]
@@ -328,7 +317,7 @@ def test_shock_reversion_margin_allows_negative_cash_and_executes_trade() -> Non
     )
 
     assert len(strat.completed_trades) == 1
-    assert strat.completed_trades[0]["size"] == 500
+    assert strat.completed_trades[0]["position_size"] == 500
     assert metrics["min_cash"] < 0.0
     assert metrics["total_margin_interest_paid"] > 0.0
     assert strat.margin_interest_events
