@@ -185,3 +185,29 @@ params:
 
     assert spec["parameters"]["entry_shock_score_min"] == 30
     assert spec["grid"]["entry_shock_score_max"] == [80]
+
+
+def test_load_experiment_spec_flattens_nested_exit_recovery_frac(tmp_path: Path) -> None:
+    spec_file = tmp_path / "shock_reversion_intraday_exit.yaml"
+    spec_file.write_text(
+        """
+strategy: shock_reversion_intraday
+symbols:
+  - 002850.SZ
+start: 2025-07-01
+end: 2026-02-28
+parameters:
+  trade_unit: 500
+params:
+  exit:
+    recovery_frac: [0.38]
+    max_hold_bars: [40]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    spec = load_experiment_spec(spec_file)
+
+    assert spec["parameters"]["trade_unit"] == 500
+    assert spec["grid"]["recovery_frac"] == [0.38]
+    assert spec["grid"]["max_hold_bars"] == [40]

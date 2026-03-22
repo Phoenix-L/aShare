@@ -14,6 +14,7 @@ class PositionState:
     entry_price: float
     entry_bar: int
     anchor_price: float | None = None
+    lowest_price_since_entry: float | None = None
     mfe_pct: float = 0.0
     mae_pct: float = 0.0
     max_favorable_excursion: float = 0.0
@@ -43,6 +44,7 @@ def create_position_state(entry_price: float, entry_bar: int, anchor_price: floa
         entry_price=entry_price,
         entry_bar=int(entry_bar),
         anchor_price=anchor_price,
+        lowest_price_since_entry=entry_price,
         mfe_price=entry_price,
         mae_price=entry_price,
     )
@@ -56,6 +58,7 @@ def get_holding_bars(state: PositionState, current_bar: int) -> int:
 def update_trade_metrics(state: PositionState, close: float, current_bar: int) -> None:
     """Update shared MFE/MAE metrics for an open position."""
     holding_bars = get_holding_bars(state, current_bar)
+    state.lowest_price_since_entry = float(close) if state.lowest_price_since_entry is None else min(float(state.lowest_price_since_entry), float(close))
     move_ratio = (float(close) - float(state.entry_price)) / float(state.entry_price)
     if move_ratio > state.mfe_pct:
         state.mfe_pct = move_ratio
@@ -83,10 +86,25 @@ def export_trade_metrics(state: PositionState) -> dict[str, Any]:
     }
 
 
+def build_recovery_target(
+    *,
+    anchor_price: float | None,
+    lowest_price_since_entry: float | None,
+    recovery_frac: float | None,
+) -> float | None:
+    """Return the long recovery target from the effective anchor and live low watermark."""
+    if anchor_price is None or lowest_price_since_entry is None or recovery_frac is None:
+        return None
+
+    rebound_span = max(0.0, float(anchor_price) - float(lowest_price_since_entry))
+    return float(lowest_price_since_entry) + float(recovery_frac) * rebound_span
+
+
 def _build_exit_targets(
     *,
     entry_price: float,
     anchor_price: float | None,
+    lowest_price_since_entry: float | None,
     recovery_frac: float | None,
     take_profit_pct: float | None,
 ) -> tuple[float | None, float | None, float | None]:
@@ -95,10 +113,11 @@ def _build_exit_targets(
     When both recovery and take-profit are configured, the effective target is the
     lower of the two so profit exits behave as recovery OR take-profit.
     """
-    recovery_target = None
-    if anchor_price is not None and recovery_frac is not None:
-        shock_depth = max(0.0, float(anchor_price) - float(entry_price))
-        recovery_target = float(entry_price) + (float(recovery_frac) * shock_depth)
+    recovery_target = build_recovery_target(
+        anchor_price=anchor_price,
+        lowest_price_since_entry=lowest_price_since_entry if lowest_price_since_entry is not None else entry_price,
+        recovery_frac=recovery_frac,
+    )
 
     take_profit_price = None
     if take_profit_pct is not None:
@@ -133,6 +152,7 @@ def evaluate_exit_engine(
     recovery_target, take_profit_price, effective_target_price = _build_exit_targets(
         entry_price=state.entry_price,
         anchor_price=state.anchor_price,
+        lowest_price_since_entry=state.lowest_price_since_entry,
         recovery_frac=recovery_frac,
         take_profit_pct=take_profit_pct,
     )

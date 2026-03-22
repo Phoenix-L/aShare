@@ -312,6 +312,48 @@ def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
     assert trade["effective_anchor_price"] == pytest.approx(101.0)
 
 
+def test_shock_reversion_recovery_target_uses_effective_anchor_for_laddered_trade() -> None:
+    strat = _run(
+        [100.0] * 32,
+        {
+            "trade_unit": 100,
+            "enable_ladder": True,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "take_profit_pct": None,
+            "recovery_frac": 0.38,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+    )
+
+    strat.pending_entry_context = {
+        "anchor_price_at_entry": 100.0,
+        "excursion_at_entry": -0.02,
+        "entry_shock_score_at_signal": 55.0,
+        "add_shock_score_at_signal": 55.0,
+        "shock_score_at_entry": 55.0,
+    }
+    strat.notify_order(_FakeOrder(side="buy", price=95.0, size=100))
+    strat.pending_entry_context = {
+        "anchor_price_at_entry": 101.0,
+        "excursion_at_entry": -0.03,
+        "entry_shock_score_at_signal": 58.0,
+        "add_shock_score_at_signal": 58.0,
+        "shock_score_at_entry": 58.0,
+    }
+    strat.notify_order(_FakeOrder(side="buy", price=94.0, size=200))
+
+    expected_target = 94.0 + 0.38 * (101.0 - 94.0)
+    old_avg_entry_target = 94.0 + 0.38 * ((((95.0 * 100) + (94.0 * 200)) / 300) - 94.0)
+
+    assert strat.trade_state["effective_anchor_price"] == pytest.approx(101.0)
+    assert strat._build_recovery_target() == pytest.approx(expected_target)
+    assert strat.current_trade_record["recovery_target"] == pytest.approx(expected_target)
+    assert strat._check_exit_conditions(95.0) is None
+    assert 95.0 > old_avg_entry_target
+
+
 def test_shock_reversion_completed_trade_records_use_full_configured_size() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 100.0, 100.0]
     strat = _run(
@@ -445,7 +487,7 @@ def test_shock_reversion_recovery_exit_uses_lowest_price_rebound() -> None:
     trade = strat.completed_trades[0]
     assert trade["anchor_price_at_entry"] == 100.0
     assert trade["exit_reason"] == "recovery"
-    assert trade["effective_target_price"] == pytest.approx(97.5)
+    assert trade["effective_target_price"] == pytest.approx(98.5)
 
 
 def test_shock_reversion_tracks_etd_from_peak_to_exit() -> None:
