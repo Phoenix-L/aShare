@@ -2,11 +2,14 @@ from pathlib import Path
 import json
 
 import pandas as pd
+import pytest
 
 from ashare.config.settings import BacktestConfig
+from ashare.experiment.grid import expand_grid, generate_parameter_sets
 from ashare.experiment.executor import execute_experiment_spec, prepare_output_dir
 from ashare.research.experiment_runner import generate_param_combinations
 from ashare.strategies.mid_freq_ma import MidFreqMA
+from ashare.strategies.shock_reversion_intraday import ShockReversionIntradayStrategy
 
 
 def _synthetic_df() -> pd.DataFrame:
@@ -343,6 +346,144 @@ def test_execute_experiment_prints_grid_diagnostics_when_deduplicated(monkeypatc
     output = capsys.readouterr().out
     assert "Original grid size: 2" in output
     assert "Deduplicated runs: 1" in output
+
+
+def test_generate_parameter_sets_keeps_shock_ladder_grid_dimensions() -> None:
+    payload = {
+        "strategy": "shock_reversion_intraday",
+        "parameters": {
+            "trade_unit": 500,
+            "enable_ladder_simulation": False,
+            "max_legs": 1,
+            "ladder_min_drop_pct": 0.02,
+            "ladder_min_bars_between_legs": 1,
+            "ladder_score_min_add": 0,
+        },
+        "grid": {
+            "enable_ladder_simulation": [False, True],
+            "max_legs": [1, 3],
+        },
+    }
+
+    all_combinations = expand_grid(payload["grid"])
+    final_runs = generate_parameter_sets(payload)
+
+    assert len(all_combinations) == 4
+    assert len(final_runs) == 4
+    assert {tuple(sorted(run.items())) for run in final_runs} == {
+        tuple(
+            sorted(
+                {
+                    "trade_unit": 500,
+                    "enable_ladder_simulation": enable_ladder_simulation,
+                    "max_legs": max_legs,
+                    "ladder_min_drop_pct": 0.02,
+                    "ladder_min_bars_between_legs": 1,
+                    "ladder_score_min_add": 0,
+                }.items()
+            )
+        )
+        for enable_ladder_simulation in [False, True]
+        for max_legs in [1, 3]
+    }
+
+
+def test_execute_experiment_spec_runs_all_shock_ladder_grid_combinations(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    captured_params: list[dict] = []
+
+    def _fake_backtest(
+        strategy_cls,
+        data_df,
+        config,
+        strategy_params=None,
+        symbol=None,
+        experiment_name=None,
+        run_id=None,
+        output_dir=None,
+    ):
+        _ = (strategy_cls, data_df, config, symbol, experiment_name, run_id, output_dir)
+        captured_params.append(dict(strategy_params or {}))
+        return None, type("Strat", (), {"completed_trades": [], "signal_events": []})(), {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    result = execute_experiment_spec(
+        strategy_cls=ShockReversionIntradayStrategy,
+        strategy_name="shock_reversion_intraday",
+        spec={
+            "name": "shock_ladder_grid",
+            "strategy": "shock_reversion_intraday",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {
+                "trade_unit": 500,
+                "excursion_lookback_bars": 3,
+                "excursion_threshold": 0.01,
+                "recovery_frac": 0.5,
+                "take_profit_pct": 0.02,
+                "max_hold_bars": 10,
+                "stop_loss_pct": 0.1,
+                "enable_ladder_simulation": False,
+                "max_legs": 1,
+                "ladder_min_drop_pct": 0.02,
+                "ladder_min_bars_between_legs": 1,
+                "ladder_score_min_add": 0,
+            },
+            "grid": {
+                "enable_ladder_simulation": [False, True],
+                "max_legs": [1, 3],
+            },
+        },
+        config=BacktestConfig(),
+    )
+
+    output = capsys.readouterr().out
+
+    assert result["num_runs"] == 4
+    assert len(captured_params) == 4
+    assert {tuple((params["enable_ladder_simulation"], params["max_legs"])) for params in captured_params} == {
+        (False, 1),
+        (False, 3),
+        (True, 1),
+        (True, 3),
+    }
+    assert "Original grid size" not in output
+    assert "Deduplicated runs" not in output
+
+
+def test_execute_experiment_spec_raises_clear_missing_parameter_error(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.generate_parameter_sets", lambda payload: [{"short_period": 3}])
+
+    with pytest.raises(ValueError, match="Missing parameter: long_period"):
+        execute_experiment_spec(
+            strategy_cls=MidFreqMA,
+            strategy_name="mid_freq_ma",
+            spec={
+                "name": "missing_param_guard",
+                "strategy": "mid_freq_ma",
+                "symbols": ["600519.SH"],
+                "start": "2024-01-01",
+                "end": "2024-01-20",
+                "parameters": {},
+                "grid": {"short_period": [3], "long_period": [8]},
+            },
+            config=BacktestConfig(),
+        )
 
 
 class _ShockBacktestStrategy:

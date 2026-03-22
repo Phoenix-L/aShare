@@ -27,6 +27,11 @@ SHOCK_REVERSION_INTRADAY_KEYS = {
     "use_shock_score_filter",
     "shock_score_min",
     "shock_score_max",
+    "enable_ladder_simulation",
+    "max_legs",
+    "ladder_min_drop_pct",
+    "ladder_min_bars_between_legs",
+    "ladder_score_min_add",
 }
 
 
