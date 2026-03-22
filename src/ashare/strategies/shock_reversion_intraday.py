@@ -249,7 +249,6 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "exit_price": exit_price,
                 "holding_bars": exit_plan.holding_bars,
                 "trade_return": (exit_price - entry_price) / entry_price,
-                "pnl_pct": (exit_price - entry_price) / entry_price,
                 "etd": max(0.0, (mfe_price - exit_price) / entry_price),
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,

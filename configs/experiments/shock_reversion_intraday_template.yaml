@@ -1,0 +1,32 @@
+# Example experiment template for shock_reversion_intraday.
+# This file is directly runnable by `ashare experiment ...`.
+# `params` is the parameter grid alias accepted by the experiment loader.
+
+experiment_name: shock_reversion_intraday_template
+strategy: shock_reversion_intraday
+
+symbols:
+  - 002850.SZ  # Example symbol.
+
+start: 2025-07-01  # Experiment start date.
+end: 2026-02-28    # Experiment end date.
+
+parameters:
+  trade_unit: 500        # Fixed shares per entry.
+  use_margin: false      # Enable only when you want financing support.
+  margin_rate_annual: 0.0835  # Annualized financing rate used when margin is enabled.
+
+params:
+  excursion_lookback_bars: [8, 12, 16]  # Bars used for the rolling close anchor.
+  excursion_threshold: [0.03, 0.05]     # Minimum downside excursion needed to trigger a signal.
+
+  recovery_frac: [0.5]                  # Fraction of shock depth that must be recovered to exit.
+
+  take_profit_pct: [0.03, 0.05]         # Fixed profit target from entry price.
+  stop_loss_pct: [0.03]                 # Fixed stop from entry price.
+
+  max_hold_bars: [40]                   # Maximum holding time in intraday bars.
+
+  use_shock_score_filter: [true]        # Enable score gating on top of excursion entry.
+  shock_score_min: [30]                 # Lower shock-score bound.
+  shock_score_max: [80]                 # Optional upper bound to reject overshocked signals.

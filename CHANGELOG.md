@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-21
+
+### Added
+
+- Added canonical v0.6.0 strategy documentation under `strategies/shock_reversion_intraday/`.
+- Added a runnable experiment template for `shock_reversion_intraday`.
+- Added release notes for `v0.6.0`.
+
+### Changed
+
+- Removed deprecated compatibility metrics from shock-reversion release artifacts and standardized decimal-only metric outputs.
+- Stabilized `selection_report_v2.csv` around a deterministic scoring and ranking flow.
+- Bumped package version metadata to `0.6.0`.
+
 ## [0.5.0] - 2026-03-19
 
 ### Added
@@ -47,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - (None in this release.)
 
-[Unreleased]: https://github.com/Phoenix-L/aShare/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Phoenix-L/aShare/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Phoenix-L/aShare/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Phoenix-L/aShare/compare/v0.3.0...v0.5.0
 [0.3.0]: https://github.com/Phoenix-L/aShare/compare/v0.2.0...v0.3.0
