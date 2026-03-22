@@ -562,6 +562,12 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 return
             if self.active_order is None and self._check_add_leg(close, score_breakdown.shock_score, len(self)):
                 self.add_leg(close, int(self.p.trade_unit), score_breakdown.shock_score)
+            elif signal_trigger:
+                # Mirror flat-account branch: shock still firing while we cannot enter/add on this bar.
+                if self.active_order is not None:
+                    blocked_by.append("active_order")
+                else:
+                    blocked_by.append("in_position")
         else:
             entry_condition = entry_signal and not self.position and self.active_order is None
             if score_filter_enabled:

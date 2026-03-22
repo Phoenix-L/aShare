@@ -1,0 +1,55 @@
+# =========================================================
+# Phase 0 + 1: Ladder Simulation Experiment
+# =========================================================
+
+strategy: shock_reversion_intraday
+
+symbols:
+  - 002850.SZ
+
+start: 2025-07-01
+end: 2026-02-28
+
+experiment_name: shock_reversion_intraday_ladder_sim_v1
+
+# ======================================================
+# EXECUTION (ENGINE / BROKER SETTINGS)
+# ======================================================
+execution:
+  initial_cash: 100000
+  use_margin: true
+  margin_rate_annual: 0.0835
+
+params:
+
+  # ======================================================
+  # BASELINE STRATEGY
+  # ======================================================
+  excursion_lookback_bars: [12]
+  excursion_threshold: [0.03]
+
+  recovery_frac: [0.38]
+
+  take_profit_pct: [0.05]
+  stop_loss_pct: [0.05]
+
+  max_hold_bars: [40]
+
+  use_shock_score_filter: [true]
+  shock_score_min: [30]
+  shock_score_max: [80]
+
+  # ======================================================
+  # POSITION (STRATEGY-LEVEL)
+  # ======================================================
+  trade_unit: [100]
+
+  # ======================================================
+  # LADDER SIMULATION (NO EXECUTION)
+  # ======================================================
+  enable_ladder_simulation: [true]
+
+  max_legs: [2, 3]
+  ladder_min_drop_pct: [0.02, 0.03]
+  ladder_min_bars_between_legs: [1]
+  ladder_score_min_add: [20]

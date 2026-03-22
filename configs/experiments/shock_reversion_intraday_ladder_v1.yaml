@@ -1,0 +1,69 @@
+# =========================================================
+# Ladder v1 Controlled Experiment
+# Purpose: Validate capital efficiency improvement
+# =========================================================
+
+strategy: shock_reversion_intraday
+
+symbols:
+  - 002850.SZ
+
+start: 2025-07-01
+end: 2026-02-28
+
+# Optional: override name (recommended to match file name)
+experiment_name: shock_reversion_intraday_ladder_v1
+
+# Starting capital is execution/backtest config, not a strategy parameter.
+execution:
+  initial_cash: 100000
+
+params:
+
+  # ===============================
+  # CORE STRATEGY (FIXED BASELINE)
+  # ===============================
+  excursion_lookback_bars: [12]
+  excursion_threshold: [0.03]
+
+  recovery_frac: [0.5]
+
+  take_profit_pct: [0.05]
+  stop_loss_pct: [0.03]
+
+  max_hold_bars: [40]
+
+  use_shock_score_filter: [true]
+  shock_score_min: [30]
+  shock_score_max: [80]
+
+  # ===============================
+  # POSITION
+  # ===============================
+  trade_unit: [500]
+
+  # ===============================
+  # MARGIN (CONTROLLED VARIATION)
+  # ===============================
+  use_margin: [true]
+  margin_rate_annual: [0.0835]
+
+  # ===============================
+  # LADDER SWITCH (BASELINE vs LADDER)
+  # ===============================
+  enable_ladder: [false, true]
+
+  # ===============================
+  # LADDER PARAMETERS (ONLY ACTIVE IF enable_ladder=true)
+  # ===============================
+
+  max_legs: [2]
+
+  # spacing condition (price drop from last leg)
+  ladder_min_drop_pct: [0.02, 0.03]
+
+  # avoid over-trading
+  ladder_min_bars_between_legs: [2]
+
+  # stronger signal required for add
+  ladder_score_min_add: [40]
