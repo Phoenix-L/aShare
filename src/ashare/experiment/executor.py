@@ -29,17 +29,24 @@ TRADE_EXPORT_COLUMNS = [
     "size",
     "entry_price",
     "avg_entry_price",
+    "sim_avg_entry_price",
     "exit_price",
     "holding_bars",
     "trade_return",
+    "sim_trade_return",
     "mfe",
+    "sim_mfe",
     "mae",
+    "sim_mae",
     "etd",
+    "sim_etd",
     "mfe_price",
     "mae_price",
     "anchor_price_at_entry",
     "effective_anchor_price",
     "num_legs",
+    "sim_effective_anchor_price",
+    "sim_num_legs",
     "excursion_at_entry",
     "shock_score_at_entry",
     "recovery_target",
@@ -152,6 +159,9 @@ def execute_experiment_spec(
         for params in final_runs:
             run_index += 1
             ordered_keys = [*grid.keys(), *[key for key in params if key not in grid]]
+            for key in ordered_keys:
+                if key not in params:
+                    raise ValueError(f"Missing parameter: {key}")
             rendered_params = ", ".join(
                 f"{key}={str(params[key]).lower() if isinstance(params[key], bool) else params[key]}"
                 for key in ordered_keys

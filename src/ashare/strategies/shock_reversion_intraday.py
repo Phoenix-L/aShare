@@ -27,6 +27,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
     params = dict(
         trade_unit=500,
         enable_ladder=False,
+        enable_ladder_simulation=False,
+        ladder_min_drop_pct=0.02,
+        ladder_min_bars_between_legs=1,
+        ladder_score_min_add=0.0,
+        max_legs=1,
         use_margin=False,
         margin_rate_annual=0.0835,
         bars_per_day=8,
@@ -100,6 +105,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.entry_prices: list[float] = []
         self.entry_sizes: list[int] = []
         self.anchor_prices: list[float] = []
+        self.sim_legs_count = 0
+        self.sim_entry_prices: list[float] = []
+        self.sim_entry_sizes: list[int] = []
+        self.sim_anchor_prices: list[float] = []
+        self.sim_last_entry_bar = -1
 
     def _per_bar_margin_rate(self) -> float:
         """Return per-bar interest rate implied by annual margin cost."""
@@ -170,6 +180,14 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.entry_sizes = []
         self.anchor_prices = []
 
+    def _reset_sim_ladder_state(self) -> None:
+        """Reset per-trade ladder simulation state."""
+        self.sim_legs_count = 0
+        self.sim_entry_prices = []
+        self.sim_entry_sizes = []
+        self.sim_anchor_prices = []
+        self.sim_last_entry_bar = -1
+
     def _record_leg(self, *, entry_price: float, size: int, anchor_price: float) -> None:
         """Track one executed entry leg for trade-level ladder diagnostics."""
         if self.current_legs == 0:
@@ -179,6 +197,65 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.entry_sizes.append(int(size))
         self.anchor_prices.append(float(anchor_price))
 
+    def _initialize_sim_trade_state(self, *, entry_price: float, size: int, anchor_price: float, current_bar: int) -> None:
+        """Seed ladder simulation with the real first entry."""
+        self.sim_legs_count = 1
+        self.sim_entry_prices = [float(entry_price)]
+        self.sim_entry_sizes = [int(size)]
+        self.sim_anchor_prices = [float(anchor_price)]
+        self.sim_last_entry_bar = int(current_bar)
+
+    def _compute_sim_position_metrics(self) -> tuple[float, float, int]:
+        """Return simulated average entry, effective anchor, and aggregate size."""
+        total_size = sum(self.sim_entry_sizes)
+        fallback_entry_price = (
+            float(self.current_trade_record.get("entry_price"))
+            if self.current_trade_record is not None and self.current_trade_record.get("entry_price") is not None
+            else 0.0
+        )
+        fallback_anchor_price = (
+            float(self.current_trade_record.get("anchor_price_at_entry"))
+            if self.current_trade_record is not None and self.current_trade_record.get("anchor_price_at_entry") is not None
+            else fallback_entry_price
+        )
+        avg_entry_price = (
+            sum(price * size for price, size in zip(self.sim_entry_prices, self.sim_entry_sizes)) / total_size
+            if total_size
+            else fallback_entry_price
+        )
+        effective_anchor_price = max(self.sim_anchor_prices) if self.sim_anchor_prices else fallback_anchor_price
+        return float(avg_entry_price), float(effective_anchor_price), int(total_size)
+
+    def _maybe_simulate_ladder_add(
+        self,
+        *,
+        close: float,
+        current_bar: int,
+        anchor_price: float,
+        shock_score: float,
+    ) -> None:
+        """Record simulated ladder adds without sending any broker orders."""
+        if (
+            not self.position
+            or not bool(self.p.enable_ladder_simulation)
+            or self.sim_legs_count <= 0
+            or self.sim_legs_count >= int(self.p.max_legs)
+        ):
+            return
+
+        last_entry_price = float(self.sim_entry_prices[-1])
+        min_drop_hit = float(close) <= last_entry_price * (1.0 - float(self.p.ladder_min_drop_pct))
+        enough_spacing = int(current_bar) - int(self.sim_last_entry_bar) >= int(self.p.ladder_min_bars_between_legs)
+        score_ok = float(shock_score) >= float(self.p.ladder_score_min_add)
+        if not (min_drop_hit and enough_spacing and score_ok):
+            return
+
+        self.sim_legs_count += 1
+        self.sim_entry_prices.append(float(close))
+        self.sim_entry_sizes.append(int(self.p.trade_unit))
+        self.sim_anchor_prices.append(float(anchor_price))
+        self.sim_last_entry_bar = int(current_bar)
+
     def _clear_trade_state(self) -> None:
         """Reset local state after a completed trade."""
         self.current_trade_record = None
@@ -187,6 +264,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.pending_entry_context = None
         self.pending_exit_reason = None
         self._reset_ladder_state()
+        self._reset_sim_ladder_state()
 
     def _sync_trade_metrics(self) -> None:
         """Mirror shared execution metrics onto the export record."""
@@ -246,6 +324,12 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "effective_target_price": entry_exit_plan.effective_target_price,
                     **export_trade_metrics(self.position_state),
                 }
+                self._initialize_sim_trade_state(
+                    entry_price=entry_price,
+                    size=executed_size,
+                    anchor_price=anchor_price,
+                    current_bar=len(self),
+                )
             self._record_leg(entry_price=entry_price, size=executed_size, anchor_price=anchor_price)
             self.pending_entry_context = None
             return
@@ -267,6 +351,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         standardized_reason = self.pending_exit_reason or self._standardize_exit_reason(exit_plan.reason)
         trade_record = dict(self.current_trade_record)
         mfe_price = float(self.position_state.mfe_price or self.position_state.entry_price)
+        mae_price = float(self.position_state.mae_price or self.position_state.entry_price)
         entry_price = float(self.position_state.entry_price)
         total_entry_size = sum(self.entry_sizes)
         avg_entry_price = (
@@ -279,6 +364,21 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             if self.anchor_prices
             else float(trade_record.get("anchor_price_at_entry", entry_price))
         )
+        sim_avg_entry_price, sim_effective_anchor_price, sim_position_size = self._compute_sim_position_metrics()
+        sim_trade_return = (
+            (exit_price - sim_avg_entry_price) / sim_avg_entry_price if sim_avg_entry_price else (exit_price - entry_price) / entry_price
+        )
+        sim_mfe = (
+            (mfe_price - sim_avg_entry_price) / sim_avg_entry_price if sim_avg_entry_price else float(self.position_state.mfe_pct)
+        )
+        sim_mae = (
+            (mae_price - sim_avg_entry_price) / sim_avg_entry_price if sim_avg_entry_price else float(self.position_state.mae_pct)
+        )
+        sim_etd = (
+            max(0.0, (mfe_price - exit_price) / sim_avg_entry_price)
+            if sim_avg_entry_price
+            else max(0.0, (mfe_price - exit_price) / entry_price)
+        )
         trade_record.update(
             {
                 "exit_datetime": self._current_datetime(),
@@ -289,6 +389,13 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "num_legs": int(self.current_legs or 1),
                 "avg_entry_price": avg_entry_price,
                 "effective_anchor_price": effective_anchor_price,
+                "sim_num_legs": int(self.sim_legs_count or 1),
+                "sim_avg_entry_price": sim_avg_entry_price or avg_entry_price,
+                "sim_effective_anchor_price": sim_effective_anchor_price or effective_anchor_price,
+                "sim_trade_return": sim_trade_return,
+                "sim_mfe": sim_mfe,
+                "sim_mae": sim_mae,
+                "sim_etd": sim_etd,
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,
                 "recovery_target": exit_plan.recovery_target,
@@ -329,6 +436,22 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         if self.position and self.position_state is not None:
             update_trade_metrics(self.position_state, close, len(self))
             self._sync_trade_metrics()
+            self._maybe_simulate_ladder_add(
+                close=close,
+                current_bar=len(self),
+                anchor_price=rolling_max_close,
+                shock_score=score_breakdown.shock_score,
+            )
+            sim_avg_entry_price, sim_effective_anchor_price, sim_position_size = self._compute_sim_position_metrics()
+            if self.current_trade_record is not None:
+                self.current_trade_record.update(
+                    {
+                        "sim_num_legs": int(self.sim_legs_count or 1),
+                        "sim_avg_entry_price": sim_avg_entry_price,
+                        "sim_effective_anchor_price": sim_effective_anchor_price,
+                        "sim_position_size": sim_position_size,
+                    }
+                )
 
         signal_trigger = excursion_value <= -self.p.excursion_threshold
         score_filter_enabled = bool(self.p.use_shock_score_filter)
