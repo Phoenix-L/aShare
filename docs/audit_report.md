@@ -38,7 +38,7 @@ Parameter overrides (`--param key=v1,v2,...`):
   - multiple values => overrides/creates `grid[key]`
 
 ### Engine layer
-- `run_backtest()` builds Backtrader `Cerebro`, injects data feed, strategy, analyzers, runs simulation, returns metrics dict.
+- `run_backtest()` builds Backtrader `Cerebro`, injects data feed, strategy, analyzers, executes the backtest, returns metrics dict.
 - Grid expansion exists in **two places**:
   - `engine.runner.expand_grid`
   - `experiment.grid.generate_parameter_sets`
