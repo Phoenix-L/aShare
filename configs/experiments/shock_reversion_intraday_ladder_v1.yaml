@@ -45,8 +45,9 @@ params:
   max_hold_bars: [40]
 
   use_shock_score_filter: [true]
-  shock_score_min: [30]
-  shock_score_max: [80]
+  entry:
+    entry_shock_score_min: [30]
+    entry_shock_score_max: [80]
 
   # ===============================
   # POSITION

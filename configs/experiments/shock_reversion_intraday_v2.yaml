@@ -39,5 +39,6 @@ params:
   max_hold_bars: [40]                   # Maximum holding time in intraday bars.
 
   use_shock_score_filter: [true]        # Enable score gating on top of excursion entry.
-  shock_score_min: [30]                 # Lower shock-score bound.
-  shock_score_max: [80]                 # Optional upper bound to reject overshocked signals.
+  entry:
+    entry_shock_score_min: [30]         # Lower entry-shock-score bound.
+    entry_shock_score_max: [80]         # Upper entry-shock-score bound.

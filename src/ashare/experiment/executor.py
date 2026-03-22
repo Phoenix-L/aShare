@@ -68,6 +68,8 @@ SIGNAL_EXPORT_COLUMNS = [
     "add_shock_score",
     "shock_score",
     "threshold",
+    "entry_shock_score_min",
+    "entry_shock_score_max",
     "shock_score_min",
     "shock_score_max",
     "add_score_min",

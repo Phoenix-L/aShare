@@ -148,6 +148,8 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
         "entry_shock_score",
         "add_shock_score",
         "shock_score",
+        "entry_shock_score_min",
+        "entry_shock_score_max",
         "shock_score_min",
         "shock_score_max",
         "add_score_min",
@@ -165,7 +167,7 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
 
 def test_shock_reversion_requires_explicit_score_min_when_filter_enabled() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 99.0]
-    with pytest.raises(ValueError, match="requires an explicit shock_score_min"):
+    with pytest.raises(ValueError, match="entry_shock_score_min or legacy shock_score_min"):
         _run(
             closes,
             {
@@ -534,6 +536,66 @@ def test_shock_reversion_add_leg_respects_min_bars_left_for_add() -> None:
     assert strat.buy_events == 1
     assert strat.trade_state["leg_count"] == 1
     assert strat.trade_state["total_size"] == 100
+
+
+def test_shock_reversion_entry_uses_entry_score_range_only() -> None:
+    closes = [100.0] * 180 + [97.0, 97.0, 97.0]
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 100,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.20,
+            "entry_score_weight_depth": 0.0,
+            "entry_score_weight_speed": 0.0,
+            "entry_score_weight_stabilization": 0.0,
+            "entry_score_weight_noise_penalty": 0.0,
+            "add_score_weight_depth": 1.0,
+            "add_score_weight_speed": 0.0,
+            "add_score_weight_stabilization": 0.0,
+            "add_score_weight_noise_penalty": 0.0,
+            "entry_shock_score_min": 0.0,
+            "entry_shock_score_max": 10.0,
+        },
+    )
+
+    assert strat.buy_events >= 1
+    assert all(signal["entry_shock_score"] <= 10.0 for signal in strat.signal_events if signal["entry_executed"])
+    assert any(signal["add_shock_score"] > 10.0 for signal in strat.signal_events)
+
+
+def test_shock_reversion_entry_score_range_validation_rejects_invalid_bounds() -> None:
+    closes = [100.0] * 180 + [97.0, 97.0, 97.0]
+
+    with pytest.raises(ValueError, match="entry_shock_score_min must be less than or equal to entry_shock_score_max"):
+        _run(
+            closes,
+            {
+                "trade_unit": 100,
+                "excursion_lookback_bars": 3,
+                "excursion_threshold": 0.01,
+                "max_hold_bars": 10,
+                "stop_loss_pct": 0.20,
+                "entry_shock_score_min": 70.0,
+                "entry_shock_score_max": 60.0,
+            },
+        )
+
+    with pytest.raises(ValueError, match="entry_shock_score_max must be within \\[0, 100\\]"):
+        _run(
+            closes,
+            {
+                "trade_unit": 100,
+                "excursion_lookback_bars": 3,
+                "excursion_threshold": 0.01,
+                "max_hold_bars": 10,
+                "stop_loss_pct": 0.20,
+                "entry_shock_score_min": 0.0,
+                "entry_shock_score_max": 101.0,
+            },
+        )
 
 
 def test_shock_reversion_add_leg_uses_current_bar_add_shock_score_threshold() -> None:

@@ -40,6 +40,12 @@ _SHOCK_SCORE_WEIGHT_PARAM_MAP = {
         "noise_penalty": "add_score_weight_noise_penalty",
     },
 }
+_ENTRY_PARAM_MAP = {
+    "entry_shock_score_min": "entry_shock_score_min",
+    "entry_shock_score_max": "entry_shock_score_max",
+    "shock_score_min": "entry_shock_score_min",
+    "shock_score_max": "entry_shock_score_max",
+}
 
 
 def _to_date_str(value: Any, field_name: str) -> str:
@@ -105,6 +111,22 @@ def _flatten_shock_score_block(mapping: dict[str, Any], field_name: str) -> dict
     return normalized
 
 
+def _flatten_entry_block(mapping: dict[str, Any], field_name: str) -> dict[str, Any]:
+    normalized = dict(mapping)
+    entry = normalized.pop("entry", None)
+    if entry is None:
+        return normalized
+    if not isinstance(entry, dict):
+        raise ValueError(f"'{field_name}.entry' must be a mapping")
+
+    for key, value in entry.items():
+        flat_key = _ENTRY_PARAM_MAP.get(key)
+        if flat_key is None:
+            raise ValueError(f"Unsupported entry key in '{field_name}.entry': {key}")
+        normalized[flat_key] = value
+    return normalized
+
+
 def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     """Load and validate experiment YAML specification."""
     spec_path = Path(path)
@@ -138,14 +160,20 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     start = _to_date_str(start_value, "start")
     end = _to_date_str(end_value, "end")
 
-    parameters = _flatten_shock_score_block(
-        _flatten_ladder_block(_require_mapping(raw.get("parameters"), "parameters"), "parameters"),
+    parameters = _flatten_entry_block(
+        _flatten_shock_score_block(
+            _flatten_ladder_block(_require_mapping(raw.get("parameters"), "parameters"), "parameters"),
+            "parameters",
+        ),
         "parameters",
     )
     if "grid_search" in raw and "params" in raw:
         raise ValueError("Use either 'grid_search' or 'params', not both")
-    grid = _flatten_shock_score_block(
-        _flatten_ladder_block(_require_mapping(raw.get("grid_search", raw.get("params")), "grid_search"), "grid_search"),
+    grid = _flatten_entry_block(
+        _flatten_shock_score_block(
+            _flatten_ladder_block(_require_mapping(raw.get("grid_search", raw.get("params")), "grid_search"), "grid_search"),
+            "grid_search",
+        ),
         "grid_search",
     )
     for key, values in grid.items():

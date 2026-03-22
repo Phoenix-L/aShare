@@ -56,6 +56,8 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         score_weight_speed=DEFAULT_SCORE_WEIGHTS["speed"],
         score_weight_stabilization=DEFAULT_SCORE_WEIGHTS["stabilization"],
         score_weight_noise_penalty=DEFAULT_SCORE_WEIGHTS["noise_penalty"],
+        entry_shock_score_min=None,
+        entry_shock_score_max=None,
         use_shock_score_filter=False,
         shock_score_min=60,
         shock_score_max=None,
@@ -122,6 +124,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             ),
         }
         self.add_score_min = float(self.p.add_score_min if self.p.add_score_min is not None else self.p.ladder_score_min_add)
+        (
+            self.entry_score_filter_enabled,
+            self.entry_shock_score_min,
+            self.entry_shock_score_max,
+        ) = self._resolve_entry_score_filter()
 
         self.buy_events = 0
         self.sell_events = 0
@@ -158,6 +165,51 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             "entry_shock_score": None,
             "ladder_used": False,
         }
+
+    def _validate_score_bound(self, value: float | None, label: str) -> float | None:
+        """Validate one entry score bound and normalize it to float when present."""
+        if value is None:
+            return None
+        normalized = float(value)
+        if not 0.0 <= normalized <= 100.0:
+            raise ValueError(f"Invalid config: {label} must be within [0, 100], got {normalized}.")
+        return normalized
+
+    def _resolve_entry_score_filter(self) -> tuple[bool, float | None, float | None]:
+        """Resolve entry score filter enablement and bounds with legacy fallbacks."""
+        entry_score_filter_enabled = bool(
+            self.p.use_shock_score_filter
+            or self.p.entry_shock_score_min is not None
+            or self.p.entry_shock_score_max is not None
+        )
+        if not entry_score_filter_enabled:
+            return False, None, None
+
+        resolved_min = self._validate_score_bound(
+            self.p.entry_shock_score_min if self.p.entry_shock_score_min is not None else self.p.shock_score_min,
+            "entry_shock_score_min",
+        )
+        resolved_max = self._validate_score_bound(
+            self.p.entry_shock_score_max if self.p.entry_shock_score_max is not None else self.p.shock_score_max,
+            "entry_shock_score_max",
+        )
+        if resolved_min is None:
+            raise ValueError(
+                "Invalid config: entry score filter requires entry_shock_score_min or legacy shock_score_min."
+            )
+        if resolved_max is None:
+            resolved_max = 100.0
+        if resolved_min > resolved_max:
+            raise ValueError(
+                "Invalid config: entry_shock_score_min must be less than or equal to entry_shock_score_max."
+            )
+        return True, resolved_min, resolved_max
+
+    def _check_entry_signal(self, entry_score: float) -> bool:
+        """Return True when the current entry shock score passes the configured range filter."""
+        if not self.entry_score_filter_enabled:
+            return True
+        return bool(self.entry_shock_score_min <= float(entry_score) <= self.entry_shock_score_max)
 
     def _per_bar_margin_rate(self) -> float:
         """Return per-bar interest rate implied by annual margin cost."""
@@ -541,11 +593,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         }
 
         signal_trigger = excursion_value <= -self.p.excursion_threshold
-        score_filter_enabled = bool(self.p.use_shock_score_filter)
-        active_shock_score_min = float(self.p.shock_score_min) if score_filter_enabled else None
-        active_shock_score_max = None if not score_filter_enabled or self.p.shock_score_max is None else float(self.p.shock_score_max)
-        score_above_min = True if active_shock_score_min is None else entry_shock_score >= active_shock_score_min
-        score_below_max = True if active_shock_score_max is None else entry_shock_score <= active_shock_score_max
+        score_filter_enabled = bool(self.entry_score_filter_enabled)
+        active_entry_shock_score_min = self.entry_shock_score_min if score_filter_enabled else None
+        active_entry_shock_score_max = self.entry_shock_score_max if score_filter_enabled else None
+        score_above_min = True if active_entry_shock_score_min is None else entry_shock_score >= active_entry_shock_score_min
+        score_below_max = True if active_entry_shock_score_max is None else entry_shock_score <= active_entry_shock_score_max
         blocked_by_shock_score_low = bool(signal_trigger and score_filter_enabled and not score_above_min)
         blocked_by_shock_score_high = bool(signal_trigger and score_filter_enabled and not score_below_max)
         entry_signal = bool(signal_trigger)
@@ -602,8 +654,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                         "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
                         "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
                         "shock_score_pass": bool((not score_filter_enabled) or (score_above_min and score_below_max)),
-                        "shock_score_min": active_shock_score_min,
-                        "shock_score_max": active_shock_score_max,
+                        "entry_shock_score_min": active_entry_shock_score_min,
+                        "entry_shock_score_max": active_entry_shock_score_max,
+                        "shock_score_min": active_entry_shock_score_min,
+                        "shock_score_max": active_entry_shock_score_max,
                         "add_score_min": float(self.add_score_min),
                         "executed": False,
                         "blocked_by": list(blocked_by),
@@ -627,7 +681,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         else:
             entry_condition = entry_signal and not self.position and self.active_order is None
             if score_filter_enabled:
-                entry_condition = entry_condition and score_above_min and score_below_max
+                entry_condition = entry_condition and self._check_entry_signal(entry_shock_score)
             if entry_signal and self.position:
                 blocked_by.append("in_position")
             if entry_signal and self.active_order is not None:
@@ -655,8 +709,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "datetime": self._current_datetime(),
                     **score_payload,
                     "threshold": float(self.p.excursion_threshold),
-                    "shock_score_min": active_shock_score_min,
-                    "shock_score_max": active_shock_score_max,
+                    "entry_shock_score_min": active_entry_shock_score_min,
+                    "entry_shock_score_max": active_entry_shock_score_max,
+                    "shock_score_min": active_entry_shock_score_min,
+                    "shock_score_max": active_entry_shock_score_max,
                     "add_score_min": float(self.add_score_min),
                     "shock_score_filter_enabled": bool(score_filter_enabled),
                     "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
@@ -676,8 +732,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
                 "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
                 "shock_score_pass": bool((not score_filter_enabled) or (score_above_min and score_below_max)),
-                "shock_score_min": active_shock_score_min,
-                "shock_score_max": active_shock_score_max,
+                "entry_shock_score_min": active_entry_shock_score_min,
+                "entry_shock_score_max": active_entry_shock_score_max,
+                "shock_score_min": active_entry_shock_score_min,
+                "shock_score_max": active_entry_shock_score_max,
                 "add_score_min": float(self.add_score_min),
                 "executed": bool(executed),
                 "blocked_by": list(blocked_by),

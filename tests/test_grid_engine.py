@@ -68,3 +68,15 @@ def test_shock_reversion_strategy_preserves_shock_score_max_grid_dimension() -> 
     assert len(final_runs) == 3
     assert {"use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 70} in final_runs
     assert {"use_shock_score_filter": True, "shock_score_min": 60, "shock_score_max": 90} in final_runs
+
+
+def test_shock_reversion_strategy_preserves_entry_score_range_grid_dimensions() -> None:
+    payload = {
+        "strategy": "shock_reversion_intraday",
+        "parameters": {"entry_shock_score_min": 60},
+        "grid": {"entry_shock_score_max": [70, 80, 90]},
+    }
+    final_runs = generate_parameter_sets(payload)
+    assert len(final_runs) == 3
+    assert {"entry_shock_score_min": 60, "entry_shock_score_max": 70} in final_runs
+    assert {"entry_shock_score_min": 60, "entry_shock_score_max": 90} in final_runs

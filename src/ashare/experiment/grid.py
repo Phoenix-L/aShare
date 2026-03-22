@@ -32,6 +32,8 @@ SHOCK_REVERSION_INTRADAY_KEYS = {
     "score_weight_speed",
     "score_weight_stabilization",
     "score_weight_noise_penalty",
+    "entry_shock_score_min",
+    "entry_shock_score_max",
     "use_shock_score_filter",
     "shock_score_min",
     "shock_score_max",

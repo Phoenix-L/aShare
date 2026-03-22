@@ -55,6 +55,8 @@ def _ranking_param_items(strategy_name: str, row: dict) -> list[tuple[str, objec
             ("max_hold_bars", "hold"),
             ("stop_loss_pct", "stop"),
             ("use_shock_score_filter", "use_shock_score_filter"),
+            ("entry_shock_score_min", "entry_shock_score_min"),
+            ("entry_shock_score_max", "entry_shock_score_max"),
             ("shock_score_min", "shock_score_min"),
             ("shock_score_max", "shock_score_max"),
             ("add_score_min", "add_score_min"),
@@ -238,6 +240,8 @@ def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> d
 @click.option("--strategy", required=False, help="Strategy name (e.g. mid_freq_ma)")
 @click.option("--symbols", required=False, help="Comma-separated symbols (e.g. 600519.SH,000858.SZ)")
 @click.option("--param", "param_options", multiple=True, help="Parameter grid entry: key=v1,v2,v3")
+@click.option("--entry-shock-score-min", "--entry_shock_score_min", "--shock-score-min", "--shock_score_min", "entry_shock_score_min_override", type=float, default=None, help="Override entry shock score minimum for this run")
+@click.option("--entry-shock-score-max", "--entry_shock_score_max", "--shock-score-max", "--shock_score_max", "entry_shock_score_max_override", type=float, default=None, help="Override entry shock score maximum for this run")
 @click.option("--initial-cash", type=float, default=None, help="Override initial cash for this experiment run")
 @click.option("--no-clean-output", is_flag=True, help="Keep existing files in the experiment output directory")
 @click.option("--start", type=str, default=None, help="Override start date")
@@ -247,6 +251,8 @@ def experiment(
     strategy: str | None,
     symbols: str | None,
     param_options: tuple[str, ...],
+    entry_shock_score_min_override: float | None,
+    entry_shock_score_max_override: float | None,
     initial_cash: float | None,
     no_clean_output: bool,
     start: str | None,
@@ -305,6 +311,17 @@ def experiment(
         else:
             grid[key] = values
             parameters.pop(key, None)
+
+    if entry_shock_score_min_override is not None:
+        parameters["entry_shock_score_min"] = float(entry_shock_score_min_override)
+        grid.pop("entry_shock_score_min", None)
+        parameters.pop("shock_score_min", None)
+        grid.pop("shock_score_min", None)
+    if entry_shock_score_max_override is not None:
+        parameters["entry_shock_score_max"] = float(entry_shock_score_max_override)
+        grid.pop("entry_shock_score_max", None)
+        parameters.pop("shock_score_max", None)
+        grid.pop("shock_score_max", None)
 
     spec["parameters"] = parameters
     spec["grid"] = grid

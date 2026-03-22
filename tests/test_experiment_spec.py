@@ -160,3 +160,28 @@ params:
     assert spec["grid"]["excursion_threshold"] == [0.03]
     assert spec["grid"]["add_score_weight_depth"] == [0.60]
     assert spec["grid"]["add_score_weight_noise_penalty"] == [0.15]
+
+
+def test_load_experiment_spec_flattens_nested_entry_score_bounds(tmp_path: Path) -> None:
+    spec_file = tmp_path / "shock_reversion_intraday_entry.yaml"
+    spec_file.write_text(
+        """
+strategy: shock_reversion_intraday
+symbols:
+  - 002850.SZ
+start: 2025-07-01
+end: 2026-02-28
+parameters:
+  entry:
+    entry_shock_score_min: 30
+params:
+  entry:
+    entry_shock_score_max: [80]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    spec = load_experiment_spec(spec_file)
+
+    assert spec["parameters"]["entry_shock_score_min"] == 30
+    assert spec["grid"]["entry_shock_score_max"] == [80]
