@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+from types import SimpleNamespace
 
 from ashare.config.settings import BacktestConfig
 from ashare.engine.runner import run_backtest
@@ -64,6 +65,26 @@ def _run_with_metrics(closes: list[float], strategy_params: dict, *, initial_cas
         symbol="SYNTH",
     )
     return strat, metrics
+
+
+class _FakeOrder:
+    Submitted = "submitted"
+    Accepted = "accepted"
+    Canceled = "canceled"
+    Margin = "margin"
+    Rejected = "rejected"
+    Completed = "completed"
+
+    def __init__(self, *, side: str, price: float, size: int) -> None:
+        self.status = self.Completed
+        self.executed = SimpleNamespace(price=price, size=size)
+        self._side = side
+
+    def isbuy(self) -> bool:
+        return self._side == "buy"
+
+    def issell(self) -> bool:
+        return self._side == "sell"
 
 
 
@@ -184,6 +205,37 @@ def test_shock_reversion_trade_records_include_score_at_entry() -> None:
     strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 1.0, "max_hold_bars": 10, "stop_loss_pct": 0.10})
 
     assert strat.completed_trades[0]["shock_score_at_entry"] >= 0.0
+    assert strat.completed_trades[0]["num_legs"] == 1
+    assert strat.completed_trades[0]["avg_entry_price"] == pytest.approx(strat.completed_trades[0]["entry_price"])
+    assert strat.completed_trades[0]["effective_anchor_price"] == pytest.approx(strat.completed_trades[0]["anchor_price_at_entry"])
+
+
+def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
+    strat = _run(
+        [100.0] * 32,
+        {
+            "trade_unit": 100,
+            "enable_ladder": True,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "take_profit_pct": 0.02,
+            "recovery_frac": 0.5,
+            "max_hold_bars": 10,
+            "stop_loss_pct": 0.10,
+        },
+    )
+
+    strat.pending_entry_context = {"anchor_price_at_entry": 100.0, "excursion_at_entry": -0.02, "shock_score_at_entry": 55.0}
+    strat.notify_order(_FakeOrder(side="buy", price=95.0, size=100))
+    strat.pending_entry_context = {"anchor_price_at_entry": 101.0, "excursion_at_entry": -0.03, "shock_score_at_entry": 58.0}
+    strat.notify_order(_FakeOrder(side="buy", price=94.0, size=200))
+    strat.pending_exit_reason = "recovery"
+    strat.notify_order(_FakeOrder(side="sell", price=99.0, size=300))
+
+    trade = strat.completed_trades[-1]
+    assert trade["num_legs"] == 2
+    assert trade["avg_entry_price"] == pytest.approx((95.0 * 100 + 94.0 * 200) / 300)
+    assert trade["effective_anchor_price"] == pytest.approx(101.0)
 
 
 def test_shock_reversion_completed_trade_records_use_full_configured_size() -> None:

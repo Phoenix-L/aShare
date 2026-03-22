@@ -26,6 +26,8 @@ REPORT_COLUMNS = [
     "total_return_simple",
     "total_return_log",
     "avg_return_per_trade",
+    "avg_legs_per_trade",
+    "multi_leg_trade_share",
     "executed_trades",
     "sharpe",
     "max_drawdown",
@@ -263,6 +265,11 @@ def _build_row(
     etd_values = pd.to_numeric(trades_df.get("etd"), errors="coerce") if "etd" in trades_df.columns else pd.Series(dtype=float)
     holding_bars = pd.to_numeric(trades_df.get("holding_bars"), errors="coerce") if "holding_bars" in trades_df.columns else pd.Series(dtype=float)
     shock_scores = pd.to_numeric(trades_df.get("shock_score_at_entry"), errors="coerce") if "shock_score_at_entry" in trades_df.columns else pd.Series(dtype=float)
+    num_legs = (
+        pd.to_numeric(trades_df.get("num_legs"), errors="coerce")
+        if "num_legs" in trades_df.columns
+        else (pd.Series([1] * len(trades_df.index), dtype=float) if not trades_df.empty else pd.Series(dtype=float))
+    )
 
     avg_return_per_trade_from_trades = _avg(pnl_values)
     avg_mfe_from_trades = _avg(mfe_values)
@@ -321,6 +328,8 @@ def _build_row(
         "total_return_simple": total_return_simple,
         "total_return_log": total_return_log,
         "avg_return_per_trade": avg_return_per_trade,
+        "avg_legs_per_trade": _avg(num_legs),
+        "multi_leg_trade_share": float((num_legs > 1).mean()) if not num_legs.dropna().empty else 0.0,
         "executed_trades": executed_trades,
         "sharpe": float(_coalesce(_safe_float(summary_row.get("sharpe"), None), _safe_float(metrics.get("sharpe"), None), 0.0)),
         "max_drawdown": float(

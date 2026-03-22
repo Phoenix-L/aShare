@@ -26,6 +26,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
     params = dict(
         trade_unit=500,
+        enable_ladder=False,
         use_margin=False,
         margin_rate_annual=0.0835,
         bars_per_day=8,
@@ -95,6 +96,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.total_margin_interest_paid = 0.0
         self.margin_interest_events: list[dict] = []
         self.min_cash = float(self.broker.getcash())
+        self.current_legs = 0
+        self.entry_prices: list[float] = []
+        self.entry_sizes: list[int] = []
+        self.anchor_prices: list[float] = []
 
     def _per_bar_margin_rate(self) -> float:
         """Return per-bar interest rate implied by annual margin cost."""
@@ -158,6 +163,22 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             return "max_hold"
         return "unknown"
 
+    def _reset_ladder_state(self) -> None:
+        """Reset per-trade ladder diagnostics."""
+        self.current_legs = 0
+        self.entry_prices = []
+        self.entry_sizes = []
+        self.anchor_prices = []
+
+    def _record_leg(self, *, entry_price: float, size: int, anchor_price: float) -> None:
+        """Track one executed entry leg for trade-level ladder diagnostics."""
+        if self.current_legs == 0:
+            self._reset_ladder_state()
+        self.current_legs += 1
+        self.entry_prices.append(float(entry_price))
+        self.entry_sizes.append(int(size))
+        self.anchor_prices.append(float(anchor_price))
+
     def _clear_trade_state(self) -> None:
         """Reset local state after a completed trade."""
         self.current_trade_record = None
@@ -165,6 +186,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.position_state = None
         self.pending_entry_context = None
         self.pending_exit_reason = None
+        self._reset_ladder_state()
 
     def _sync_trade_metrics(self) -> None:
         """Mirror shared execution metrics onto the export record."""
@@ -195,33 +217,36 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             entry_price = float(order.executed.price)
             executed_size = int(order.executed.size)
             anchor_price = float(context.get("anchor_price_at_entry", entry_price))
-            self.position_state = create_position_state(
-                entry_price=entry_price,
-                entry_bar=len(self),
-                anchor_price=anchor_price,
-            )
-            entry_exit_plan = evaluate_exit_engine(
-                close=entry_price,
-                current_bar=len(self),
-                state=self.position_state,
-                recovery_frac=self.p.recovery_frac,
-                take_profit_pct=self.p.take_profit_pct,
-                stop_loss_pct=self.p.stop_loss_pct,
-                max_hold_bars=self.p.max_hold_bars,
-            )
-            self.current_trade_record = {
-                "symbol": self._get_symbol(),
-                "entry_datetime": self._current_datetime(),
-                "size": executed_size,
-                "entry_price": entry_price,
-                "anchor_price_at_entry": anchor_price,
-                "excursion_at_entry": float(context.get("excursion_at_entry", 0.0)),
-                "shock_score_at_entry": float(context.get("shock_score_at_entry", 0.0)),
-                "recovery_target": entry_exit_plan.recovery_target,
-                "take_profit_price": entry_exit_plan.take_profit_price,
-                "effective_target_price": entry_exit_plan.effective_target_price,
-                **export_trade_metrics(self.position_state),
-            }
+            is_add_entry = self.current_trade_record is not None and self.position_state is not None
+            if not is_add_entry:
+                self.position_state = create_position_state(
+                    entry_price=entry_price,
+                    entry_bar=len(self),
+                    anchor_price=anchor_price,
+                )
+                entry_exit_plan = evaluate_exit_engine(
+                    close=entry_price,
+                    current_bar=len(self),
+                    state=self.position_state,
+                    recovery_frac=self.p.recovery_frac,
+                    take_profit_pct=self.p.take_profit_pct,
+                    stop_loss_pct=self.p.stop_loss_pct,
+                    max_hold_bars=self.p.max_hold_bars,
+                )
+                self.current_trade_record = {
+                    "symbol": self._get_symbol(),
+                    "entry_datetime": self._current_datetime(),
+                    "size": executed_size,
+                    "entry_price": entry_price,
+                    "anchor_price_at_entry": anchor_price,
+                    "excursion_at_entry": float(context.get("excursion_at_entry", 0.0)),
+                    "shock_score_at_entry": float(context.get("shock_score_at_entry", 0.0)),
+                    "recovery_target": entry_exit_plan.recovery_target,
+                    "take_profit_price": entry_exit_plan.take_profit_price,
+                    "effective_target_price": entry_exit_plan.effective_target_price,
+                    **export_trade_metrics(self.position_state),
+                }
+            self._record_leg(entry_price=entry_price, size=executed_size, anchor_price=anchor_price)
             self.pending_entry_context = None
             return
 
@@ -243,6 +268,17 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         trade_record = dict(self.current_trade_record)
         mfe_price = float(self.position_state.mfe_price or self.position_state.entry_price)
         entry_price = float(self.position_state.entry_price)
+        total_entry_size = sum(self.entry_sizes)
+        avg_entry_price = (
+            sum(price * size for price, size in zip(self.entry_prices, self.entry_sizes)) / total_entry_size
+            if total_entry_size
+            else float(trade_record.get("entry_price", entry_price))
+        )
+        effective_anchor_price = (
+            max(self.anchor_prices)
+            if self.anchor_prices
+            else float(trade_record.get("anchor_price_at_entry", entry_price))
+        )
         trade_record.update(
             {
                 "exit_datetime": self._current_datetime(),
@@ -250,6 +286,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "holding_bars": exit_plan.holding_bars,
                 "trade_return": (exit_price - entry_price) / entry_price,
                 "etd": max(0.0, (mfe_price - exit_price) / entry_price),
+                "num_legs": int(self.current_legs or 1),
+                "avg_entry_price": avg_entry_price,
+                "effective_anchor_price": effective_anchor_price,
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,
                 "recovery_target": exit_plan.recovery_target,
