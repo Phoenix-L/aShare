@@ -32,6 +32,7 @@ class ExitDecision:
     signal: bool
     reason: str | None
     holding_bars: int
+    stop_loss_price: float | None
     recovery_target: float | None
     take_profit_price: float | None
     effective_target_price: float | None
@@ -133,40 +134,54 @@ def evaluate_exit_engine(
     close: float,
     current_bar: int,
     state: PositionState | None,
+    entry_price: float | None = None,
+    anchor_price: float | None = None,
+    lowest_price_since_entry: float | None = None,
+    holding_bars: int | None = None,
     recovery_frac: float | None,
     take_profit_pct: float | None,
     stop_loss_pct: float | None,
     max_hold_bars: int | None,
 ) -> ExitDecision:
     """Evaluate shared execution exits for an open position."""
-    if state is None:
+    resolved_entry_price = float(entry_price) if entry_price is not None else (None if state is None else float(state.entry_price))
+    resolved_anchor_price = float(anchor_price) if anchor_price is not None else (None if state is None or state.anchor_price is None else float(state.anchor_price))
+    resolved_lowest_price = (
+        float(lowest_price_since_entry)
+        if lowest_price_since_entry is not None
+        else (None if state is None or state.lowest_price_since_entry is None else float(state.lowest_price_since_entry))
+    )
+    resolved_holding_bars = int(holding_bars) if holding_bars is not None else (0 if state is None else get_holding_bars(state, current_bar))
+
+    if resolved_entry_price is None:
         return ExitDecision(
             signal=False,
             reason=None,
             holding_bars=0,
+            stop_loss_price=None,
             recovery_target=None,
             take_profit_price=None,
             effective_target_price=None,
         )
 
     recovery_target, take_profit_price, effective_target_price = _build_exit_targets(
-        entry_price=state.entry_price,
-        anchor_price=state.anchor_price,
-        lowest_price_since_entry=state.lowest_price_since_entry,
+        entry_price=resolved_entry_price,
+        anchor_price=resolved_anchor_price,
+        lowest_price_since_entry=resolved_lowest_price,
         recovery_frac=recovery_frac,
         take_profit_pct=take_profit_pct,
     )
-    holding_bars = get_holding_bars(state, current_bar)
+    stop_loss_price = None if stop_loss_pct is None else float(resolved_entry_price) * (1.0 - float(stop_loss_pct))
 
-    if stop_loss_pct is not None and float(close) <= float(state.entry_price) * (1.0 - float(stop_loss_pct)):
-        return ExitDecision(True, "stop_loss", holding_bars, recovery_target, take_profit_price, effective_target_price)
+    if stop_loss_price is not None and float(close) <= float(stop_loss_price):
+        return ExitDecision(True, "stop_loss", resolved_holding_bars, stop_loss_price, recovery_target, take_profit_price, effective_target_price)
 
     if effective_target_price is not None and float(close) >= float(effective_target_price):
         if take_profit_price is not None and math.isclose(float(effective_target_price), float(take_profit_price)):
-            return ExitDecision(True, "take_profit", holding_bars, recovery_target, take_profit_price, effective_target_price)
-        return ExitDecision(True, "anchor_recovery", holding_bars, recovery_target, take_profit_price, effective_target_price)
+            return ExitDecision(True, "take_profit", resolved_holding_bars, stop_loss_price, recovery_target, take_profit_price, effective_target_price)
+        return ExitDecision(True, "anchor_recovery", resolved_holding_bars, stop_loss_price, recovery_target, take_profit_price, effective_target_price)
 
-    if max_hold_bars is not None and holding_bars >= int(max_hold_bars):
-        return ExitDecision(True, "max_hold", holding_bars, recovery_target, take_profit_price, effective_target_price)
+    if max_hold_bars is not None and resolved_holding_bars >= int(max_hold_bars):
+        return ExitDecision(True, "max_hold", resolved_holding_bars, stop_loss_price, recovery_target, take_profit_price, effective_target_price)
 
-    return ExitDecision(False, None, holding_bars, recovery_target, take_profit_price, effective_target_price)
+    return ExitDecision(False, None, resolved_holding_bars, stop_loss_price, recovery_target, take_profit_price, effective_target_price)

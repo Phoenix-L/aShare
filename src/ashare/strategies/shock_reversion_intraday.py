@@ -7,8 +7,9 @@ import pandas as pd
 import backtrader as bt
 
 from ashare.strategies.components.execution import (
-    build_recovery_target,
+    ExitDecision,
     create_position_state,
+    evaluate_exit_engine,
     export_trade_metrics,
     update_trade_metrics,
 )
@@ -287,31 +288,41 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             return
         self.current_trade_record.update(export_trade_metrics(self.position_state))
 
-    def _build_recovery_target(self) -> float | None:
+    def _evaluate_exit_decision(self, close: float) -> ExitDecision:
         ts = self.trade_state
-        return build_recovery_target(
+        decision = evaluate_exit_engine(
+            close=close,
+            current_bar=len(self),
+            state=self.position_state,
+            entry_price=ts["avg_entry_price"],
             anchor_price=ts["effective_anchor_price"],
             lowest_price_since_entry=ts["lowest_price_since_entry"],
+            holding_bars=ts["bars_held"],
             recovery_frac=self.p.recovery_frac,
+            take_profit_pct=self.p.take_profit_pct,
+            stop_loss_pct=self.p.stop_loss_pct,
+            max_hold_bars=self.p.max_hold_bars,
         )
+        if int(ts["bars_held"]) <= 0:
+            return ExitDecision(
+                signal=False,
+                reason=None,
+                holding_bars=decision.holding_bars,
+                stop_loss_price=decision.stop_loss_price,
+                recovery_target=decision.recovery_target,
+                take_profit_price=decision.take_profit_price,
+                effective_target_price=decision.effective_target_price,
+            )
+        return decision
 
     def _build_exit_snapshot(self, close: float) -> dict[str, float | int | None]:
-        ts = self.trade_state
-        avg_entry_price = ts["avg_entry_price"]
-        recovery_target = self._build_recovery_target()
-        take_profit_price = (
-            None
-            if avg_entry_price is None or self.p.take_profit_pct is None
-            else float(avg_entry_price) * (1.0 + float(self.p.take_profit_pct))
-        )
+        decision = self._evaluate_exit_decision(close)
         return {
-            "holding_bars": int(ts["bars_held"]),
-            "recovery_target": recovery_target,
-            "take_profit_price": take_profit_price,
-            "effective_target_price": min(
-                [target for target in (recovery_target, take_profit_price) if target is not None],
-                default=None,
-            ),
+            "holding_bars": int(decision.holding_bars),
+            "stop_loss_price": decision.stop_loss_price,
+            "recovery_target": decision.recovery_target,
+            "take_profit_price": decision.take_profit_price,
+            "effective_target_price": decision.effective_target_price,
             "close": float(close),
         }
 
@@ -341,22 +352,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         if not self.trade_state["is_open"] or self.trade_state["avg_entry_price"] is None:
             return None
 
-        if int(self.trade_state["bars_held"]) <= 0:
+        decision = self._evaluate_exit_decision(close)
+        if decision.reason is None:
             return None
-
-        avg_entry_price = float(self.trade_state["avg_entry_price"])
-        if self.p.stop_loss_pct is not None and float(close) <= avg_entry_price * (1.0 - float(self.p.stop_loss_pct)):
-            return "stop_loss"
-        if self.p.take_profit_pct is not None and float(close) >= avg_entry_price * (1.0 + float(self.p.take_profit_pct)):
-            return "take_profit"
-
-        recovery_target = self._build_recovery_target()
-        if recovery_target is not None and float(close) >= float(recovery_target):
-            return "recovery"
-
-        if self.p.max_hold_bars is not None and int(self.trade_state["bars_held"]) >= int(self.p.max_hold_bars):
-            return "max_hold"
-        return None
+        return self._standardize_exit_reason(decision.reason)
 
     def enter_trade(self, price: float, size: int, entry_shock_score: float, add_shock_score: float) -> None:
         """Submit the initial live entry order for a new trade."""
@@ -447,6 +446,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     }
                 )
                 self.position_state = create_position_state(entry_price=entry_price, entry_bar=current_bar, anchor_price=anchor_price)
+                entry_exit_snapshot = self._build_exit_snapshot(entry_price)
                 self.current_trade_record = {
                     "symbol": self._get_symbol(),
                     "entry_datetime": self._current_datetime(),
@@ -463,9 +463,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "leg_count": 1,
                     "ladder_used": False,
                     "max_position_size": executed_size,
-                    "recovery_target": self._build_recovery_target(),
-                    "take_profit_price": entry_price * (1.0 + float(self.p.take_profit_pct)) if self.p.take_profit_pct is not None else None,
-                    "effective_target_price": self._build_exit_snapshot(entry_price)["effective_target_price"],
+                    "recovery_target": entry_exit_snapshot["recovery_target"],
+                    "take_profit_price": entry_exit_snapshot["take_profit_price"],
+                    "effective_target_price": entry_exit_snapshot["effective_target_price"],
                     **export_trade_metrics(self.position_state),
                 }
                 return
@@ -488,6 +488,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             ts["ladder_used"] = True
 
             if self.current_trade_record is not None:
+                add_exit_snapshot = self._build_exit_snapshot(entry_price)
                 self.current_trade_record.update(
                     {
                         "position_size": new_total,
@@ -499,9 +500,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                             float(self.current_trade_record.get("effective_anchor_price", anchor_price)),
                             anchor_price,
                         ),
-                        "recovery_target": self._build_recovery_target(),
-                        "take_profit_price": self._build_exit_snapshot(entry_price)["take_profit_price"],
-                        "effective_target_price": self._build_exit_snapshot(entry_price)["effective_target_price"],
+                        "recovery_target": add_exit_snapshot["recovery_target"],
+                        "take_profit_price": add_exit_snapshot["take_profit_price"],
+                        "effective_target_price": add_exit_snapshot["effective_target_price"],
                     }
                 )
             return
