@@ -25,9 +25,24 @@ REPORT_COLUMNS = [
     "compound_trade_return",
     "total_return_simple",
     "total_return_log",
+    "capital_efficiency",
     "avg_return_per_trade",
     "avg_legs_per_trade",
     "multi_leg_trade_share",
+    "sim_avg_return_per_trade",
+    "sim_sum_trade_return",
+    "sim_compound_trade_return",
+    "sim_avg_legs_per_trade",
+    "sim_multi_leg_trade_share",
+    "sim_avg_etd",
+    "sim_capital_efficiency",
+    "total_trade_pnl_amount",
+    "total_sim_trade_pnl_amount",
+    "total_incremental_pnl_amount",
+    "avg_incremental_capital_efficiency",
+    "delta_return",
+    "delta_etd",
+    "delta_efficiency",
     "executed_trades",
     "sharpe",
     "max_drawdown",
@@ -215,6 +230,50 @@ def _compound_trade_return(pnl_values: pd.Series) -> float:
     return compounded - 1.0
 
 
+def _capital_efficiency(total_return_simple: float, sum_trade_return: float) -> float:
+    if sum_trade_return == 0.0:
+        return 0.0
+    return float(total_return_simple / sum_trade_return)
+
+
+def _sim_total_return_simple(
+    trades_df: pd.DataFrame,
+    sim_trade_returns: pd.Series,
+    sim_num_legs: pd.Series,
+    initial_cash: float | None,
+) -> float:
+    if trades_df.empty or initial_cash in (None, 0.0):
+        return 0.0
+
+    entry_prices = pd.to_numeric(trades_df.get("entry_price"), errors="coerce").fillna(0.0)
+    sizes = (
+        pd.to_numeric(trades_df.get("size"), errors="coerce")
+        if "size" in trades_df.columns
+        else pd.Series([0.0] * len(trades_df.index), dtype=float)
+    ).fillna(0.0)
+    sim_avg_entry_prices = (
+        pd.to_numeric(trades_df.get("sim_avg_entry_price"), errors="coerce")
+        if "sim_avg_entry_price" in trades_df.columns
+        else entry_prices.copy()
+    ).fillna(entry_prices)
+    effective_sim_legs = sim_num_legs.fillna(1.0)
+    sim_position_sizes = sizes * effective_sim_legs
+    weights = (sim_avg_entry_prices * sim_position_sizes) / float(initial_cash)
+    aligned_returns = sim_trade_returns.fillna(0.0)
+    return float((aligned_returns * weights).sum())
+
+
+def _series_or_default(
+    trades_df: pd.DataFrame,
+    column: str,
+    *,
+    default: float = 0.0,
+) -> pd.Series:
+    if column in trades_df.columns:
+        return pd.to_numeric(trades_df.get(column), errors="coerce").fillna(default)
+    return pd.Series([default] * len(trades_df.index), dtype=float)
+
+
 def _run_payload(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     run_payload = _load_json(run_dir / "run_result.json")
     if run_payload:
@@ -270,6 +329,29 @@ def _build_row(
         if "num_legs" in trades_df.columns
         else (pd.Series([1] * len(trades_df.index), dtype=float) if not trades_df.empty else pd.Series(dtype=float))
     )
+    sim_pnl_values = (
+        pd.to_numeric(trades_df.get("sim_trade_return"), errors="coerce")
+        if "sim_trade_return" in trades_df.columns
+        else pnl_values.copy()
+    )
+    if sim_pnl_values.dropna().empty:
+        sim_pnl_values = pnl_values.copy()
+    sim_etd_values = (
+        pd.to_numeric(trades_df.get("sim_etd"), errors="coerce")
+        if "sim_etd" in trades_df.columns
+        else etd_values.copy()
+    )
+    if sim_etd_values.dropna().empty:
+        sim_etd_values = etd_values.copy()
+    sim_num_legs = (
+        pd.to_numeric(trades_df.get("sim_num_legs"), errors="coerce")
+        if "sim_num_legs" in trades_df.columns
+        else num_legs.copy()
+    )
+    if sim_num_legs.dropna().empty and not num_legs.dropna().empty:
+        sim_num_legs = num_legs.copy()
+    elif sim_num_legs.dropna().empty and not trades_df.empty:
+        sim_num_legs = pd.Series([1] * len(trades_df.index), dtype=float)
 
     avg_return_per_trade_from_trades = _avg(pnl_values)
     avg_mfe_from_trades = _avg(mfe_values)
@@ -279,6 +361,14 @@ def _build_row(
     total_return_log = _compute_total_return_log(metrics, meta, summary_row)
     sum_trade_return = _sum_trade_return(pnl_values)
     compound_trade_return = _compound_trade_return(pnl_values)
+    sim_avg_return_per_trade = _avg(sim_pnl_values)
+    sim_sum_trade_return = _sum_trade_return(sim_pnl_values)
+    sim_compound_trade_return = _compound_trade_return(sim_pnl_values)
+    sim_avg_etd = _avg(sim_etd_values)
+    initial_cash = _safe_float(meta.get("initial_cash"), None)
+    sim_total_return_simple = _sim_total_return_simple(trades_df, sim_pnl_values, sim_num_legs, initial_cash)
+    capital_efficiency = _capital_efficiency(total_return_simple, sum_trade_return)
+    sim_capital_efficiency = _capital_efficiency(sim_total_return_simple, sim_sum_trade_return)
 
     avg_return_per_trade = float(
         _coalesce(
@@ -308,6 +398,52 @@ def _build_row(
             0.0,
         )
     )
+    entry_prices = _series_or_default(trades_df, "entry_price")
+    exit_prices = _series_or_default(trades_df, "exit_price")
+    base_trade_units = (
+        pd.to_numeric(trades_df.get("size"), errors="coerce")
+        if "size" in trades_df.columns
+        else pd.Series([_safe_float(params.get("trade_unit"), 0.0) or 0.0] * len(trades_df.index), dtype=float)
+    ).fillna(_safe_float(params.get("trade_unit"), 0.0) or 0.0)
+    sim_avg_entry_prices = (
+        pd.to_numeric(trades_df.get("sim_avg_entry_price"), errors="coerce")
+        if "sim_avg_entry_price" in trades_df.columns
+        else entry_prices.copy()
+    ).fillna(entry_prices)
+    effective_sim_num_legs = sim_num_legs.fillna(1.0)
+    trade_pnl_amounts = (
+        pd.to_numeric(trades_df.get("trade_pnl_amount"), errors="coerce")
+        if "trade_pnl_amount" in trades_df.columns
+        else (exit_prices - entry_prices) * base_trade_units
+    ).fillna(0.0)
+    sim_trade_pnl_amounts = (
+        pd.to_numeric(trades_df.get("sim_trade_pnl_amount"), errors="coerce")
+        if "sim_trade_pnl_amount" in trades_df.columns
+        else (exit_prices - sim_avg_entry_prices) * (base_trade_units * effective_sim_num_legs)
+    ).fillna(0.0)
+    incremental_pnl_amounts = (
+        pd.to_numeric(trades_df.get("incremental_pnl_amount"), errors="coerce")
+        if "incremental_pnl_amount" in trades_df.columns
+        else (sim_trade_pnl_amounts - trade_pnl_amounts)
+    ).fillna(0.0)
+    incremental_notional_amounts = ((base_trade_units * effective_sim_num_legs) - base_trade_units) * entry_prices
+    incremental_capital_efficiency = (
+        pd.to_numeric(trades_df.get("incremental_capital_efficiency"), errors="coerce")
+        if "incremental_capital_efficiency" in trades_df.columns
+        else pd.Series(
+            [
+                float(incremental_pnl) / float(incremental_notional)
+                if float(sim_legs) > 1.0 and float(incremental_notional) != 0.0
+                else 0.0
+                for incremental_pnl, incremental_notional, sim_legs in zip(
+                    incremental_pnl_amounts.tolist(),
+                    incremental_notional_amounts.tolist(),
+                    effective_sim_num_legs.tolist(),
+                )
+            ],
+            dtype=float,
+        )
+    ).fillna(0.0)
     executed_trades = int(_coalesce(len(trades_df.index) if not trades_df.empty else None, _safe_float(diagnostics_summary.get("executed_trades"), None), _safe_float(summary_row.get("num_trades"), None), 0.0))
 
     date_range = meta.get("date_range") if isinstance(meta.get("date_range"), dict) else {}
@@ -317,7 +453,7 @@ def _build_row(
         "symbol": _coalesce(meta.get("symbol"), summary_row.get("symbol"), trades_df.iloc[0].get("symbol") if not trades_df.empty else None),
         "start_date": _coalesce(date_range.get("start"), summary_row.get("start_date")),
         "end_date": _coalesce(date_range.get("end"), summary_row.get("end_date")),
-        "initial_cash": _safe_float(meta.get("initial_cash"), None),
+        "initial_cash": initial_cash,
         "trade_unit": _coalesce(params.get("trade_unit"), summary_row.get("trade_unit")),
         "use_margin": _coalesce(params.get("use_margin"), summary_row.get("use_margin")),
         "margin_rate_annual": _coalesce(params.get("margin_rate_annual"), summary_row.get("margin_rate_annual")),
@@ -327,9 +463,24 @@ def _build_row(
         "compound_trade_return": compound_trade_return,
         "total_return_simple": total_return_simple,
         "total_return_log": total_return_log,
+        "capital_efficiency": capital_efficiency,
         "avg_return_per_trade": avg_return_per_trade,
         "avg_legs_per_trade": _avg(num_legs),
         "multi_leg_trade_share": float((num_legs > 1).mean()) if not num_legs.dropna().empty else 0.0,
+        "sim_avg_return_per_trade": sim_avg_return_per_trade,
+        "sim_sum_trade_return": sim_sum_trade_return,
+        "sim_compound_trade_return": sim_compound_trade_return,
+        "sim_avg_legs_per_trade": _avg(sim_num_legs),
+        "sim_multi_leg_trade_share": float((sim_num_legs > 1).mean()) if not sim_num_legs.dropna().empty else 0.0,
+        "sim_avg_etd": sim_avg_etd,
+        "sim_capital_efficiency": sim_capital_efficiency,
+        "total_trade_pnl_amount": float(trade_pnl_amounts.sum()) if not trade_pnl_amounts.empty else 0.0,
+        "total_sim_trade_pnl_amount": float(sim_trade_pnl_amounts.sum()) if not sim_trade_pnl_amounts.empty else 0.0,
+        "total_incremental_pnl_amount": float(incremental_pnl_amounts.sum()) if not incremental_pnl_amounts.empty else 0.0,
+        "avg_incremental_capital_efficiency": _avg(incremental_capital_efficiency[effective_sim_num_legs > 1.0]),
+        "delta_return": sim_avg_return_per_trade - avg_return_per_trade,
+        "delta_etd": sim_avg_etd - avg_etd,
+        "delta_efficiency": sim_capital_efficiency - capital_efficiency,
         "executed_trades": executed_trades,
         "sharpe": float(_coalesce(_safe_float(summary_row.get("sharpe"), None), _safe_float(metrics.get("sharpe"), None), 0.0)),
         "max_drawdown": float(

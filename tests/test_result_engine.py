@@ -184,16 +184,28 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
                     "size": 500,
                     "entry_price": 100.0,
                     "avg_entry_price": 100.0,
+                    "sim_avg_entry_price": 100.0,
+                    "exit_price": 100.35608091836528,
                     "holding_bars": 3,
                     "trade_return": 0.0035608091836527733,
+                    "sim_trade_return": 0.0035608091836527733,
                     "mfe": 0.025,
+                    "sim_mfe": 0.025,
                     "mae": -0.005,
+                    "sim_mae": -0.005,
                     "etd": 0.0025,
+                    "sim_etd": 0.0025,
                     "anchor_price_at_entry": 100.0,
                     "effective_anchor_price": 100.0,
                     "num_legs": 1,
+                    "sim_effective_anchor_price": 100.0,
+                    "sim_num_legs": 1,
                     "exit_reason": "recovery",
                     "shock_score_at_entry": 70.0,
+                    "trade_pnl_amount": 178.04045918263888,
+                    "sim_trade_pnl_amount": 178.04045918263888,
+                    "incremental_pnl_amount": 0.0,
+                    "incremental_capital_efficiency": 0.0,
                 }
                 for _ in range(36)
             ],
@@ -211,16 +223,28 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
                     "size": 100,
                     "entry_price": 100.0,
                     "avg_entry_price": 99.0,
+                    "sim_avg_entry_price": 98.0,
+                    "exit_price": 98.0,
                     "holding_bars": 3,
                     "trade_return": -0.02,
+                    "sim_trade_return": 0.0,
                     "mfe": 0.005,
+                    "sim_mfe": 0.025510204081632654,
                     "mae": -0.025,
+                    "sim_mae": -0.00510204081632653,
                     "etd": 0.001,
+                    "sim_etd": 0.02040816326530612,
                     "anchor_price_at_entry": 100.0,
                     "effective_anchor_price": 102.0,
                     "num_legs": 2,
+                    "sim_effective_anchor_price": 102.0,
+                    "sim_num_legs": 3,
                     "exit_reason": "max_hold",
                     "shock_score_at_entry": 35.0,
+                    "trade_pnl_amount": -200.0,
+                    "sim_trade_pnl_amount": 0.0,
+                    "incremental_pnl_amount": 200.0,
+                    "incremental_capital_efficiency": 0.01,
                 },
             ],
         ),
@@ -254,10 +278,25 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert first["total_return_log"] == pytest.approx(0.006226210650540601)
     assert first["sum_trade_return"] == pytest.approx(0.12818913061149985)
     assert first["compound_trade_return"] > first["sum_trade_return"]
+    assert first["capital_efficiency"] == pytest.approx(0.006245633790001739 / 0.12818913061149985)
     assert first["avg_return_per_trade"] == pytest.approx(0.0035608091836527733)
     assert first["avg_return_per_trade"] == pytest.approx(0.0035608091836527733)
     assert first["avg_legs_per_trade"] == pytest.approx(1.0)
     assert first["multi_leg_trade_share"] == pytest.approx(0.0)
+    assert first["sim_avg_return_per_trade"] == pytest.approx(0.0035608091836527733)
+    assert first["sim_sum_trade_return"] == pytest.approx(0.12818913061149985)
+    assert first["sim_compound_trade_return"] > first["sim_sum_trade_return"]
+    assert first["sim_avg_legs_per_trade"] == pytest.approx(1.0)
+    assert first["sim_multi_leg_trade_share"] == pytest.approx(0.0)
+    assert first["sim_avg_etd"] == pytest.approx(0.0025)
+    assert first["sim_capital_efficiency"] == pytest.approx(0.5)
+    assert first["total_trade_pnl_amount"] == pytest.approx(6409.456530575)
+    assert first["total_sim_trade_pnl_amount"] == pytest.approx(6409.456530575)
+    assert first["total_incremental_pnl_amount"] == pytest.approx(0.0)
+    assert first["avg_incremental_capital_efficiency"] == pytest.approx(0.0)
+    assert first["delta_return"] == pytest.approx(0.0)
+    assert first["delta_etd"] == pytest.approx(0.0)
+    assert first["delta_efficiency"] == pytest.approx(0.5 - first["capital_efficiency"])
     assert first["executed_trades"] == 36
     assert first["entry_signals"] == 40
     assert first["blocked_by_multiple"] == 5
@@ -281,8 +320,23 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert second["total_return_simple"] == pytest.approx(-0.05)
     assert second["total_return_log"] == pytest.approx(-0.05129329438755058)
     assert second["sum_trade_return"] == pytest.approx(-0.02)
+    assert second["capital_efficiency"] == pytest.approx(2.5)
     assert second["avg_legs_per_trade"] == pytest.approx(2.0)
     assert second["multi_leg_trade_share"] == pytest.approx(1.0)
+    assert second["sim_avg_return_per_trade"] == pytest.approx(0.0)
+    assert second["sim_sum_trade_return"] == pytest.approx(0.0)
+    assert second["sim_compound_trade_return"] == pytest.approx(0.0)
+    assert second["sim_avg_legs_per_trade"] == pytest.approx(3.0)
+    assert second["sim_multi_leg_trade_share"] == pytest.approx(1.0)
+    assert second["sim_avg_etd"] == pytest.approx(0.02040816326530612)
+    assert second["sim_capital_efficiency"] == pytest.approx(0.0)
+    assert second["total_trade_pnl_amount"] == pytest.approx(-200.0)
+    assert second["total_sim_trade_pnl_amount"] == pytest.approx(0.0)
+    assert second["total_incremental_pnl_amount"] == pytest.approx(200.0)
+    assert second["avg_incremental_capital_efficiency"] == pytest.approx(0.01)
+    assert second["delta_return"] == pytest.approx(0.02)
+    assert second["delta_etd"] == pytest.approx(0.01940816326530612)
+    assert second["delta_efficiency"] == pytest.approx(-2.5)
     assert second["max_hold_share"] == 1.0
     assert second["use_shock_score_filter"] in {False, 0}
 
