@@ -23,8 +23,19 @@ params:
   # ===============================
   # CORE STRATEGY (FIXED BASELINE)
   # ===============================
-  excursion_lookback_bars: [12]
-  excursion_threshold: [0.03]
+  shock_score:
+    excursion_lookback_bars: [12]
+    excursion_threshold: [0.03]
+    entry_weights:
+      depth: [0.45]
+      speed: [0.25]
+      stabilization: [0.20]
+      noise_penalty: [0.10]
+    add_weights:
+      depth: [0.60]
+      speed: [0.15]
+      stabilization: [0.10]
+      noise_penalty: [0.15]
 
   recovery_frac: [0.5]
 
@@ -34,8 +45,9 @@ params:
   max_hold_bars: [40]
 
   use_shock_score_filter: [true]
-  shock_score_min: [30]
-  shock_score_max: [80]
+  entry:
+    entry_shock_score_min: [30]
+    entry_shock_score_max: [80]
 
   # ===============================
   # POSITION
@@ -66,4 +78,4 @@ params:
   ladder_min_bars_between_legs: [2]
 
   # stronger signal required for add
-  ladder_score_min_add: [40]
+  add_score_min: [40]

@@ -66,12 +66,17 @@ def _validate_shock_score_filter_params(strategy_name: str | None, strategy_para
     """Fail fast when the optional shock score filter is enabled without an explicit lower bound."""
     if strategy_name != "shock_reversion_intraday":
         return
-    if not strategy_params.get("use_shock_score_filter", False):
+    uses_entry_score_filter = bool(
+        strategy_params.get("use_shock_score_filter", False)
+        or "entry_shock_score_min" in strategy_params
+        or "entry_shock_score_max" in strategy_params
+    )
+    if not uses_entry_score_filter:
         return
-    if "shock_score_min" not in strategy_params:
+    if "entry_shock_score_min" not in strategy_params and "shock_score_min" not in strategy_params:
         raise ValueError(
-            "Invalid config for shock_reversion_intraday: use_shock_score_filter=true requires an explicit "
-            "shock_score_min. Pass --param shock_score_min=<value>."
+            "Invalid config for shock_reversion_intraday: entry score filtering requires an explicit "
+            "entry_shock_score_min or legacy shock_score_min. Pass --param entry_shock_score_min=<value>."
         )
 
 

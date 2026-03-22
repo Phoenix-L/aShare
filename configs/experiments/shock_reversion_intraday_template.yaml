@@ -20,12 +20,23 @@ parameters:
     max_legs: 3
     ladder_min_drop_pct: 0.02
     ladder_min_bars_between_legs: 1
-    ladder_score_min_add: 30
+    add_score_min: 30
     min_bars_left_for_add: 2
 
 params:
-  excursion_lookback_bars: [8, 12, 16]  # Bars used for the rolling close anchor.
-  excursion_threshold: [0.03, 0.05]     # Minimum downside excursion needed to trigger a signal.
+  shock_score:
+    excursion_lookback_bars: [8, 12, 16]  # Bars used for the rolling close anchor.
+    excursion_threshold: [0.03, 0.05]     # Minimum downside excursion needed to trigger a signal.
+    entry_weights:
+      depth: [0.45]
+      speed: [0.25]
+      stabilization: [0.20]
+      noise_penalty: [0.10]
+    add_weights:
+      depth: [0.60]
+      speed: [0.15]
+      stabilization: [0.10]
+      noise_penalty: [0.15]
 
   recovery_frac: [0.5]                  # Fraction of shock depth that must be recovered to exit.
 
@@ -35,5 +46,6 @@ params:
   max_hold_bars: [40]                   # Maximum holding time in intraday bars.
 
   use_shock_score_filter: [true]        # Enable score gating on top of excursion entry.
-  shock_score_min: [30]                 # Lower shock-score bound.
-  shock_score_max: [80]                 # Optional upper bound to reject overshocked signals.
+  entry:
+    entry_shock_score_min: [30]         # Lower entry-shock-score bound.
+    entry_shock_score_max: [80]         # Upper entry-shock-score bound.

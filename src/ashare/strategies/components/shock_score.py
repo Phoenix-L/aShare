@@ -17,8 +17,8 @@ DEFAULT_SCORE_WEIGHTS = {
 
 
 @dataclass(frozen=True)
-class ShockScoreBreakdown:
-    """Fully expanded v1 shock score output for diagnostics and filtering."""
+class ShockScoreComponents:
+    """Shared shock-score component breakdown before any weight set is applied."""
 
     excursion: float
     depth_raw: float
@@ -29,10 +29,9 @@ class ShockScoreBreakdown:
     noise_base: float
     noise_ratio: float
     noise_penalty: float
-    shock_score: float
 
     def to_dict(self) -> dict[str, float]:
-        """Return a stable flat mapping for CSV export."""
+        """Return a stable flat mapping for diagnostics and CSV export."""
         return {
             "excursion": float(self.excursion),
             "depth_raw": float(self.depth_raw),
@@ -43,8 +42,19 @@ class ShockScoreBreakdown:
             "noise_base": float(self.noise_base),
             "noise_ratio": float(self.noise_ratio),
             "noise_penalty": float(self.noise_penalty),
-            "shock_score": float(self.shock_score),
         }
+
+
+@dataclass(frozen=True)
+class ShockScoreBreakdown(ShockScoreComponents):
+    """Backward-compatible single-score breakdown for legacy callers/tests."""
+
+    shock_score: float
+
+    def to_dict(self) -> dict[str, float]:
+        payload = super().to_dict()
+        payload["shock_score"] = float(self.shock_score)
+        return payload
 
 
 def clip(value: float, lower: float, upper: float) -> float:
@@ -83,7 +93,7 @@ def compute_noise_base(close_history: list[float], noise_lookback: int = DEFAULT
     return sum(absolute_returns) / len(absolute_returns) if absolute_returns else 0.0
 
 
-def compute_shock_score(
+def compute_shock_components(
     *,
     close_now: float,
     close_prev: float,
@@ -96,11 +106,8 @@ def compute_shock_score(
     speed_scale: float = DEFAULT_SPEED_SCALE,
     noise_lookback: int = DEFAULT_NOISE_LOOKBACK,
     noise_ratio_scale: float = DEFAULT_NOISE_RATIO_SCALE,
-    score_weights: dict[str, float] | None = None,
-) -> ShockScoreBreakdown:
-    """Compute the locked v1 shock strength score and all of its components."""
-    weights = {**DEFAULT_SCORE_WEIGHTS, **(score_weights or {})}
-
+) -> ShockScoreComponents:
+    """Compute the locked v1 shared shock-score components."""
     depth_raw = abs(float(excursion))
     depth_score = clip(depth_raw / (2.0 * float(excursion_threshold)), 0.0, 1.0)
 
@@ -118,15 +125,7 @@ def compute_shock_score(
     noise_ratio = depth_raw / (noise_base + EPSILON)
     noise_penalty = 1.0 - clip(noise_ratio / float(noise_ratio_scale), 0.0, 1.0)
 
-    raw_score = 100.0 * (
-        (weights["depth"] * depth_score)
-        + (weights["speed"] * speed_score)
-        + (weights["stabilization"] * stabilization_score)
-        - (weights["noise_penalty"] * noise_penalty)
-    )
-    shock_score = clip(raw_score, 0.0, 100.0)
-
-    return ShockScoreBreakdown(
+    return ShockScoreComponents(
         excursion=float(excursion),
         depth_raw=depth_raw,
         depth_score=depth_score,
@@ -136,5 +135,56 @@ def compute_shock_score(
         noise_base=noise_base,
         noise_ratio=noise_ratio,
         noise_penalty=noise_penalty,
+    )
+
+
+def compute_weighted_score(
+    components: ShockScoreComponents,
+    weights: dict[str, float] | None = None,
+) -> float:
+    """Apply a weight set to shared components and clip the final score to [0, 100]."""
+    resolved_weights = {**DEFAULT_SCORE_WEIGHTS, **(weights or {})}
+    raw_score = 100.0 * (
+        (resolved_weights["depth"] * float(components.depth_score))
+        + (resolved_weights["speed"] * float(components.speed_score))
+        + (resolved_weights["stabilization"] * float(components.stabilization_score))
+        - (resolved_weights["noise_penalty"] * float(components.noise_penalty))
+    )
+    return clip(raw_score, 0.0, 100.0)
+
+
+def compute_shock_score(
+    *,
+    close_now: float,
+    close_prev: float,
+    close_minus_two: float,
+    high_now: float,
+    low_now: float,
+    excursion: float,
+    excursion_threshold: float,
+    close_history: list[float],
+    speed_scale: float = DEFAULT_SPEED_SCALE,
+    noise_lookback: int = DEFAULT_NOISE_LOOKBACK,
+    noise_ratio_scale: float = DEFAULT_NOISE_RATIO_SCALE,
+    score_weights: dict[str, float] | None = None,
+) -> ShockScoreBreakdown:
+    """Compute the legacy single-score breakdown on top of shared components."""
+    components = compute_shock_components(
+        close_now=close_now,
+        close_prev=close_prev,
+        close_minus_two=close_minus_two,
+        high_now=high_now,
+        low_now=low_now,
+        excursion=excursion,
+        excursion_threshold=excursion_threshold,
+        close_history=close_history,
+        speed_scale=speed_scale,
+        noise_lookback=noise_lookback,
+        noise_ratio_scale=noise_ratio_scale,
+    )
+    shock_score = compute_weighted_score(components, score_weights)
+
+    return ShockScoreBreakdown(
+        **components.to_dict(),
         shock_score=shock_score,
     )

@@ -281,6 +281,8 @@ class _ShockStrategy:
         ("take_profit_pct", 0.02),
         ("max_hold_bars", 8),
         ("stop_loss_pct", 0.05),
+        ("entry_shock_score_min", None),
+        ("entry_shock_score_max", None),
     )
 
 
@@ -309,7 +311,56 @@ def test_cli_shock_score_filter_requires_explicit_min(monkeypatch, tmp_path) -> 
     )
 
     assert result.exit_code != 0
-    assert "requires an explicit shock_score_min" in result.output
+    assert "entry_shock_score_min or legacy shock_score_min" in result.output
+
+
+def test_cli_named_entry_score_overrides_take_precedence(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig())
+    monkeypatch.setattr("ashare.cli.get_strategy_class", lambda _: _ShockStrategy)
+
+    def _fake_execute(**kwargs):
+        captured.update(kwargs["spec"]["parameters"])
+        return {
+            "num_runs": 1,
+            "output_dir": "outputs/demo",
+            "summary_path": "outputs/demo/summary.csv",
+            "summary_sorted_path": "outputs/demo/summary_sorted.csv",
+            "results": [],
+        }
+
+    monkeypatch.setattr("ashare.cli.execute_experiment_spec", _fake_execute)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "--strategy",
+            "shock_reversion_intraday",
+            "--symbols",
+            "600519.SH",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--param",
+            "entry_shock_score_min=20",
+            "--param",
+            "entry_shock_score_max=70",
+            "--entry-shock-score-min",
+            "30",
+            "--shock-score-max",
+            "80",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["entry_shock_score_min"] == 30.0
+    assert captured["entry_shock_score_max"] == 80.0
+    assert "shock_score_min" not in captured
+    assert "shock_score_max" not in captured
 
 def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
     monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig())
@@ -336,8 +387,8 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
                         "max_hold_bars": 8,
                         "stop_loss_pct": 0.02,
                         "use_shock_score_filter": True,
-                        "shock_score_min": 60,
-                        "shock_score_max": 80,
+                        "entry_shock_score_min": 60,
+                        "entry_shock_score_max": 80,
                         "z_entry": None,
                         "z_exit": None,
                     },
@@ -371,8 +422,8 @@ def test_cli_ranking_output_is_strategy_aware_for_shock(monkeypatch) -> None:
     assert "tp=0.05" in result.output
     assert "hold=8" in result.output
     assert "use_shock_score_filter=true" in result.output
-    assert "shock_score_min=60" in result.output
-    assert "shock_score_max=80" in result.output
+    assert "entry_shock_score_min=60" in result.output
+    assert "entry_shock_score_max=80" in result.output
     assert "z_entry=None" not in result.output
     assert "z_exit=None" not in result.output
 
