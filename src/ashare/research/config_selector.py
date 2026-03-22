@@ -268,6 +268,34 @@ def _debug_selection_v2_top(label: str, frame: pd.DataFrame) -> None:
         print(f"[selection_v2] {label}:")
         print(frame.loc[:, preview_columns].head(5).to_string(index=False))
 
+
+def _selection_v2_signature(row: pd.Series) -> tuple[float, float, float, float, float, float, int]:
+    return (
+        round(_safe_float(row.get("total_return_simple")), 6),
+        round(_safe_float(row.get("sum_trade_return")), 6),
+        round(_safe_float(row.get("avg_return_per_trade")), 6),
+        round(_safe_float(row.get("avg_mfe")), 6),
+        round(_safe_float(row.get("avg_mae")), 6),
+        round(_safe_float(row.get("avg_etd")), 6),
+        int(_safe_float(row.get("executed_trades"))),
+    )
+
+
+def _deduplicate_selection_v2_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+
+    seen_signatures: set[tuple[float, float, float, float, float, float, int]] = set()
+    keep_indices: list[int] = []
+    for index, row in frame.iterrows():
+        signature = _selection_v2_signature(row)
+        if signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
+        keep_indices.append(index)
+
+    return frame.loc[keep_indices].reset_index(drop=True)
+
 def _build_selection_v2_frame(output_root: Path) -> pd.DataFrame:
     report_df = _read_csv(output_root / "run_performance_report.csv")
     if report_df.empty:
@@ -321,6 +349,7 @@ def _build_selection_v2_frame(output_root: Path) -> pd.DataFrame:
         + survivors["score_trades_component"]
     )
     survivors = survivors.sort_values(by=["score", "total_return_simple", "capital_efficiency", "executed_trades", "run_id"], ascending=[False, False, False, False, True]).reset_index(drop=True)
+    survivors = _deduplicate_selection_v2_rows(survivors)
     survivors["rank"] = survivors.index + 1
 
     _debug_selection_v2_stage("rows after filtering", survivors)

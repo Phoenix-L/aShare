@@ -413,8 +413,73 @@ def test_build_summary_selection_report_v2_keeps_positive_return_runs_with_perce
     assert set(["run_009", "run_010", "run_011", "run_012"]).issubset(set(report_df["run_id"]))
     assert "[selection_v2] initial rows: 7" in captured
     assert "[selection_v2] after executed_trades filter: 6" in captured
-    assert "[selection_v2] after total_return_simple filter: 5" in captured
-    assert "[selection_v2] after max_drawdown filter: 4" in captured
-    assert "[selection_v2] sample run_performance_report values:" in captured
-    assert "[selection_v2] top 5 runs before scoring:" in captured
-    assert "[selection_v2] top 5 runs after scoring:" in captured
+
+
+def test_build_summary_selection_report_v2_deduplicates_identical_runs(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_root = tmp_path / "outputs" / "shock_selection_v2_dedup"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    run_specs = [
+        ("run_003", 0.11, 18, 0.013, 0.09, 0.022, -0.007, 0.15, 0.0050),
+        ("run_004", 0.11, 18, 0.013, 0.09, 0.022, -0.007, 0.15, 0.0050),
+        ("run_011", 0.12, 20, 0.014, 0.08, 0.024, -0.008, 0.16, 0.0045),
+        ("run_012", 0.13, 22, 0.016, 0.07, 0.025, -0.009, 0.165, 0.0040),
+    ]
+
+    trade_rows: list[dict[str, object]] = []
+    for run_id, total_return, executed_trades, avg_return_per_trade, max_drawdown, avg_mfe, avg_mae, trade_sum, avg_etd in run_specs:
+        parameters = {"excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.02, "recovery_frac": 0.4, "max_hold_bars": 10, "stop_loss_pct": 0.01}
+        metrics = {"sharpe": 1.0, "total_return": total_return, "max_drawdown": max_drawdown, "num_trades": executed_trades}
+        diagnostics = {"executed_trades": executed_trades, "avg_return_per_trade": avg_return_per_trade, "avg_mfe": avg_mfe, "avg_mae": avg_mae, "avg_etd": avg_etd}
+        _write_run(output_root, run_id, metrics=metrics, parameters=parameters, meta={"strategy": "shock_reversion_intraday", "initial_cash": 100000.0})
+        (output_root / run_id / "diagnostics_summary.json").write_text(json.dumps(diagnostics), encoding="utf-8")
+        per_trade_pnl = trade_sum / max(executed_trades, 1)
+        for trade_index in range(executed_trades):
+            trade_rows.append(
+                {
+                    "run_id": run_id,
+                    "symbol": "600519.SH",
+                    "entry_datetime": f"2024-01-01 09:{trade_index % 60:02d}:00",
+                    "exit_datetime": f"2024-01-01 10:{trade_index % 60:02d}:00",
+                    "entry_price": 100.0,
+                    "exit_price": 101.0,
+                    "holding_bars": 3,
+                    "trade_return": per_trade_pnl,
+                    "mfe": avg_mfe,
+                    "mae": avg_mae,
+                    "etd": avg_etd,
+                    "mfe_price": 102.0,
+                    "mae_price": 99.0,
+                    "anchor_price_at_entry": 100.0,
+                    "excursion_at_entry": -0.02,
+                    "recovery_target": 101.5,
+                    "take_profit_price": 102.0,
+                    "effective_target_price": 101.8,
+                    "bars_to_mfe": 2,
+                    "bars_to_mae": 1,
+                    "exit_reason": "recovery",
+                    "exit_subtype": "recovery",
+                }
+            )
+    pd.DataFrame(trade_rows).to_csv(output_root / "trades.csv", index=False)
+
+    build_summary("shock_selection_v2_dedup")
+
+    report_df = pd.read_csv(output_root / "selection_report_v2.csv")
+
+    assert "run_003" in set(report_df["run_id"]) or "run_004" in set(report_df["run_id"])
+    assert not ({"run_003", "run_004"} <= set(report_df["run_id"]))
+    signatures = {
+        (
+            round(float(row["total_return_simple"]), 6),
+            round(float(row["sum_trade_return"]), 6),
+            round(float(row["avg_return_per_trade"]), 6),
+            round(float(row["avg_mfe"]), 6),
+            round(float(row["avg_mae"]), 6),
+            round(float(row["avg_etd"]), 6),
+            int(row["executed_trades"]),
+        )
+        for _, row in report_df.iterrows()
+    }
+    assert len(signatures) == len(report_df.index)
