@@ -119,3 +119,44 @@ params:
     assert spec["grid"]["ladder_min_bars_between_legs"] == [1]
     assert spec["grid"]["ladder_score_min_add"] == [30]
     assert spec["grid"]["min_bars_left_for_add"] == [2]
+
+
+def test_load_experiment_spec_flattens_nested_shock_score_weights(tmp_path: Path) -> None:
+    spec_file = tmp_path / "shock_reversion_intraday_weights.yaml"
+    spec_file.write_text(
+        """
+strategy: shock_reversion_intraday
+symbols:
+  - 002850.SZ
+start: 2025-07-01
+end: 2026-02-28
+parameters:
+  shock_score:
+    speed_scale: 0.03
+    entry_weights:
+      depth: 0.45
+      speed: 0.25
+      stabilization: 0.20
+      noise_penalty: 0.10
+params:
+  shock_score:
+    excursion_lookback_bars: [8]
+    excursion_threshold: [0.03]
+    add_weights:
+      depth: [0.60]
+      speed: [0.15]
+      stabilization: [0.10]
+      noise_penalty: [0.15]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    spec = load_experiment_spec(spec_file)
+
+    assert spec["parameters"]["speed_scale"] == 0.03
+    assert spec["parameters"]["entry_score_weight_depth"] == 0.45
+    assert spec["parameters"]["entry_score_weight_noise_penalty"] == 0.10
+    assert spec["grid"]["excursion_lookback_bars"] == [8]
+    assert spec["grid"]["excursion_threshold"] == [0.03]
+    assert spec["grid"]["add_score_weight_depth"] == [0.60]
+    assert spec["grid"]["add_score_weight_noise_penalty"] == [0.15]

@@ -21,8 +21,11 @@ from ashare.strategies.components.shock_score import (
     DEFAULT_NOISE_RATIO_SCALE,
     DEFAULT_SCORE_WEIGHTS,
     DEFAULT_SPEED_SCALE,
+    ShockScoreComponents,
     ShockScoreBreakdown,
+    compute_shock_components,
     compute_shock_score,
+    compute_weighted_score,
 )
 
 __all__ = [
@@ -44,6 +47,9 @@ __all__ = [
     "DEFAULT_NOISE_RATIO_SCALE",
     "DEFAULT_SCORE_WEIGHTS",
     "DEFAULT_SPEED_SCALE",
+    "ShockScoreComponents",
     "ShockScoreBreakdown",
+    "compute_shock_components",
     "compute_shock_score",
+    "compute_weighted_score",
 ]
