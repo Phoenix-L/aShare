@@ -32,6 +32,7 @@ SHOCK_REVERSION_INTRADAY_KEYS = {
     "ladder_min_drop_pct",
     "ladder_min_bars_between_legs",
     "ladder_score_min_add",
+    "min_bars_left_for_add",
 }
 
 

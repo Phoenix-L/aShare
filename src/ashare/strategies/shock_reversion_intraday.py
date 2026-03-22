@@ -6,12 +6,7 @@ import pandas as pd
 
 import backtrader as bt
 
-from ashare.strategies.components.execution import (
-    create_position_state,
-    evaluate_exit_engine,
-    export_trade_metrics,
-    update_trade_metrics,
-)
+from ashare.strategies.components.execution import create_position_state, export_trade_metrics, update_trade_metrics
 from ashare.strategies.components.shock_score import DEFAULT_SCORE_WEIGHTS, compute_shock_score
 from ashare.utils.logging import get_logger
 
@@ -30,6 +25,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         ladder_min_drop_pct=0.02,
         ladder_min_bars_between_legs=1,
         ladder_score_min_add=0.0,
+        min_bars_left_for_add=1,
         max_legs=1,
         use_margin=False,
         margin_rate_annual=0.0835,
@@ -100,11 +96,26 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.total_margin_interest_paid = 0.0
         self.margin_interest_events: list[dict] = []
         self.min_cash = float(self.broker.getcash())
-        self.current_legs = 0
-        self.entry_prices: list[float] = []
-        self.entry_sizes: list[int] = []
-        self.anchor_prices: list[float] = []
-        self.last_entry_bar = -1
+        self._reset_trade_state()
+
+    def _reset_trade_state(self) -> None:
+        """Reset all live trade state for the next independent position."""
+        self.trade_state = {
+            "is_open": False,
+            "entry_bar": None,
+            "bars_held": 0,
+            "leg_count": 0,
+            "leg_prices": [],
+            "leg_sizes": [],
+            "last_leg_bar": None,
+            "last_leg_price": None,
+            "total_size": 0,
+            "avg_entry_price": None,
+            "lowest_price_since_entry": None,
+            "max_position_size": 0,
+            "entry_shock_score": None,
+            "ladder_used": False,
+        }
 
     def _per_bar_margin_rate(self) -> float:
         """Return per-bar interest rate implied by annual margin cost."""
@@ -160,6 +171,8 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         """Return a stable exit reason label for diagnostics/export."""
         if reason == "anchor_recovery":
             return "recovery"
+        if reason == "recovery":
+            return "recovery"
         if reason == "take_profit":
             return "take_profit"
         if reason == "stop_loss":
@@ -168,76 +181,119 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             return "max_hold"
         return "unknown"
 
-    def _reset_ladder_state(self) -> None:
-        """Reset per-trade ladder diagnostics."""
-        self.current_legs = 0
-        self.entry_prices = []
-        self.entry_sizes = []
-        self.anchor_prices = []
-        self.last_entry_bar = -1
-
-    def _record_leg(self, *, entry_price: float, size: int, anchor_price: float) -> None:
-        """Track one executed entry leg for trade-level ladder diagnostics."""
-        if self.current_legs == 0:
-            self._reset_ladder_state()
-        self.current_legs += 1
-        self.entry_prices.append(float(entry_price))
-        self.entry_sizes.append(int(size))
-        self.anchor_prices.append(float(anchor_price))
-        self.last_entry_bar = len(self)
-
-    def _compute_position_metrics(self) -> tuple[float, float, int]:
-        """Return blended entry price, effective anchor, and aggregate position size."""
-        total_size = sum(self.entry_sizes)
-        fallback_entry_price = (
-            float(self.current_trade_record.get("entry_price"))
-            if self.current_trade_record is not None and self.current_trade_record.get("entry_price") is not None
-            else 0.0
-        )
-        fallback_anchor_price = (
-            float(self.current_trade_record.get("anchor_price_at_entry"))
-            if self.current_trade_record is not None and self.current_trade_record.get("anchor_price_at_entry") is not None
-            else fallback_entry_price
-        )
-        avg_entry_price = (
-            sum(price * size for price, size in zip(self.entry_prices, self.entry_sizes)) / total_size
-            if total_size
-            else fallback_entry_price
-        )
-        effective_anchor_price = max(self.anchor_prices) if self.anchor_prices else fallback_anchor_price
-        return float(avg_entry_price), float(effective_anchor_price), int(total_size)
-
-    def _should_add_ladder_leg(self, *, close: float, current_bar: int, shock_score: float) -> bool:
-        """Return whether the next bar qualifies for a real ladder add."""
-        if (
-            not self.position
-            or not bool(self.p.enable_ladder)
-            or self.current_legs <= 0
-            or self.current_legs >= int(self.p.max_legs)
-            or not self.entry_prices
-        ):
-            return False
-
-        last_entry_price = float(self.entry_prices[-1])
-        min_drop_hit = float(close) <= last_entry_price * (1.0 - float(self.p.ladder_min_drop_pct))
-        enough_spacing = int(current_bar) - int(self.last_entry_bar) >= int(self.p.ladder_min_bars_between_legs)
-        score_ok = float(shock_score) >= float(self.p.ladder_score_min_add)
-        return bool(min_drop_hit and enough_spacing and score_ok)
-
-    def _clear_trade_state(self) -> None:
-        """Reset local state after a completed trade."""
-        self.current_trade_record = None
-        self.current_trade_reason = None
-        self.position_state = None
-        self.pending_entry_context = None
-        self.pending_exit_reason = None
-        self._reset_ladder_state()
-
     def _sync_trade_metrics(self) -> None:
         """Mirror shared execution metrics onto the export record."""
         if self.current_trade_record is None or self.position_state is None:
             return
         self.current_trade_record.update(export_trade_metrics(self.position_state))
+
+    def _build_recovery_target(self) -> float | None:
+        ts = self.trade_state
+        avg_entry_price = ts["avg_entry_price"]
+        lowest_price = ts["lowest_price_since_entry"]
+        if avg_entry_price is None or lowest_price is None or self.p.recovery_frac is None:
+            return None
+        rebound_span = max(0.0, float(avg_entry_price) - float(lowest_price))
+        return float(lowest_price) + float(self.p.recovery_frac) * rebound_span
+
+    def _build_exit_snapshot(self, close: float) -> dict[str, float | int | None]:
+        ts = self.trade_state
+        avg_entry_price = ts["avg_entry_price"]
+        recovery_target = self._build_recovery_target()
+        take_profit_price = (
+            None
+            if avg_entry_price is None or self.p.take_profit_pct is None
+            else float(avg_entry_price) * (1.0 + float(self.p.take_profit_pct))
+        )
+        return {
+            "holding_bars": int(ts["bars_held"]),
+            "recovery_target": recovery_target,
+            "take_profit_price": take_profit_price,
+            "effective_target_price": min(
+                [target for target in (recovery_target, take_profit_price) if target is not None],
+                default=None,
+            ),
+            "close": float(close),
+        }
+
+    def _check_add_leg(self, close: float, shock_score: float, current_bar: int) -> bool:
+        """Return True when the live trade qualifies for another real ladder leg."""
+        ts = self.trade_state
+        if (
+            not ts["is_open"]
+            or not bool(self.p.enable_ladder)
+            or int(ts["leg_count"]) >= int(self.p.max_legs)
+            or ts["last_leg_price"] is None
+            or ts["last_leg_bar"] is None
+        ):
+            return False
+
+        bars_since_last_leg = int(current_bar) - int(ts["last_leg_bar"])
+        bars_left = int(self.p.max_hold_bars) - int(ts["bars_held"])
+        return bool(
+            float(close) <= float(ts["last_leg_price"]) * (1.0 - float(self.p.ladder_min_drop_pct))
+            and bars_since_last_leg >= int(self.p.ladder_min_bars_between_legs)
+            and float(shock_score) >= float(self.p.ladder_score_min_add)
+            and bars_left >= int(self.p.min_bars_left_for_add)
+        )
+
+    def _check_exit_conditions(self, close: float) -> str | None:
+        """Evaluate full-position liquidation conditions in strict priority order."""
+        if not self.trade_state["is_open"] or self.trade_state["avg_entry_price"] is None:
+            return None
+
+        if int(self.trade_state["bars_held"]) <= 0:
+            return None
+
+        avg_entry_price = float(self.trade_state["avg_entry_price"])
+        if self.p.stop_loss_pct is not None and float(close) <= avg_entry_price * (1.0 - float(self.p.stop_loss_pct)):
+            return "stop_loss"
+        if self.p.take_profit_pct is not None and float(close) >= avg_entry_price * (1.0 + float(self.p.take_profit_pct)):
+            return "take_profit"
+
+        recovery_target = self._build_recovery_target()
+        if recovery_target is not None and float(close) >= float(recovery_target):
+            return "recovery"
+
+        if self.p.max_hold_bars is not None and int(self.trade_state["bars_held"]) >= int(self.p.max_hold_bars):
+            return "max_hold"
+        return None
+
+    def enter_trade(self, price: float, size: int, shock_score: float) -> None:
+        """Submit the initial live entry order for a new trade."""
+        self.pending_entry_context = {
+            "action": "entry",
+            "anchor_price_at_entry": float(self.rolling_max_close[0]),
+            "excursion_at_entry": float(self.excursion[0]),
+            "shock_score_at_entry": float(shock_score),
+            "signal_price": float(price),
+            "signal_bar": len(self),
+            "size": int(size),
+        }
+        self.active_order = self.buy(size=size)
+        self.buy_events += 1
+
+    def add_leg(self, price: float, size: int, shock_score: float) -> None:
+        """Submit one additional real ladder leg for the open trade."""
+        self.pending_entry_context = {
+            "action": "add",
+            "anchor_price_at_entry": float(self.rolling_max_close[0]),
+            "excursion_at_entry": float(self.excursion[0]),
+            "shock_score_at_entry": float(shock_score),
+            "signal_price": float(price),
+            "signal_bar": len(self),
+            "size": int(size),
+        }
+        self.active_order = self.buy(size=size)
+        self.buy_events += 1
+
+    def exit_trade(self, price: float, reason: str) -> None:
+        """Submit a full liquidation order for the live position."""
+        self.pending_exit_reason = self._standardize_exit_reason(reason)
+        if self.current_trade_record is not None:
+            self.current_trade_record["pending_exit_reason"] = self.pending_exit_reason
+        self.active_order = self.sell(size=int(self.trade_state["total_size"]))
+        self.sell_events += 1
 
     def notify_order(self, order) -> None:
         """Capture executed entry/exit details for trade export."""
@@ -258,104 +314,154 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         self.active_order = None
 
         if order.isbuy():
-            context = self.pending_entry_context or {}
+            context = dict(self.pending_entry_context or {})
+            self.pending_entry_context = None
+            action = context.get("action") or ("add" if self.trade_state["is_open"] else "entry")
             entry_price = float(order.executed.price)
             executed_size = int(order.executed.size)
+            current_bar = len(self)
             anchor_price = float(context.get("anchor_price_at_entry", entry_price))
-            is_add_entry = self.current_trade_record is not None and self.position_state is not None
-            if not is_add_entry:
-                self.position_state = create_position_state(
-                    entry_price=entry_price,
-                    entry_bar=len(self),
-                    anchor_price=anchor_price,
+
+            if action == "entry" or not self.trade_state["is_open"]:
+                self._reset_trade_state()
+                self.trade_state.update(
+                    {
+                        "is_open": True,
+                        "entry_bar": current_bar,
+                        "bars_held": 0,
+                        "leg_count": 1,
+                        "leg_prices": [entry_price],
+                        "leg_sizes": [executed_size],
+                        "last_leg_bar": current_bar,
+                        "last_leg_price": entry_price,
+                        "total_size": executed_size,
+                        "avg_entry_price": entry_price,
+                        "lowest_price_since_entry": entry_price,
+                        "max_position_size": executed_size,
+                        "entry_shock_score": float(context.get("shock_score_at_entry", 0.0)),
+                        "ladder_used": False,
+                    }
                 )
-                entry_exit_plan = evaluate_exit_engine(
-                    close=entry_price,
-                    current_bar=len(self),
-                    state=self.position_state,
-                    recovery_frac=self.p.recovery_frac,
-                    take_profit_pct=self.p.take_profit_pct,
-                    stop_loss_pct=self.p.stop_loss_pct,
-                    max_hold_bars=self.p.max_hold_bars,
-                )
+                self.position_state = create_position_state(entry_price=entry_price, entry_bar=current_bar, anchor_price=anchor_price)
                 self.current_trade_record = {
                     "symbol": self._get_symbol(),
                     "entry_datetime": self._current_datetime(),
+                    "entry_bar": current_bar,
                     "position_size": executed_size,
                     "entry_price": entry_price,
+                    "avg_entry_price": entry_price,
                     "anchor_price_at_entry": anchor_price,
+                    "effective_anchor_price": anchor_price,
                     "excursion_at_entry": float(context.get("excursion_at_entry", 0.0)),
                     "shock_score_at_entry": float(context.get("shock_score_at_entry", 0.0)),
-                    "recovery_target": entry_exit_plan.recovery_target,
-                    "take_profit_price": entry_exit_plan.take_profit_price,
-                    "effective_target_price": entry_exit_plan.effective_target_price,
+                    "leg_count": 1,
+                    "ladder_used": False,
+                    "max_position_size": executed_size,
+                    "recovery_target": self._build_recovery_target(),
+                    "take_profit_price": entry_price * (1.0 + float(self.p.take_profit_pct)) if self.p.take_profit_pct is not None else None,
+                    "effective_target_price": self._build_exit_snapshot(entry_price)["effective_target_price"],
                     **export_trade_metrics(self.position_state),
                 }
-            self._record_leg(entry_price=entry_price, size=executed_size, anchor_price=anchor_price)
-            avg_entry_price, effective_anchor_price, position_size = self._compute_position_metrics()
-            self.current_trade_record.update(
-                {
-                    "avg_entry_price": avg_entry_price,
-                    "effective_anchor_price": effective_anchor_price,
-                    "position_size": position_size,
-                    "leg_count": int(self.current_legs or 1),
-                }
-            )
-            self.pending_entry_context = None
+                return
+
+            ts = self.trade_state
+            previous_total = int(ts["total_size"])
+            previous_avg = float(ts["avg_entry_price"])
+            new_total = previous_total + executed_size
+            new_avg = ((previous_avg * previous_total) + (entry_price * executed_size)) / new_total
+            ts["leg_count"] = int(ts["leg_count"]) + 1
+            ts["leg_prices"].append(entry_price)
+            ts["leg_sizes"].append(executed_size)
+            ts["last_leg_bar"] = current_bar
+            ts["last_leg_price"] = entry_price
+            ts["total_size"] = new_total
+            ts["avg_entry_price"] = new_avg
+            ts["lowest_price_since_entry"] = min(float(ts["lowest_price_since_entry"]), entry_price)
+            ts["max_position_size"] = max(int(ts["max_position_size"]), new_total)
+            ts["ladder_used"] = True
+
+            if self.current_trade_record is not None:
+                self.current_trade_record.update(
+                    {
+                        "position_size": new_total,
+                        "avg_entry_price": new_avg,
+                        "leg_count": int(ts["leg_count"]),
+                        "ladder_used": True,
+                        "max_position_size": int(ts["max_position_size"]),
+                        "effective_anchor_price": max(
+                            float(self.current_trade_record.get("effective_anchor_price", anchor_price)),
+                            anchor_price,
+                        ),
+                        "recovery_target": self._build_recovery_target(),
+                        "take_profit_price": self._build_exit_snapshot(entry_price)["take_profit_price"],
+                        "effective_target_price": self._build_exit_snapshot(entry_price)["effective_target_price"],
+                    }
+                )
             return
 
-        if not order.issell() or self.current_trade_record is None or self.position_state is None:
+        if not order.issell() or self.current_trade_record is None or self.position_state is None or not self.trade_state["is_open"]:
             return
 
         exit_price = float(order.executed.price)
-        update_trade_metrics(self.position_state, exit_price, len(self))
-        exit_plan = evaluate_exit_engine(
-            close=exit_price,
-            current_bar=len(self),
-            state=self.position_state,
-            recovery_frac=self.p.recovery_frac,
-            take_profit_pct=self.p.take_profit_pct,
-            stop_loss_pct=self.p.stop_loss_pct,
-            max_hold_bars=self.p.max_hold_bars,
-        )
-        standardized_reason = self.pending_exit_reason or self._standardize_exit_reason(exit_plan.reason)
-        trade_record = dict(self.current_trade_record)
+        current_bar = len(self)
+        update_trade_metrics(self.position_state, exit_price, current_bar)
+        self._sync_trade_metrics()
+        ts = self.trade_state
+        exit_snapshot = self._build_exit_snapshot(exit_price)
+        entry_bar = int(ts["entry_bar"] or current_bar)
+        holding_bars = max(0, current_bar - entry_bar)
+        avg_entry_price = float(ts["avg_entry_price"] or exit_price)
+        total_size = int(ts["total_size"] or 0)
         mfe_price = float(self.position_state.mfe_price or self.position_state.entry_price)
         mae_price = float(self.position_state.mae_price or self.position_state.entry_price)
-        avg_entry_price, effective_anchor_price, position_size = self._compute_position_metrics()
         trade_return = (exit_price - avg_entry_price) / avg_entry_price if avg_entry_price else 0.0
-        trade_pnl_amount = (exit_price - avg_entry_price) * float(position_size)
+        trade_pnl_amount = (exit_price - avg_entry_price) * float(total_size)
         mfe = (mfe_price - avg_entry_price) / avg_entry_price if avg_entry_price else float(self.position_state.mfe_pct)
         mae = (mae_price - avg_entry_price) / avg_entry_price if avg_entry_price else float(self.position_state.mae_pct)
         etd = max(0.0, (mfe_price - exit_price) / avg_entry_price) if avg_entry_price else 0.0
+        trade_record = dict(self.current_trade_record)
+        standardized_reason = self.pending_exit_reason or trade_record.get("pending_exit_reason") or self._standardize_exit_reason(self._check_exit_conditions(exit_price))
+
         trade_record.update(
             {
                 "exit_datetime": self._current_datetime(),
+                "exit_bar": current_bar,
                 "exit_price": exit_price,
                 **export_trade_metrics(self.position_state),
-                "holding_period": exit_plan.holding_bars,
+                "holding_period": holding_bars,
+                "holding_bars": holding_bars,
                 "trade_return": trade_return,
                 "trade_pnl_amount": float(trade_pnl_amount),
+                "pnl_amount": float(trade_pnl_amount),
                 "mfe": mfe,
                 "mae": mae,
                 "etd": etd,
-                "leg_count": int(self.current_legs or 1),
+                "leg_count": int(ts["leg_count"]),
                 "avg_entry_price": avg_entry_price,
-                "effective_anchor_price": effective_anchor_price,
-                "position_size": position_size,
+                "position_size": total_size,
+                "total_size": total_size,
+                "max_position_size": int(ts["max_position_size"]),
+                "ladder_used": bool(ts["ladder_used"]),
+                "entry_bar": entry_bar,
+                "return": trade_return,
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,
-                "recovery_target": exit_plan.recovery_target,
-                "take_profit_price": exit_plan.take_profit_price,
-                "effective_target_price": exit_plan.effective_target_price,
+                "recovery_target": exit_snapshot["recovery_target"],
+                "take_profit_price": exit_snapshot["take_profit_price"],
+                "effective_target_price": exit_snapshot["effective_target_price"],
             }
         )
         self.completed_trades.append(trade_record)
-        self._clear_trade_state()
+        self.current_trade_record = None
+        self.current_trade_reason = None
+        self.position_state = None
+        self.pending_exit_reason = None
+        self._reset_trade_state()
 
     def next(self) -> None:
         self._apply_margin_interest()
         close = float(self.data.close[0])
+        low = float(self.data.low[0])
         rolling_max_close = float(self.rolling_max_close[0])
         excursion_value = float(self.excursion[0])
         if math.isnan(excursion_value):
@@ -379,110 +485,104 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             score_weights=self.score_weights,
         )
 
-        if self.position and self.position_state is not None:
-            update_trade_metrics(self.position_state, close, len(self))
-            self._sync_trade_metrics()
-            if self.current_trade_record is not None:
-                avg_entry_price, effective_anchor_price, position_size = self._compute_position_metrics()
-                self.current_trade_record.update(
-                    {
-                        "avg_entry_price": avg_entry_price,
-                        "effective_anchor_price": effective_anchor_price,
-                        "position_size": position_size,
-                        "leg_count": int(self.current_legs or 1),
-                    }
-                )
-
         signal_trigger = excursion_value <= -self.p.excursion_threshold
         score_filter_enabled = bool(self.p.use_shock_score_filter)
         active_shock_score_min = float(self.p.shock_score_min) if score_filter_enabled else None
-        active_shock_score_max = (
-            None
-            if not score_filter_enabled or self.p.shock_score_max is None
-            else float(self.p.shock_score_max)
-        )
+        active_shock_score_max = None if not score_filter_enabled or self.p.shock_score_max is None else float(self.p.shock_score_max)
         score_above_min = True if active_shock_score_min is None else score_breakdown.shock_score >= active_shock_score_min
         score_below_max = True if active_shock_score_max is None else score_breakdown.shock_score <= active_shock_score_max
         blocked_by_shock_score_low = bool(signal_trigger and score_filter_enabled and not score_above_min)
         blocked_by_shock_score_high = bool(signal_trigger and score_filter_enabled and not score_below_max)
-        entry_signal = signal_trigger
-        in_position = bool(self.position)
-        exit_plan = evaluate_exit_engine(
-            close=close,
-            current_bar=len(self),
-            state=self.position_state,
-            recovery_frac=self.p.recovery_frac,
-            take_profit_pct=self.p.take_profit_pct,
-            stop_loss_pct=self.p.stop_loss_pct,
-            max_hold_bars=self.p.max_hold_bars,
-        )
-        exit_reason = exit_plan.reason
-
-        if in_position and exit_plan.signal and self.active_order is None:
-            standardized_reason = self._standardize_exit_reason(exit_reason)
-            self.pending_exit_reason = standardized_reason
-            self.active_order = self.close()
-            self.sell_events += 1
-            if self.current_trade_reason is not None:
-                self.trade_diagnostics.append(
-                    {
-                        "entry_reason": self.current_trade_reason,
-                        "exit_reason": {
-                            "reason": standardized_reason,
-                            "exit_subtype": standardized_reason,
-                            "holding_bars": exit_plan.holding_bars,
-                            "recovery_target": exit_plan.recovery_target,
-                            "take_profit_price": exit_plan.take_profit_price,
-                            "effective_target_price": exit_plan.effective_target_price,
-                            "excursion": float(excursion_value),
-                        },
-                    }
-                )
-
-        if in_position and not exit_plan.signal and self.active_order is None and self._should_add_ladder_leg(
-            close=close,
-            current_bar=len(self),
-            shock_score=score_breakdown.shock_score,
-        ):
-            self.pending_entry_context = {
-                "anchor_price_at_entry": rolling_max_close,
-                "excursion_at_entry": excursion_value,
-                "shock_score_at_entry": score_breakdown.shock_score,
-            }
-            self.active_order = self.buy(size=self.p.trade_unit)
-            self.buy_events += 1
-
+        entry_signal = bool(signal_trigger)
         executed = False
         blocked_by: list[str] = []
-        score_filter_enabled = bool(self.p.use_shock_score_filter)
-        entry_condition = signal_trigger and not self.position and self.active_order is None
-        if score_filter_enabled:
-            entry_condition = entry_condition and score_above_min and score_below_max
+        exit_reason: str | None = None
+        exit_snapshot = self._build_exit_snapshot(close)
 
-        if entry_signal and self.position:
-            blocked_by.append("in_position")
-        if entry_signal and self.active_order is not None:
-            blocked_by.append("active_order")
-        if blocked_by_shock_score_low:
-            blocked_by.append("shock_score_low")
-        if blocked_by_shock_score_high:
-            blocked_by.append("shock_score_high")
-
-        if entry_condition:
-            self.pending_entry_context = {
-                "anchor_price_at_entry": rolling_max_close,
-                "excursion_at_entry": excursion_value,
-                "shock_score_at_entry": score_breakdown.shock_score,
-            }
-            self.active_order = self.buy(size=self.p.trade_unit)
-            self.buy_events += 1
-            executed = True
-            self.current_trade_reason = {
-                "signal_trigger": bool(signal_trigger),
-                "excursion": float(excursion_value),
-                "anchor_price": float(rolling_max_close),
-                "shock_score": float(score_breakdown.shock_score),
-            }
+        if self.position and self.trade_state["is_open"] and self.position_state is not None:
+            self.trade_state["bars_held"] = max(0, len(self) - int(self.trade_state["entry_bar"]))
+            if self.trade_state["lowest_price_since_entry"] is None:
+                self.trade_state["lowest_price_since_entry"] = low
+            else:
+                self.trade_state["lowest_price_since_entry"] = min(float(self.trade_state["lowest_price_since_entry"]), low)
+            update_trade_metrics(self.position_state, close, len(self))
+            self._sync_trade_metrics()
+            if self.current_trade_record is not None:
+                self.current_trade_record.update(
+                    {
+                        "avg_entry_price": float(self.trade_state["avg_entry_price"] or close),
+                        "position_size": int(self.trade_state["total_size"]),
+                        "leg_count": int(self.trade_state["leg_count"]),
+                        "ladder_used": bool(self.trade_state["ladder_used"]),
+                        "max_position_size": int(self.trade_state["max_position_size"]),
+                    }
+                )
+            exit_reason = self._check_exit_conditions(close)
+            exit_snapshot = self._build_exit_snapshot(close)
+            if exit_reason is not None and self.active_order is None:
+                self.exit_trade(close, exit_reason)
+                if self.current_trade_reason is not None:
+                    self.trade_diagnostics.append(
+                        {
+                            "entry_reason": self.current_trade_reason,
+                            "exit_reason": {
+                                "reason": self._standardize_exit_reason(exit_reason),
+                                "exit_subtype": self._standardize_exit_reason(exit_reason),
+                                "holding_bars": int(self.trade_state["bars_held"]),
+                                "recovery_target": exit_snapshot["recovery_target"],
+                                "take_profit_price": exit_snapshot["take_profit_price"],
+                                "effective_target_price": exit_snapshot["effective_target_price"],
+                                "excursion": float(excursion_value),
+                            },
+                        }
+                    )
+                self.diagnostics.append(
+                    {
+                        "datetime": self._current_datetime(),
+                        "signal_trigger": bool(signal_trigger),
+                        **score_breakdown.to_dict(),
+                        "threshold": float(self.p.excursion_threshold),
+                        "entry_signal": bool(entry_signal),
+                        "shock_score_filter_enabled": bool(score_filter_enabled),
+                        "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
+                        "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
+                        "shock_score_pass": bool((not score_filter_enabled) or (score_above_min and score_below_max)),
+                        "shock_score_min": active_shock_score_min,
+                        "shock_score_max": active_shock_score_max,
+                        "executed": False,
+                        "blocked_by": list(blocked_by),
+                        "in_position": True,
+                        "holding_bars": int(self.trade_state["bars_held"]),
+                        "recovery_target": exit_snapshot["recovery_target"],
+                        "take_profit_price": exit_snapshot["take_profit_price"],
+                        "effective_target_price": exit_snapshot["effective_target_price"],
+                        "exit_reason": self._standardize_exit_reason(exit_reason),
+                    }
+                )
+                return
+            if self.active_order is None and self._check_add_leg(close, score_breakdown.shock_score, len(self)):
+                self.add_leg(close, int(self.p.trade_unit), score_breakdown.shock_score)
+        else:
+            entry_condition = entry_signal and not self.position and self.active_order is None
+            if score_filter_enabled:
+                entry_condition = entry_condition and score_above_min and score_below_max
+            if entry_signal and self.position:
+                blocked_by.append("in_position")
+            if entry_signal and self.active_order is not None:
+                blocked_by.append("active_order")
+            if blocked_by_shock_score_low:
+                blocked_by.append("shock_score_low")
+            if blocked_by_shock_score_high:
+                blocked_by.append("shock_score_high")
+            if entry_condition:
+                self.enter_trade(close, int(self.p.trade_unit), score_breakdown.shock_score)
+                self.current_trade_reason = {
+                    "signal_trigger": bool(signal_trigger),
+                    "excursion": float(excursion_value),
+                    "anchor_price": float(rolling_max_close),
+                    "shock_score": float(score_breakdown.shock_score),
+                }
+                executed = True
 
         if entry_signal:
             self.signal_events.append(
@@ -516,10 +616,10 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "executed": bool(executed),
                 "blocked_by": list(blocked_by),
                 "in_position": bool(self.position),
-                "holding_bars": exit_plan.holding_bars if self.position_state is not None else 0,
-                "recovery_target": exit_plan.recovery_target,
-                "take_profit_price": exit_plan.take_profit_price,
-                "effective_target_price": exit_plan.effective_target_price,
+                "holding_bars": int(self.trade_state["bars_held"]),
+                "recovery_target": exit_snapshot["recovery_target"],
+                "take_profit_price": exit_snapshot["take_profit_price"],
+                "effective_target_price": exit_snapshot["effective_target_price"],
                 "exit_reason": self._standardize_exit_reason(exit_reason),
             }
         )

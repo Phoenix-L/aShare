@@ -15,6 +15,13 @@ parameters:
   trade_unit: 500        # Fixed shares per entry.
   use_margin: false      # Enable only when you want financing support.
   margin_rate_annual: 0.0835  # Annualized financing rate used when margin is enabled.
+  ladder:
+    enabled: true
+    max_legs: 3
+    ladder_min_drop_pct: 0.02
+    ladder_min_bars_between_legs: 1
+    ladder_score_min_add: 30
+    min_bars_left_for_add: 2
 
 params:
   excursion_lookback_bars: [8, 12, 16]  # Bars used for the rolling close anchor.
