@@ -178,7 +178,23 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
             {"strategy": "shock_reversion_intraday", "symbol": "600519.SH", "date_range": {"start": "2024-01-01", "end": "2024-01-20"}, "initial_cash": 100000.0},
             {"entry_signals": 40, "executed_trades": 36, "blocked_by_multiple": 5, "avg_return_per_trade": 0.0035608091836527733, "avg_mfe": 0.025, "avg_mae": -0.005, "avg_etd": 0.0025},
             [
-                {"run_id": "run_001", "symbol": "600519.SH", "size": 500, "holding_bars": 3, "trade_return": 0.0035608091836527733, "mfe": 0.025, "mae": -0.005, "etd": 0.0025, "exit_reason": "recovery", "shock_score_at_entry": 70.0}
+                {
+                    "run_id": "run_001",
+                    "symbol": "600519.SH",
+                    "size": 500,
+                    "entry_price": 100.0,
+                    "avg_entry_price": 100.0,
+                    "holding_bars": 3,
+                    "trade_return": 0.0035608091836527733,
+                    "mfe": 0.025,
+                    "mae": -0.005,
+                    "etd": 0.0025,
+                    "anchor_price_at_entry": 100.0,
+                    "effective_anchor_price": 100.0,
+                    "num_legs": 1,
+                    "exit_reason": "recovery",
+                    "shock_score_at_entry": 70.0,
+                }
                 for _ in range(36)
             ],
         ),
@@ -189,7 +205,23 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
             {"strategy": "shock_reversion_intraday", "symbol": "000858.SZ", "date_range": {"start": "2024-02-01", "end": "2024-02-20"}, "initial_cash": 100000.0},
             {"entry_signals": 3, "executed_trades": 1, "blocked_by_multiple": 0, "avg_return_per_trade": -0.02, "avg_mfe": 0.005, "avg_mae": -0.025, "avg_etd": 0.001},
             [
-                {"run_id": "run_002", "symbol": "000858.SZ", "size": 100, "holding_bars": 3, "trade_return": -0.02, "mfe": 0.005, "mae": -0.025, "etd": 0.001, "exit_reason": "max_hold", "shock_score_at_entry": 35.0},
+                {
+                    "run_id": "run_002",
+                    "symbol": "000858.SZ",
+                    "size": 100,
+                    "entry_price": 100.0,
+                    "avg_entry_price": 99.0,
+                    "holding_bars": 3,
+                    "trade_return": -0.02,
+                    "mfe": 0.005,
+                    "mae": -0.025,
+                    "etd": 0.001,
+                    "anchor_price_at_entry": 100.0,
+                    "effective_anchor_price": 102.0,
+                    "num_legs": 2,
+                    "exit_reason": "max_hold",
+                    "shock_score_at_entry": 35.0,
+                },
             ],
         ),
     ]
@@ -224,6 +256,8 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert first["compound_trade_return"] > first["sum_trade_return"]
     assert first["avg_return_per_trade"] == pytest.approx(0.0035608091836527733)
     assert first["avg_return_per_trade"] == pytest.approx(0.0035608091836527733)
+    assert first["avg_legs_per_trade"] == pytest.approx(1.0)
+    assert first["multi_leg_trade_share"] == pytest.approx(0.0)
     assert first["executed_trades"] == 36
     assert first["entry_signals"] == 40
     assert first["blocked_by_multiple"] == 5
@@ -247,6 +281,8 @@ def test_build_summary_writes_run_performance_report(monkeypatch, tmp_path: Path
     assert second["total_return_simple"] == pytest.approx(-0.05)
     assert second["total_return_log"] == pytest.approx(-0.05129329438755058)
     assert second["sum_trade_return"] == pytest.approx(-0.02)
+    assert second["avg_legs_per_trade"] == pytest.approx(2.0)
+    assert second["multi_leg_trade_share"] == pytest.approx(1.0)
     assert second["max_hold_share"] == 1.0
     assert second["use_shock_score_filter"] in {False, 0}
 
