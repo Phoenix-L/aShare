@@ -9,6 +9,16 @@ from typing import Any
 import yaml
 
 
+_LADDER_PARAM_MAP = {
+    "enabled": "enable_ladder",
+    "max_legs": "max_legs",
+    "ladder_min_drop_pct": "ladder_min_drop_pct",
+    "ladder_min_bars_between_legs": "ladder_min_bars_between_legs",
+    "ladder_score_min_add": "ladder_score_min_add",
+    "min_bars_left_for_add": "min_bars_left_for_add",
+}
+
+
 def _to_date_str(value: Any, field_name: str) -> str:
     """Normalize date_range.start/end to YYYY-MM-DD string (PyYAML may parse as date)."""
     if value is None:
@@ -29,6 +39,22 @@ def _require_mapping(value: Any, field_name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"'{field_name}' must be a mapping")
     return value
+
+
+def _flatten_ladder_block(mapping: dict[str, Any], field_name: str) -> dict[str, Any]:
+    normalized = dict(mapping)
+    ladder = normalized.pop("ladder", None)
+    if ladder is None:
+        return normalized
+    if not isinstance(ladder, dict):
+        raise ValueError(f"'{field_name}.ladder' must be a mapping")
+
+    for key, value in ladder.items():
+        flat_key = _LADDER_PARAM_MAP.get(key)
+        if flat_key is None:
+            raise ValueError(f"Unsupported ladder key in '{field_name}.ladder': {key}")
+        normalized[flat_key] = value
+    return normalized
 
 
 def load_experiment_spec(path: str | Path) -> dict[str, Any]:
@@ -64,10 +90,10 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     start = _to_date_str(start_value, "start")
     end = _to_date_str(end_value, "end")
 
-    parameters = _require_mapping(raw.get("parameters"), "parameters")
+    parameters = _flatten_ladder_block(_require_mapping(raw.get("parameters"), "parameters"), "parameters")
     if "grid_search" in raw and "params" in raw:
         raise ValueError("Use either 'grid_search' or 'params', not both")
-    grid = _require_mapping(raw.get("grid_search", raw.get("params")), "grid_search")
+    grid = _flatten_ladder_block(_require_mapping(raw.get("grid_search", raw.get("params")), "grid_search"), "grid_search")
     for key, values in grid.items():
         if not isinstance(values, list) or not values:
             raise ValueError(f"'grid_search.{key}' must be a non-empty list")

@@ -83,3 +83,39 @@ params:
         "excursion_lookback_bars": [8, 12],
         "excursion_threshold": [0.03, 0.05],
     }
+
+
+def test_load_experiment_spec_flattens_nested_ladder_parameters(tmp_path) -> None:
+    spec_file = tmp_path / "shock_reversion_intraday_template.yaml"
+    spec_file.write_text(
+        """
+experiment_name: shock_reversion_intraday_template
+strategy: shock_reversion_intraday
+symbols:
+  - 002850.SZ
+start: 2025-07-01
+end: 2026-02-28
+parameters:
+  trade_unit: 500
+  ladder:
+    enabled: true
+    max_legs: 3
+params:
+  excursion_lookback_bars: [8]
+  ladder:
+    ladder_min_drop_pct: [0.02]
+    ladder_min_bars_between_legs: [1]
+    ladder_score_min_add: [30]
+    min_bars_left_for_add: [2]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    spec = load_experiment_spec(spec_file)
+
+    assert spec["parameters"]["enable_ladder"] is True
+    assert spec["parameters"]["max_legs"] == 3
+    assert spec["grid"]["ladder_min_drop_pct"] == [0.02]
+    assert spec["grid"]["ladder_min_bars_between_legs"] == [1]
+    assert spec["grid"]["ladder_score_min_add"] == [30]
+    assert spec["grid"]["min_bars_left_for_add"] == [2]

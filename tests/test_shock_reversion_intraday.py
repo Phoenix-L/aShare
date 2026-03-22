@@ -399,14 +399,14 @@ def test_shock_reversion_profit_exit_uses_first_target_hit() -> None:
     assert exit_plan.signal is True
 
 
-def test_shock_reversion_recovery_exit_uses_frozen_anchor() -> None:
+def test_shock_reversion_recovery_exit_uses_lowest_price_rebound() -> None:
     closes = [100.0] * 180 + [97.0, 98.0, 99.0, 99.0]
     strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": 0.5, "max_hold_bars": 10, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     trade = strat.completed_trades[0]
     assert trade["anchor_price_at_entry"] == 100.0
     assert trade["exit_reason"] == "recovery"
-    assert trade["effective_target_price"] == 99.0
+    assert trade["effective_target_price"] == pytest.approx(97.5)
 
 
 def test_shock_reversion_tracks_etd_from_peak_to_exit() -> None:
@@ -430,8 +430,8 @@ def test_shock_reversion_etd_is_zero_when_exit_matches_peak() -> None:
 
 
 def test_shock_reversion_max_hold_remains_safeguard() -> None:
-    closes = [100.0] * 180 + [97.0, 98.0, 98.0, 98.0, 98.0]
-    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
+    closes = [100.0] * 180 + [97.0, 97.0, 97.0, 97.0, 97.0]
+    strat = _run(closes, {"trade_unit": 500, "excursion_lookback_bars": 3, "excursion_threshold": 0.01, "recovery_frac": None, "take_profit_pct": 0.05, "max_hold_bars": 2, "stop_loss_pct": 0.10})
     assert len(strat.completed_trades) == 1
     assert strat.completed_trades[0]["exit_reason"] == "max_hold"
 
@@ -471,3 +471,29 @@ def test_shock_reversion_requires_only_intraday_excursion_history() -> None:
 
     assert len(strat.diagnostics) > 0
     assert metrics["diagnostics_summary"]["total_bars"] > 0
+
+
+def test_shock_reversion_add_leg_respects_min_bars_left_for_add() -> None:
+    closes = [100.0] * 180 + [97.0, 96.0, 95.0, 95.0, 95.0]
+    strat = _run(
+        closes,
+        {
+            "trade_unit": 100,
+            "enable_ladder": True,
+            "ladder_min_drop_pct": 0.01,
+            "ladder_min_bars_between_legs": 1,
+            "ladder_score_min_add": 0.0,
+            "min_bars_left_for_add": 3,
+            "max_legs": 3,
+            "excursion_lookback_bars": 3,
+            "excursion_threshold": 0.01,
+            "recovery_frac": None,
+            "take_profit_pct": 0.10,
+            "max_hold_bars": 3,
+            "stop_loss_pct": 0.20,
+        },
+    )
+
+    assert strat.buy_events == 1
+    assert strat.trade_state["leg_count"] == 1
+    assert strat.trade_state["total_size"] == 100
