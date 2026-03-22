@@ -56,6 +56,10 @@ TRADE_EXPORT_COLUMNS = [
     "bars_to_mae",
     "exit_reason",
     "exit_subtype",
+    "trade_pnl_amount",
+    "sim_trade_pnl_amount",
+    "incremental_pnl_amount",
+    "incremental_capital_efficiency",
 ]
 
 SIGNAL_EXPORT_COLUMNS = [

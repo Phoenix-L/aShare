@@ -226,6 +226,35 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         effective_anchor_price = max(self.sim_anchor_prices) if self.sim_anchor_prices else fallback_anchor_price
         return float(avg_entry_price), float(effective_anchor_price), int(total_size)
 
+    def _compute_ladder_pnl_metrics(
+        self,
+        *,
+        entry_price: float,
+        exit_price: float,
+        trade_unit: int,
+        sim_num_legs: int,
+        sim_avg_entry_price: float,
+    ) -> dict[str, float]:
+        """Return absolute PnL and incremental capital-efficiency diagnostics."""
+        trade_unit = int(trade_unit or 0)
+        sim_num_legs = int(sim_num_legs or 1)
+        sim_total_size = trade_unit * sim_num_legs
+        trade_pnl_amount = (float(exit_price) - float(entry_price)) * float(trade_unit)
+        sim_trade_pnl_amount = (float(exit_price) - float(sim_avg_entry_price)) * float(sim_total_size)
+        incremental_pnl_amount = sim_trade_pnl_amount - trade_pnl_amount
+        incremental_notional_amount = float((sim_total_size - trade_unit) * float(entry_price))
+
+        incremental_capital_efficiency = 0.0
+        if sim_num_legs > 1 and incremental_notional_amount != 0.0:
+            incremental_capital_efficiency = incremental_pnl_amount / incremental_notional_amount
+
+        return {
+            "trade_pnl_amount": float(trade_pnl_amount),
+            "sim_trade_pnl_amount": float(sim_trade_pnl_amount),
+            "incremental_pnl_amount": float(incremental_pnl_amount),
+            "incremental_capital_efficiency": float(incremental_capital_efficiency),
+        }
+
     def _maybe_simulate_ladder_add(
         self,
         *,
@@ -379,6 +408,13 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             if sim_avg_entry_price
             else max(0.0, (mfe_price - exit_price) / entry_price)
         )
+        ladder_pnl_metrics = self._compute_ladder_pnl_metrics(
+            entry_price=entry_price,
+            exit_price=exit_price,
+            trade_unit=int(trade_record.get("size", self.p.trade_unit) or self.p.trade_unit),
+            sim_num_legs=int(self.sim_legs_count or 1),
+            sim_avg_entry_price=sim_avg_entry_price or avg_entry_price,
+        )
         trade_record.update(
             {
                 "exit_datetime": self._current_datetime(),
@@ -401,6 +437,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "recovery_target": exit_plan.recovery_target,
                 "take_profit_price": exit_plan.take_profit_price,
                 "effective_target_price": exit_plan.effective_target_price,
+                **ladder_pnl_metrics,
                 **export_trade_metrics(self.position_state),
             }
         )

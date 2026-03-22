@@ -215,6 +215,12 @@ def test_shock_reversion_trade_records_include_score_at_entry() -> None:
     assert strat.completed_trades[0]["sim_mfe"] == pytest.approx(strat.completed_trades[0]["mfe"])
     assert strat.completed_trades[0]["sim_mae"] == pytest.approx(strat.completed_trades[0]["mae"])
     assert strat.completed_trades[0]["sim_etd"] == pytest.approx(strat.completed_trades[0]["etd"])
+    assert strat.completed_trades[0]["trade_pnl_amount"] == pytest.approx(
+        (strat.completed_trades[0]["exit_price"] - strat.completed_trades[0]["entry_price"]) * 500
+    )
+    assert strat.completed_trades[0]["sim_trade_pnl_amount"] == pytest.approx(strat.completed_trades[0]["trade_pnl_amount"])
+    assert strat.completed_trades[0]["incremental_pnl_amount"] == pytest.approx(0.0)
+    assert strat.completed_trades[0]["incremental_capital_efficiency"] == pytest.approx(0.0)
 
 
 def test_shock_reversion_ladder_simulation_tracks_virtual_adds_without_extra_orders() -> None:
@@ -245,6 +251,9 @@ def test_shock_reversion_ladder_simulation_tracks_virtual_adds_without_extra_ord
     assert trade["sim_effective_anchor_price"] == pytest.approx(100.0)
     assert trade["sim_trade_return"] != pytest.approx(trade["trade_return"])
     assert trade["sim_etd"] >= trade["etd"]
+    assert trade["sim_trade_pnl_amount"] != pytest.approx(trade["trade_pnl_amount"])
+    assert trade["incremental_pnl_amount"] == pytest.approx(trade["sim_trade_pnl_amount"] - trade["trade_pnl_amount"])
+    assert trade["incremental_capital_efficiency"] != pytest.approx(0.0)
 
 
 def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:

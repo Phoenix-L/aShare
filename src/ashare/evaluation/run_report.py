@@ -36,6 +36,10 @@ REPORT_COLUMNS = [
     "sim_multi_leg_trade_share",
     "sim_avg_etd",
     "sim_capital_efficiency",
+    "total_trade_pnl_amount",
+    "total_sim_trade_pnl_amount",
+    "total_incremental_pnl_amount",
+    "avg_incremental_capital_efficiency",
     "delta_return",
     "delta_etd",
     "delta_efficiency",
@@ -259,6 +263,17 @@ def _sim_total_return_simple(
     return float((aligned_returns * weights).sum())
 
 
+def _series_or_default(
+    trades_df: pd.DataFrame,
+    column: str,
+    *,
+    default: float = 0.0,
+) -> pd.Series:
+    if column in trades_df.columns:
+        return pd.to_numeric(trades_df.get(column), errors="coerce").fillna(default)
+    return pd.Series([default] * len(trades_df.index), dtype=float)
+
+
 def _run_payload(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     run_payload = _load_json(run_dir / "run_result.json")
     if run_payload:
@@ -383,6 +398,52 @@ def _build_row(
             0.0,
         )
     )
+    entry_prices = _series_or_default(trades_df, "entry_price")
+    exit_prices = _series_or_default(trades_df, "exit_price")
+    base_trade_units = (
+        pd.to_numeric(trades_df.get("size"), errors="coerce")
+        if "size" in trades_df.columns
+        else pd.Series([_safe_float(params.get("trade_unit"), 0.0) or 0.0] * len(trades_df.index), dtype=float)
+    ).fillna(_safe_float(params.get("trade_unit"), 0.0) or 0.0)
+    sim_avg_entry_prices = (
+        pd.to_numeric(trades_df.get("sim_avg_entry_price"), errors="coerce")
+        if "sim_avg_entry_price" in trades_df.columns
+        else entry_prices.copy()
+    ).fillna(entry_prices)
+    effective_sim_num_legs = sim_num_legs.fillna(1.0)
+    trade_pnl_amounts = (
+        pd.to_numeric(trades_df.get("trade_pnl_amount"), errors="coerce")
+        if "trade_pnl_amount" in trades_df.columns
+        else (exit_prices - entry_prices) * base_trade_units
+    ).fillna(0.0)
+    sim_trade_pnl_amounts = (
+        pd.to_numeric(trades_df.get("sim_trade_pnl_amount"), errors="coerce")
+        if "sim_trade_pnl_amount" in trades_df.columns
+        else (exit_prices - sim_avg_entry_prices) * (base_trade_units * effective_sim_num_legs)
+    ).fillna(0.0)
+    incremental_pnl_amounts = (
+        pd.to_numeric(trades_df.get("incremental_pnl_amount"), errors="coerce")
+        if "incremental_pnl_amount" in trades_df.columns
+        else (sim_trade_pnl_amounts - trade_pnl_amounts)
+    ).fillna(0.0)
+    incremental_notional_amounts = ((base_trade_units * effective_sim_num_legs) - base_trade_units) * entry_prices
+    incremental_capital_efficiency = (
+        pd.to_numeric(trades_df.get("incremental_capital_efficiency"), errors="coerce")
+        if "incremental_capital_efficiency" in trades_df.columns
+        else pd.Series(
+            [
+                float(incremental_pnl) / float(incremental_notional)
+                if float(sim_legs) > 1.0 and float(incremental_notional) != 0.0
+                else 0.0
+                for incremental_pnl, incremental_notional, sim_legs in zip(
+                    incremental_pnl_amounts.tolist(),
+                    incremental_notional_amounts.tolist(),
+                    effective_sim_num_legs.tolist(),
+                )
+            ],
+            dtype=float,
+        )
+    ).fillna(0.0)
     executed_trades = int(_coalesce(len(trades_df.index) if not trades_df.empty else None, _safe_float(diagnostics_summary.get("executed_trades"), None), _safe_float(summary_row.get("num_trades"), None), 0.0))
 
     date_range = meta.get("date_range") if isinstance(meta.get("date_range"), dict) else {}
@@ -413,6 +474,10 @@ def _build_row(
         "sim_multi_leg_trade_share": float((sim_num_legs > 1).mean()) if not sim_num_legs.dropna().empty else 0.0,
         "sim_avg_etd": sim_avg_etd,
         "sim_capital_efficiency": sim_capital_efficiency,
+        "total_trade_pnl_amount": float(trade_pnl_amounts.sum()) if not trade_pnl_amounts.empty else 0.0,
+        "total_sim_trade_pnl_amount": float(sim_trade_pnl_amounts.sum()) if not sim_trade_pnl_amounts.empty else 0.0,
+        "total_incremental_pnl_amount": float(incremental_pnl_amounts.sum()) if not incremental_pnl_amounts.empty else 0.0,
+        "avg_incremental_capital_efficiency": _avg(incremental_capital_efficiency[effective_sim_num_legs > 1.0]),
         "delta_return": sim_avg_return_per_trade - avg_return_per_trade,
         "delta_etd": sim_avg_etd - avg_etd,
         "delta_efficiency": sim_capital_efficiency - capital_efficiency,
