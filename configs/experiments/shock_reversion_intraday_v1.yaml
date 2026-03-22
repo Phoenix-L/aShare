@@ -17,8 +17,19 @@ parameters:
   margin_rate_annual: 0.0835  # Annualized financing rate used when margin is enabled.
 
 params:
-  excursion_lookback_bars: [8, 12, 16]  # Bars used for the rolling close anchor.
-  excursion_threshold: [0.03, 0.05]     # Minimum downside excursion needed to trigger a signal.
+  shock_score:
+    excursion_lookback_bars: [8, 12, 16]  # Bars used for the rolling close anchor.
+    excursion_threshold: [0.03, 0.05]     # Minimum downside excursion needed to trigger a signal.
+    entry_weights:
+      depth: [0.45]
+      speed: [0.25]
+      stabilization: [0.20]
+      noise_penalty: [0.10]
+    add_weights:
+      depth: [0.60]
+      speed: [0.15]
+      stabilization: [0.10]
+      noise_penalty: [0.15]
 
   recovery_frac: [0.5]                  # Fraction of shock depth that must be recovered to exit.
 

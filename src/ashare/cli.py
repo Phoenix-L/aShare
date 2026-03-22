@@ -57,6 +57,7 @@ def _ranking_param_items(strategy_name: str, row: dict) -> list[tuple[str, objec
             ("use_shock_score_filter", "use_shock_score_filter"),
             ("shock_score_min", "shock_score_min"),
             ("shock_score_max", "shock_score_max"),
+            ("add_score_min", "add_score_min"),
         ],
     }
     if strategy_name in strategy_specific:

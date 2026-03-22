@@ -14,8 +14,31 @@ _LADDER_PARAM_MAP = {
     "max_legs": "max_legs",
     "ladder_min_drop_pct": "ladder_min_drop_pct",
     "ladder_min_bars_between_legs": "ladder_min_bars_between_legs",
+    "add_score_min": "add_score_min",
     "ladder_score_min_add": "ladder_score_min_add",
     "min_bars_left_for_add": "min_bars_left_for_add",
+}
+
+_SHOCK_SCORE_PARAM_MAP = {
+    "excursion_lookback_bars": "excursion_lookback_bars",
+    "excursion_threshold": "excursion_threshold",
+    "speed_scale": "speed_scale",
+    "noise_lookback": "noise_lookback",
+    "noise_ratio_scale": "noise_ratio_scale",
+}
+_SHOCK_SCORE_WEIGHT_PARAM_MAP = {
+    "entry_weights": {
+        "depth": "entry_score_weight_depth",
+        "speed": "entry_score_weight_speed",
+        "stabilization": "entry_score_weight_stabilization",
+        "noise_penalty": "entry_score_weight_noise_penalty",
+    },
+    "add_weights": {
+        "depth": "add_score_weight_depth",
+        "speed": "add_score_weight_speed",
+        "stabilization": "add_score_weight_stabilization",
+        "noise_penalty": "add_score_weight_noise_penalty",
+    },
 }
 
 
@@ -57,6 +80,31 @@ def _flatten_ladder_block(mapping: dict[str, Any], field_name: str) -> dict[str,
     return normalized
 
 
+def _flatten_shock_score_block(mapping: dict[str, Any], field_name: str) -> dict[str, Any]:
+    normalized = dict(mapping)
+    shock_score = normalized.pop("shock_score", None)
+    if shock_score is None:
+        return normalized
+    if not isinstance(shock_score, dict):
+        raise ValueError(f"'{field_name}.shock_score' must be a mapping")
+
+    for key, value in shock_score.items():
+        if key in _SHOCK_SCORE_PARAM_MAP:
+            normalized[_SHOCK_SCORE_PARAM_MAP[key]] = value
+            continue
+        if key not in _SHOCK_SCORE_WEIGHT_PARAM_MAP:
+            raise ValueError(f"Unsupported shock_score key in '{field_name}.shock_score': {key}")
+        if not isinstance(value, dict):
+            raise ValueError(f"'{field_name}.shock_score.{key}' must be a mapping")
+        for weight_key, weight_value in value.items():
+            flat_key = _SHOCK_SCORE_WEIGHT_PARAM_MAP[key].get(weight_key)
+            if flat_key is None:
+                raise ValueError(f"Unsupported shock_score weight key in '{field_name}.shock_score.{key}': {weight_key}")
+            normalized[flat_key] = weight_value
+
+    return normalized
+
+
 def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     """Load and validate experiment YAML specification."""
     spec_path = Path(path)
@@ -90,10 +138,16 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
     start = _to_date_str(start_value, "start")
     end = _to_date_str(end_value, "end")
 
-    parameters = _flatten_ladder_block(_require_mapping(raw.get("parameters"), "parameters"), "parameters")
+    parameters = _flatten_shock_score_block(
+        _flatten_ladder_block(_require_mapping(raw.get("parameters"), "parameters"), "parameters"),
+        "parameters",
+    )
     if "grid_search" in raw and "params" in raw:
         raise ValueError("Use either 'grid_search' or 'params', not both")
-    grid = _flatten_ladder_block(_require_mapping(raw.get("grid_search", raw.get("params")), "grid_search"), "grid_search")
+    grid = _flatten_shock_score_block(
+        _flatten_ladder_block(_require_mapping(raw.get("grid_search", raw.get("params")), "grid_search"), "grid_search"),
+        "grid_search",
+    )
     for key, values in grid.items():
         if not isinstance(values, list) or not values:
             raise ValueError(f"'grid_search.{key}' must be a non-empty list")
