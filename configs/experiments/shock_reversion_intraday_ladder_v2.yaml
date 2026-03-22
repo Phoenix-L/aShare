@@ -1,0 +1,108 @@
+# =========================================================
+# Ladder v2 Controlled Experiment (Clean Consolidated)
+# =========================================================
+
+strategy: shock_reversion_intraday
+
+symbols:
+  - 002850.SZ
+
+start: 2025-10-23
+end: 2026-03-18
+
+experiment_name: shock_reversion_intraday_ladder_v2
+
+# =========================================================
+# EXECUTION (GLOBAL, NOT GRID)
+# =========================================================
+execution:
+  initial_cash: 100000
+  allow_margin: true
+
+# =========================================================
+# GRID / PARAM SEARCH
+# =========================================================
+params:
+
+  # ===============================
+  # SHOCK SCORE ENGINE
+  # ===============================
+  shock_score:
+
+    excursion_lookback_bars: [8,12,20]
+    excursion_threshold: [0.03]
+
+    speed_scale: [0.03]
+
+    noise_lookback: [10]
+    noise_ratio_scale: [2.0]
+
+    # ---- ENTRY SCORE WEIGHTS ----
+    entry_weights:
+      depth: [0.45]
+      speed: [0.25]
+      stabilization: [0.20]
+      noise_penalty: [0.10]
+
+    # ---- ADD SCORE WEIGHTS ----
+    add_weights:
+      depth: [0.60]
+      speed: [0.15]
+      stabilization: [0.05]
+      noise_penalty: [0.20]
+
+  # ===============================
+  # ENTRY LOGIC
+  # ===============================
+  entry:
+
+    use_shock_score_filter: [true]
+
+    # RANGE FILTER (CRITICAL)
+    entry_shock_score_min: [30]
+    entry_shock_score_max: [80]
+
+  # ===============================
+  # EXIT LOGIC
+  # ===============================
+  exit:
+
+    take_profit_pct: [0.038]
+    stop_loss_pct: [0.035]
+
+    recovery_frac: [0.38]
+
+    max_hold_bars: [40]
+
+  # ===============================
+  # POSITION
+  # ===============================
+  position:
+
+    trade_unit: [500]
+
+  # ===============================
+  # MARGIN
+  # ===============================
+  margin:
+
+    use_margin: [true]
+    margin_rate_annual: [0.0835]
+
+  # ===============================
+  # LADDER SWITCH
+  # ===============================
+  ladder:
+
+    enabled: [false, true]
+
+    max_legs: [3]
+
+    ladder_min_drop_pct: [0.02, 0.03]
+
+    ladder_min_bars_between_legs: [1]
+
+    # ADD SCORE FILTER (uses add_shock_score)
+    add_score_min: [40]
+
+    min_bars_left_for_add: [8]

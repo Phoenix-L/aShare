@@ -41,6 +41,7 @@ _SHOCK_SCORE_WEIGHT_PARAM_MAP = {
     },
 }
 _ENTRY_PARAM_MAP = {
+    "use_shock_score_filter": "use_shock_score_filter",
     "entry_shock_score_min": "entry_shock_score_min",
     "entry_shock_score_max": "entry_shock_score_max",
     "shock_score_min": "entry_shock_score_min",
@@ -111,6 +112,20 @@ def _flatten_shock_score_block(mapping: dict[str, Any], field_name: str) -> dict
     return normalized
 
 
+def _flatten_simple_nested_blocks(mapping: dict[str, Any], field_name: str) -> dict[str, Any]:
+    """Hoist `exit`, `position`, and `margin` sub-mappings to top-level grid keys."""
+    normalized = dict(mapping)
+    for block_name in ("exit", "position", "margin"):
+        block = normalized.pop(block_name, None)
+        if block is None:
+            continue
+        if not isinstance(block, dict):
+            raise ValueError(f"'{field_name}.{block_name}' must be a mapping")
+        for key, value in block.items():
+            normalized[key] = value
+    return normalized
+
+
 def _flatten_entry_block(mapping: dict[str, Any], field_name: str) -> dict[str, Any]:
     normalized = dict(mapping)
     entry = normalized.pop("entry", None)
@@ -162,7 +177,10 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
 
     parameters = _flatten_entry_block(
         _flatten_shock_score_block(
-            _flatten_ladder_block(_require_mapping(raw.get("parameters"), "parameters"), "parameters"),
+            _flatten_ladder_block(
+                _flatten_simple_nested_blocks(_require_mapping(raw.get("parameters"), "parameters"), "parameters"),
+                "parameters",
+            ),
             "parameters",
         ),
         "parameters",
@@ -171,7 +189,10 @@ def load_experiment_spec(path: str | Path) -> dict[str, Any]:
         raise ValueError("Use either 'grid_search' or 'params', not both")
     grid = _flatten_entry_block(
         _flatten_shock_score_block(
-            _flatten_ladder_block(_require_mapping(raw.get("grid_search", raw.get("params")), "grid_search"), "grid_search"),
+            _flatten_ladder_block(
+                _flatten_simple_nested_blocks(_require_mapping(raw.get("grid_search", raw.get("params")), "grid_search"), "grid_search"),
+                "grid_search",
+            ),
             "grid_search",
         ),
         "grid_search",
