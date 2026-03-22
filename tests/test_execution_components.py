@@ -1,4 +1,7 @@
+import pytest
+
 from ashare.strategies.components.execution import (
+    build_recovery_target,
     create_position_state,
     evaluate_exit_engine,
     export_trade_metrics,
@@ -60,3 +63,26 @@ def test_exit_engine_returns_recovery_then_max_hold_then_stop() -> None:
     )
     assert stop.signal is True
     assert stop.reason == "stop_loss"
+
+
+def test_build_recovery_target_uses_effective_anchor_instead_of_avg_entry() -> None:
+    assert build_recovery_target(anchor_price=101.0, lowest_price_since_entry=94.0, recovery_frac=0.38) == pytest.approx(96.66)
+
+
+def test_exit_engine_uses_anchor_to_low_formula_for_recovery_target() -> None:
+    state = create_position_state(entry_price=95.0, entry_bar=100, anchor_price=101.0)
+    state.lowest_price_since_entry = 94.0
+
+    recovery = evaluate_exit_engine(
+        close=96.66,
+        current_bar=101,
+        state=state,
+        recovery_frac=0.38,
+        take_profit_pct=None,
+        stop_loss_pct=0.1,
+        max_hold_bars=10,
+    )
+
+    assert recovery.signal is True
+    assert recovery.reason == "anchor_recovery"
+    assert recovery.recovery_target == pytest.approx(96.66)

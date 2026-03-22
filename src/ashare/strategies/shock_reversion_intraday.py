@@ -6,7 +6,12 @@ import pandas as pd
 
 import backtrader as bt
 
-from ashare.strategies.components.execution import create_position_state, export_trade_metrics, update_trade_metrics
+from ashare.strategies.components.execution import (
+    build_recovery_target,
+    create_position_state,
+    export_trade_metrics,
+    update_trade_metrics,
+)
 from ashare.strategies.components.shock_score import (
     DEFAULT_SCORE_WEIGHTS,
     compute_shock_components,
@@ -161,6 +166,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             "total_size": 0,
             "avg_entry_price": None,
             "lowest_price_since_entry": None,
+            "effective_anchor_price": None,
             "max_position_size": 0,
             "entry_shock_score": None,
             "ladder_used": False,
@@ -283,12 +289,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
 
     def _build_recovery_target(self) -> float | None:
         ts = self.trade_state
-        avg_entry_price = ts["avg_entry_price"]
-        lowest_price = ts["lowest_price_since_entry"]
-        if avg_entry_price is None or lowest_price is None or self.p.recovery_frac is None:
-            return None
-        rebound_span = max(0.0, float(avg_entry_price) - float(lowest_price))
-        return float(lowest_price) + float(self.p.recovery_frac) * rebound_span
+        return build_recovery_target(
+            anchor_price=ts["effective_anchor_price"],
+            lowest_price_since_entry=ts["lowest_price_since_entry"],
+            recovery_frac=self.p.recovery_frac,
+        )
 
     def _build_exit_snapshot(self, close: float) -> dict[str, float | int | None]:
         ts = self.trade_state
@@ -435,6 +440,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                         "total_size": executed_size,
                         "avg_entry_price": entry_price,
                         "lowest_price_since_entry": entry_price,
+                        "effective_anchor_price": anchor_price,
                         "max_position_size": executed_size,
                         "entry_shock_score": float(context.get("shock_score_at_entry", 0.0)),
                         "ladder_used": False,
@@ -477,6 +483,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             ts["total_size"] = new_total
             ts["avg_entry_price"] = new_avg
             ts["lowest_price_since_entry"] = min(float(ts["lowest_price_since_entry"]), entry_price)
+            ts["effective_anchor_price"] = max(float(ts["effective_anchor_price"] or anchor_price), anchor_price)
             ts["max_position_size"] = max(int(ts["max_position_size"]), new_total)
             ts["ladder_used"] = True
 
