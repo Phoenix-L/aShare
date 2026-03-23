@@ -46,10 +46,12 @@ def test_resolve_output_root_supports_timestamp_and_legacy_names(monkeypatch) ->
     output_name, output_root = resolve_output_root(experiment_name="shock_reversion_intraday", use_timestamp=True)
     assert output_name == "20260323_153045_shock_reversion_intraday"
     assert output_root.name == output_name
+    assert output_root.parent.name == "shock_reversion_intraday"
 
     legacy_name, legacy_root = resolve_output_root(experiment_name="shock_reversion_intraday", use_timestamp=False)
     assert legacy_name == "shock_reversion_intraday"
     assert legacy_root.name == "shock_reversion_intraday"
+    assert legacy_root.parent.name == "shock_reversion_intraday"
 
 
 def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None:
@@ -86,7 +88,7 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
                 "exit_reason": "recovery",
                 "leg_count": 2,
                 "entry_shock_score_at_entry": 65.0,
-                "add_shock_score_at_entry": 82.0,
+                "add_shock_scores": "[82.0, 76.0]",
                 "holding_period": 2,
             },
             {
@@ -99,7 +101,7 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
                 "exit_reason": "stop_loss",
                 "leg_count": 1,
                 "entry_shock_score_at_entry": 28.0,
-                "add_shock_score_at_entry": 15.0,
+                "add_shock_scores": "[]",
                 "holding_period": 4,
             },
             {
@@ -110,9 +112,9 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
                 "trade_return": 0.02,
                 "trade_pnl_amount": 180.0,
                 "exit_reason": "take_profit",
-                "leg_count": 1,
+                "leg_count": 2,
                 "entry_shock_score_at_entry": 92.0,
-                "add_shock_score_at_entry": 55.0,
+                "add_shock_scores": "[55.0]",
                 "holding_period": 1,
             },
         ]
@@ -153,10 +155,16 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
         "ladder_used",
         "entry_shock_score",
         "add_shock_score",
+        "add_shock_scores",
+        "add_score_count",
+        "add_score_min",
+        "add_score_max",
+        "add_score_avg",
         "holding_period",
     ]
     assert len(experiment_trades.index) == 3
     assert experiment_trades.loc[experiment_trades["run_id"] == "run_001", "ladder_used"].tolist() == [True, False]
+    assert experiment_trades.loc[experiment_trades["run_id"] == "run_001", "add_score_count"].tolist() == [2, 0]
 
     exit_analysis = pd.read_csv(dashboard_dir / "exit_analysis.csv")
     assert set(exit_analysis["exit_reason"]) == {"recovery", "stop_loss", "take_profit"}
@@ -171,6 +179,11 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
     assert list(entry_score_analysis["score_bucket"]) == ["0-30", "30-50", "50-70", "70-90", "90-100"]
     assert entry_score_analysis.loc[entry_score_analysis["score_bucket"] == "90-100", "trade_count"].item() == 1
 
+    add_score_analysis = pd.read_csv(dashboard_dir / "add_score_analysis.csv")
+    assert list(add_score_analysis["score_bucket"]) == ["0-30", "30-50", "50-70", "70-90", "90-100"]
+    assert add_score_analysis.loc[add_score_analysis["score_bucket"] == "50-70", "trade_count"].item() == 1
+    assert add_score_analysis.loc[add_score_analysis["score_bucket"] == "70-90", "trade_count"].item() == 2
+
     config_analysis = pd.read_csv(dashboard_dir / "config_analysis.csv")
     assert {"recovery_frac", "ladder_enabled", "add_score_min", "max_legs", "avg_total_return", "avg_drawdown", "avg_trade_return", "trade_count"}.issubset(config_analysis.columns)
     assert config_analysis["trade_count"].sum() == 3
@@ -178,6 +191,40 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
     recovery_diagnostic = pd.read_csv(dashboard_dir / "recovery_diagnostic.csv")
     assert list(recovery_diagnostic["exit_reason"]) == ["recovery", "take_profit", "stop_loss"]
     assert recovery_diagnostic.loc[recovery_diagnostic["exit_reason"] == "recovery", "pct_exit_within_3_bars"].item() == 1.0
+
+
+def test_build_experiment_dashboard_skips_malformed_add_score_payloads(caplog, tmp_path: Path) -> None:
+    caplog.set_level("WARNING", logger="ashare.analysis.experiment_dashboard")
+
+    experiment_dir = tmp_path / "experiment_bad_add_scores"
+    experiment_dir.mkdir()
+    run_001 = experiment_dir / "run_001"
+    run_001.mkdir()
+    _write_run_payload(run_001, meta={"symbol": "600519.SH"})
+
+    pd.DataFrame(
+        [
+            {
+                "run_id": "run_001",
+                "symbol": "600519.SH",
+                "entry_datetime": "2024-01-01 09:30:00",
+                "exit_datetime": "2024-01-01 10:30:00",
+                "trade_return": 0.03,
+                "trade_pnl_amount": 300.0,
+                "exit_reason": "recovery",
+                "leg_count": 2,
+                "entry_shock_score_at_entry": 65.0,
+                "add_shock_scores": "not-json",
+                "holding_period": 2,
+            },
+        ]
+    ).to_csv(experiment_dir / "trades.csv", index=False)
+
+    build_experiment_dashboard(str(experiment_dir))
+
+    add_score_analysis = pd.read_csv(experiment_dir / "dashboard" / "add_score_analysis.csv")
+    assert add_score_analysis.empty
+    assert "malformed add_shock_scores payload" in caplog.text
 
 
 def test_execute_experiment_spec_and_dashboard_cli_generate_dashboard(monkeypatch, tmp_path: Path) -> None:
