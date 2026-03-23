@@ -6,7 +6,7 @@ from click.testing import CliRunner
 
 
 def _timestamped_output_dir(tmp_path, base_name: str):
-    matches = sorted((tmp_path / "outputs").glob(f"*_{base_name}"))
+    matches = sorted((tmp_path / "outputs" / base_name).glob(f"*_{base_name}"))
     assert matches, f"No timestamped output directory found for {base_name}"
     return matches[-1]
 
