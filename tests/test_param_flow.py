@@ -274,12 +274,12 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert len(trades_text.strip().splitlines()) > 1
     header = signals_text.splitlines()[0]
     assert header.startswith("run_id,")
-    assert "add_score_min,ladder_enabled,ladder_min_drop_pct,ladder_min_bars_between_legs,shock_score_filter_enabled" in header
+    assert "add_score_min,drop_from_last_leg_pct,bars_since_last_leg,shock_score_filter_enabled" in header
     assert "datetime" in signals_text
     assert "threshold" in signals_text
-    assert "ladder_enabled" in signals_text
-    assert "ladder_min_drop_pct" in signals_text
-    assert "ladder_min_bars_between_legs" in signals_text
+    assert "drop_from_last_leg_pct" in signals_text
+    assert "bars_since_last_leg" in signals_text
+    assert "in_position" in signals_text
     assert "entry_executed" in signals_text
     assert "add_executed" in signals_text
     assert "execution_type" in signals_text

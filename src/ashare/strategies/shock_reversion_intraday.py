@@ -755,6 +755,8 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 executed = True
                 entry_executed = True
                 execution_type = "entry"
+                drop_from_last_leg_pct = 0.0
+                bars_since_last_leg = 0
 
         if entry_signal:
             self.signal_events.append(
@@ -768,14 +770,12 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "shock_score_min": active_entry_shock_score_min,
                     "shock_score_max": active_entry_shock_score_max,
                     "add_score_min": float(self.add_score_min),
-                    "ladder_enabled": bool(self.p.enable_ladder),
-                    "ladder_min_drop_pct": float(self.p.ladder_min_drop_pct),
-                    "ladder_min_bars_between_legs": int(self.p.ladder_min_bars_between_legs),
+                    "drop_from_last_leg_pct": drop_from_last_leg_pct,
+                    "bars_since_last_leg": bars_since_last_leg,
                     "shock_score_filter_enabled": bool(score_filter_enabled),
                     "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
                     "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
-                    "drop_from_last_leg_pct": drop_from_last_leg_pct,
-                    "bars_since_last_leg": bars_since_last_leg,
+                    "in_position": bool(self.position or self.trade_state["is_open"] or entry_executed or add_executed),
                     "entry_executed": bool(entry_executed),
                     "add_executed": bool(add_executed),
                     "execution_type": execution_type,
