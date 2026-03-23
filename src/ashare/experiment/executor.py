@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import shutil
 from dataclasses import replace
 from datetime import datetime
@@ -44,6 +45,11 @@ TRADE_EXPORT_COLUMNS = [
     "leg_count",
     "excursion_at_entry",
     "shock_score_at_entry",
+    "add_shock_scores",
+    "add_score_count",
+    "trade_pnl_amount",
+    "interest_paid",
+    "trade_pnl_net",
     "recovery_target",
     "take_profit_price",
     "effective_target_price",
@@ -51,10 +57,10 @@ TRADE_EXPORT_COLUMNS = [
     "bars_to_mae",
     "exit_reason",
     "exit_subtype",
-    "trade_pnl_amount",
 ]
 
 SIGNAL_EXPORT_COLUMNS = [
+    "run_id",
     "symbol",
     "datetime",
     "excursion",
@@ -75,12 +81,94 @@ SIGNAL_EXPORT_COLUMNS = [
     "shock_score_min",
     "shock_score_max",
     "add_score_min",
+    "drop_from_last_leg_pct",
+    "bars_since_last_leg",
     "shock_score_filter_enabled",
     "blocked_by_shock_score_low",
     "blocked_by_shock_score_high",
     "trend_ok",
+    "in_position",
     "entry_executed",
+    "add_executed",
+    "execution_type",
 ]
+
+
+def _read_pointer_target(pointer_file: Path) -> Path | None:
+    """Read a pointer text file and resolve relative paths against its parent directory."""
+    raw_target = pointer_file.read_text(encoding="utf-8").strip()
+    if not raw_target:
+        return None
+    candidate = Path(raw_target)
+    if not candidate.is_absolute():
+        candidate = (pointer_file.parent / candidate).resolve()
+    return candidate
+
+
+def resolve_experiment_path(base_dir: Path, mode: str = "latest") -> Path | None:
+    """Resolve the latest/previous experiment pointer via symlink or text fallback."""
+    if mode not in {"latest", "previous"}:
+        raise ValueError("mode must be 'latest' or 'previous'")
+
+    pointer = base_dir / mode
+    pointer_txt = base_dir / f"{mode}.txt"
+
+    if pointer.is_symlink():
+        return pointer.resolve()
+    if pointer.exists():
+        return pointer.resolve()
+    if pointer_txt.exists():
+        return _read_pointer_target(pointer_txt)
+    return None
+
+
+def _write_pointer_text(pointer_txt: Path, target_dir: Path) -> None:
+    """Persist a directory pointer to a text file using a relative path when possible."""
+    try:
+        rendered = os.path.relpath(target_dir.resolve(), pointer_txt.parent.resolve())
+    except ValueError:
+        rendered = str(target_dir.resolve())
+    pointer_txt.write_text(rendered, encoding="utf-8")
+
+
+def update_experiment_pointers(base_dir: Path, new_run_dir: Path) -> Path | None:
+    """Update latest/previous experiment run pointers with symlink and text fallbacks."""
+    latest = base_dir / "latest"
+    previous = base_dir / "previous"
+    latest_txt = base_dir / "latest.txt"
+    previous_txt = base_dir / "previous.txt"
+
+    old_latest = resolve_experiment_path(base_dir, "latest")
+
+    if old_latest and old_latest.exists():
+        try:
+            if previous.exists() or previous.is_symlink():
+                previous.unlink()
+            os.symlink(old_latest.resolve(), previous, target_is_directory=True)
+            if previous_txt.exists():
+                previous_txt.unlink()
+        except OSError:
+            _write_pointer_text(previous_txt, old_latest)
+            if previous.exists() or previous.is_symlink():
+                previous.unlink()
+    else:
+        if previous.exists() or previous.is_symlink():
+            previous.unlink()
+        if previous_txt.exists():
+            previous_txt.unlink()
+
+    try:
+        if latest.exists() or latest.is_symlink():
+            latest.unlink()
+        os.symlink(new_run_dir.resolve(), latest, target_is_directory=True)
+        if latest_txt.exists():
+            latest_txt.unlink()
+    except OSError:
+        _write_pointer_text(latest_txt, new_run_dir)
+        if latest.exists() or latest.is_symlink():
+            latest.unlink()
+
+    return old_latest
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
@@ -107,10 +195,10 @@ def resolve_output_root(
     output_name: str | None = None,
     use_timestamp: bool = True,
 ) -> tuple[str, Path]:
-    """Resolve the top-level experiment output directory name and path."""
+    """Resolve the per-run experiment output directory name and path."""
     base_name = str(output_name or experiment_name)
-    resolved_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{base_name}" if use_timestamp else base_name
-    return resolved_name, Path("outputs") / resolved_name
+    run_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{base_name}" if use_timestamp else base_name
+    return run_name, Path("outputs") / base_name / run_name
 
 
 def prepare_output_dir(output_dir: str | Path, *, clean: bool = True) -> Path:
@@ -136,6 +224,7 @@ def execute_experiment_spec(
     config: BacktestConfig,
     clean_output: bool = True,
     use_timestamp: bool = True,
+    update_pointers: bool = True,
 ) -> dict[str, Any]:
     """Execute an experiment spec and write canonical output artifacts."""
     execution = dict(spec.get("execution", {}))
@@ -161,8 +250,16 @@ def execute_experiment_spec(
         output_name=base_output_name,
         use_timestamp=use_timestamp,
     )
+    base_dir = output_root.parent
+    base_dir.mkdir(parents=True, exist_ok=True)
     output_root = prepare_output_dir(output_root, clean=clean_output)
-    print(f"Experiment output directory: {output_root.resolve()}")
+    print(f"Experiment run directory: {output_root.resolve()}")
+
+    previous_run = None
+    if update_pointers:
+        previous_run = update_experiment_pointers(base_dir, output_root)
+        print(f"Latest pointer → {output_root.resolve()}")
+        print(f"Previous pointer → {previous_run.resolve() if previous_run else 'None'}")
 
     symbol_data = {
         symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
@@ -216,7 +313,13 @@ def execute_experiment_spec(
 
             signal_rows = getattr(strat, "signal_events", None)
             if signal_rows:
-                experiment_signals.extend(signal_rows)
+                experiment_signals.extend(
+                    {
+                        "run_id": f"run_{run_index:03d}",
+                        **signal_row,
+                    }
+                    for signal_row in signal_rows
+                )
 
             diagnostics_path = run_dir / "diagnostics.json"
             diagnostics_summary_path = run_dir / "diagnostics_summary.json"
@@ -258,7 +361,7 @@ def execute_experiment_spec(
     _write_csv(trades_path, experiment_trades, TRADE_EXPORT_COLUMNS)
     _write_csv(signals_path, experiment_signals, SIGNAL_EXPORT_COLUMNS)
 
-    summary_path, summary_sorted_path, ranked_records = build_summary(output_name)
+    summary_path, summary_sorted_path, ranked_records = build_summary(output_root)
     dashboard_outputs = build_experiment_dashboard(str(output_root))
     run_performance_report_path = output_root / "run_performance_report.csv"
     return {
