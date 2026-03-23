@@ -29,6 +29,8 @@ EXPERIMENT_TRADE_COLUMNS = [
     "exit_datetime",
     "trade_return",
     "trade_pnl_amount",
+    "interest_paid",
+    "trade_pnl_net",
     "exit_reason",
     "leg_count",
     "ladder_used",
@@ -36,9 +38,6 @@ EXPERIMENT_TRADE_COLUMNS = [
     "add_shock_score",
     "add_shock_scores",
     "add_score_count",
-    "add_score_min",
-    "add_score_max",
-    "add_score_avg",
     "holding_period",
 ]
 CONFIG_GROUP_COLUMNS = ["recovery_frac", "ladder_enabled", "add_score_min", "max_legs"]
@@ -214,6 +213,10 @@ def _derive_trade_frame(trades_df: pd.DataFrame, run_id: str) -> pd.DataFrame:
     working["entry_shock_score"] = _coerce_numeric(
         _coalesce_column(working, ["entry_shock_score_at_entry", "shock_score_at_entry", "entry_shock_score"], fill_value=None)
     )
+    working["interest_paid"] = _coerce_numeric(_coalesce_column(working, ["interest_paid"], fill_value=0.0)).fillna(0.0)
+    working["trade_pnl_net"] = _coerce_numeric(
+        _coalesce_column(working, ["trade_pnl_net"], fill_value=None)
+    )
     if "add_shock_scores" in working.columns:
         raw_add_scores = working["add_shock_scores"]
     else:
@@ -221,12 +224,12 @@ def _derive_trade_frame(trades_df: pd.DataFrame, run_id: str) -> pd.DataFrame:
     parsed_add_scores = raw_add_scores.apply(lambda value: _parse_add_score_list(value, run_id=run_id))
     working["add_shock_scores"] = parsed_add_scores.apply(json.dumps)
     working["add_score_count"] = parsed_add_scores.apply(len)
-    working["add_score_min"] = parsed_add_scores.apply(lambda scores: min(scores) if scores else None)
-    working["add_score_max"] = parsed_add_scores.apply(lambda scores: max(scores) if scores else None)
-    working["add_score_avg"] = parsed_add_scores.apply(lambda scores: float(sum(scores) / len(scores)) if scores else None)
+    temp_add_score_avg = parsed_add_scores.apply(lambda scores: float(sum(scores) / len(scores)) if scores else None)
     working["add_shock_score"] = _coerce_numeric(
-        _coalesce_column(working, ["add_score_avg", "add_shock_score", "add_shock_score_at_signal"], fill_value=None)
+        _coalesce_column(working, ["add_shock_score", "add_shock_score_at_signal"], fill_value=None)
     )
+    working["add_shock_score"] = working["add_shock_score"].fillna(pd.to_numeric(temp_add_score_avg, errors="coerce"))
+    working["trade_pnl_net"] = working["trade_pnl_net"].fillna(working["trade_pnl_amount"] + working["interest_paid"])
     working["holding_period"] = _coerce_numeric(_coalesce_column(working, ["holding_period", "holding_bars"], fill_value=None))
     return working[EXPERIMENT_TRADE_COLUMNS].copy()
 

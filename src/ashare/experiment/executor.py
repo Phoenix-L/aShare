@@ -47,9 +47,9 @@ TRADE_EXPORT_COLUMNS = [
     "shock_score_at_entry",
     "add_shock_scores",
     "add_score_count",
-    "add_score_min",
-    "add_score_max",
-    "add_score_avg",
+    "trade_pnl_amount",
+    "interest_paid",
+    "trade_pnl_net",
     "recovery_target",
     "take_profit_price",
     "effective_target_price",
@@ -57,7 +57,6 @@ TRADE_EXPORT_COLUMNS = [
     "bars_to_mae",
     "exit_reason",
     "exit_subtype",
-    "trade_pnl_amount",
 ]
 
 SIGNAL_EXPORT_COLUMNS = [

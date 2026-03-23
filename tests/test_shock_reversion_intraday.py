@@ -255,6 +255,8 @@ def test_shock_reversion_trade_records_include_score_at_entry() -> None:
     assert strat.completed_trades[0]["holding_period"] == 2
     assert strat.completed_trades[0]["add_shock_scores"] == "[]"
     assert strat.completed_trades[0]["add_score_count"] == 0
+    assert strat.completed_trades[0]["interest_paid"] == pytest.approx(0.0)
+    assert strat.completed_trades[0]["trade_pnl_net"] == pytest.approx(strat.completed_trades[0]["trade_pnl_amount"])
 
 
 def test_shock_reversion_ladder_executes_real_adds() -> None:
@@ -334,9 +336,11 @@ def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
     assert trade["effective_anchor_price"] == pytest.approx(101.0)
     assert json.loads(trade["add_shock_scores"]) == [58.0]
     assert trade["add_score_count"] == 1
-    assert trade["add_score_min"] == pytest.approx(58.0)
-    assert trade["add_score_max"] == pytest.approx(58.0)
-    assert trade["add_score_avg"] == pytest.approx(58.0)
+    assert "add_score_min" not in trade
+    assert "add_score_max" not in trade
+    assert "add_score_avg" not in trade
+    assert trade["interest_paid"] == pytest.approx(0.0)
+    assert trade["trade_pnl_net"] == pytest.approx(trade["trade_pnl_amount"])
 
 
 def test_shock_reversion_recovery_target_uses_effective_anchor_for_laddered_trade() -> None:
@@ -461,6 +465,10 @@ def test_shock_reversion_margin_allows_negative_cash_and_executes_trade() -> Non
     assert metrics["min_cash"] < 0.0
     assert metrics["total_margin_interest_paid"] > 0.0
     assert strat.margin_interest_events
+    assert strat.completed_trades[0]["interest_paid"] < 0.0
+    assert strat.completed_trades[0]["trade_pnl_net"] == pytest.approx(
+        strat.completed_trades[0]["trade_pnl_amount"] + strat.completed_trades[0]["interest_paid"]
+    )
 
 
 def test_shock_reversion_without_margin_rejects_same_insufficient_cash_trade() -> None:
