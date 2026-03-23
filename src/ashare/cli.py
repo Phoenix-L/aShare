@@ -246,6 +246,7 @@ def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> d
 @click.option("--entry-shock-score-max", "--entry_shock_score_max", "--shock-score-max", "--shock_score_max", "entry_shock_score_max_override", type=float, default=None, help="Override entry shock score maximum for this run")
 @click.option("--initial-cash", type=float, default=None, help="Override initial cash for this experiment run")
 @click.option("--no-clean-output", is_flag=True, help="Keep existing files in the experiment output directory")
+@click.option("--no-pointer-update", is_flag=True, help="Skip updating latest/previous experiment pointers")
 @click.option("--no-timestamp", is_flag=True, help="Use the legacy non-timestamped output directory name")
 @click.option("--start", type=str, default=None, help="Override start date")
 @click.option("--end", type=str, default=None, help="Override end date")
@@ -258,6 +259,7 @@ def experiment(
     entry_shock_score_max_override: float | None,
     initial_cash: float | None,
     no_clean_output: bool,
+    no_pointer_update: bool,
     no_timestamp: bool,
     start: str | None,
     end: str | None,
@@ -361,6 +363,7 @@ def experiment(
             config=run_config,
             clean_output=not no_clean_output,
             use_timestamp=not no_timestamp,
+            update_pointers=not no_pointer_update,
         )
     except ValueError as exc:
         raise click.ClickException(str(exc))

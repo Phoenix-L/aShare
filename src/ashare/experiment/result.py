@@ -488,8 +488,10 @@ def rank_results(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
-def build_summary(experiment_name: str) -> tuple[Path, Path, list[dict[str, Any]]]:
-    output_root = Path("outputs") / experiment_name
+def build_summary(experiment_name: str | Path) -> tuple[Path, Path, list[dict[str, Any]]]:
+    output_root = Path(experiment_name)
+    if not output_root.is_absolute() and len(output_root.parts) == 1:
+        output_root = Path("outputs") / output_root
     output_root.mkdir(parents=True, exist_ok=True)
 
     records = collect_run_results(output_root)

@@ -6,7 +6,11 @@ import pytest
 
 from ashare.config.settings import BacktestConfig
 from ashare.experiment.grid import expand_grid, generate_parameter_sets
-from ashare.experiment.executor import execute_experiment_spec, prepare_output_dir
+from ashare.experiment.executor import (
+    execute_experiment_spec,
+    prepare_output_dir,
+    resolve_experiment_path,
+)
 from ashare.research.experiment_runner import generate_param_combinations
 from ashare.strategies.mid_freq_ma import MidFreqMA
 from ashare.strategies.shock_reversion_intraday import ShockReversionIntradayStrategy
@@ -170,6 +174,97 @@ def test_prepare_output_dir_cleans_existing_contents_but_keeps_parent(tmp_path: 
     assert list(output_root.iterdir()) == []
 
 
+def test_execute_experiment_updates_latest_and_previous_pointers(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    class _SequencedDatetime:
+        calls = 0
+
+        @classmethod
+        def now(cls):
+            import datetime as _dt
+
+            cls.calls += 1
+            return _dt.datetime(2026, 3, 23, 10, 1, 48 + cls.calls)
+
+    monkeypatch.setattr("ashare.experiment.executor.datetime", _SequencedDatetime)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    def _fake_backtest(*args, **kwargs):
+        _ = (args, kwargs)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    spec = {
+        "name": "pointer_case",
+        "strategy": "mid_freq_ma",
+        "symbols": ["600519.SH"],
+        "start": "2024-01-01",
+        "end": "2024-01-20",
+        "parameters": {},
+        "grid": {"short_period": [3], "long_period": [8], "turnover_thresh": [1.0]},
+        "execution": {},
+    }
+
+    first = execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec=spec,
+        config=BacktestConfig(),
+    )
+    second = execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec=spec,
+        config=BacktestConfig(),
+    )
+
+    base_dir = tmp_path / "outputs" / "pointer_case"
+    assert resolve_experiment_path(base_dir, "latest") == Path(second["output_dir"]).resolve()
+    assert resolve_experiment_path(base_dir, "previous") == Path(first["output_dir"]).resolve()
+
+
+def test_execute_experiment_can_skip_pointer_updates(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_loader(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        _ = (ts_code, start_date, end_date)
+        return _synthetic_df()
+
+    def _fake_backtest(*args, **kwargs):
+        _ = (args, kwargs)
+        return None, None, {"total_return": 0.01, "sharpe": 1.0, "max_drawdown": 0.1, "num_trades": 1}
+
+    monkeypatch.setattr("ashare.experiment.executor.load_minute_30", _fake_loader)
+    monkeypatch.setattr("ashare.experiment.executor.run_backtest", _fake_backtest)
+
+    execute_experiment_spec(
+        strategy_cls=MidFreqMA,
+        strategy_name="mid_freq_ma",
+        spec={
+            "name": "pointer_skip",
+            "strategy": "mid_freq_ma",
+            "symbols": ["600519.SH"],
+            "start": "2024-01-01",
+            "end": "2024-01-20",
+            "parameters": {},
+            "grid": {"short_period": [3], "long_period": [8], "turnover_thresh": [1.0]},
+            "execution": {},
+        },
+        config=BacktestConfig(),
+        update_pointers=False,
+    )
+
+    base_dir = tmp_path / "outputs" / "pointer_skip"
+    assert resolve_experiment_path(base_dir, "latest") is None
+    assert resolve_experiment_path(base_dir, "previous") is None
+
+
 def test_execute_experiment_overwrites_existing_output_directory_by_default(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -212,7 +307,7 @@ def test_execute_experiment_overwrites_existing_output_directory_by_default(monk
         use_timestamp=False,
     )
 
-    output_root = tmp_path / "outputs" / experiment_name
+    output_root = tmp_path / "outputs" / experiment_name / experiment_name
     assert (output_root / "run_032").exists()
 
     execute_experiment_spec(
@@ -280,6 +375,7 @@ def test_execute_experiment_can_preserve_existing_outputs_when_clean_disabled(mo
     )
 
     assert (output_root / "stale.txt").exists()
+    assert (output_root / experiment_name / "run_001").exists()
 
 
 def test_execute_experiment_does_not_print_grid_diagnostics_when_not_deduplicated(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -638,10 +734,23 @@ def test_execute_experiment_writes_shock_score_bucket_analysis(monkeypatch, tmp_
     )
 
     bucket_path = Path(result["output_dir"]) / "shock_score_buckets.csv"
+    trades_path = Path(result["output_dir"]) / "trades.csv"
+    signals_path = Path(result["output_dir"]) / "signals.csv"
     bucket_df = pd.read_csv(bucket_path)
+    trades_df = pd.read_csv(trades_path)
+    signals_df = pd.read_csv(signals_path)
 
     assert bucket_path.exists()
+    assert trades_path.exists()
+    assert signals_path.exists()
     assert list(bucket_df["score_bucket"]) == ["0-20", "20-40", "40-60", "60-80", "80-100"]
+    assert signals_df.columns[0] == "run_id"
+    assert "ladder_enabled" in signals_df.columns
+    assert "ladder_min_drop_pct" in signals_df.columns
+    assert "ladder_min_bars_between_legs" in signals_df.columns
+    assert "add_executed" in signals_df.columns
+    assert "execution_type" in signals_df.columns
+    assert set(signals_df["run_id"]) == set(trades_df["run_id"])
     weak = bucket_df.loc[bucket_df["score_bucket"] == "20-40"].iloc[0]
     strong = bucket_df.loc[bucket_df["score_bucket"] == "60-80"].iloc[0]
     assert weak["executed_trades"] == 1
