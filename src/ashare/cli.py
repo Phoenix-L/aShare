@@ -1,11 +1,13 @@
 """CLI entry — backtest command and utility subcommands."""
 
 import datetime as dt
+from pathlib import Path
 from dataclasses import replace
 
 import click
 
 from ashare import __version__
+from ashare.analysis.experiment_dashboard import build_experiment_dashboard
 from ashare.config.loader import load_backtest_config
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
@@ -244,6 +246,7 @@ def _parse_param_options(param_options: tuple[str, ...], strategy_cls=None) -> d
 @click.option("--entry-shock-score-max", "--entry_shock_score_max", "--shock-score-max", "--shock_score_max", "entry_shock_score_max_override", type=float, default=None, help="Override entry shock score maximum for this run")
 @click.option("--initial-cash", type=float, default=None, help="Override initial cash for this experiment run")
 @click.option("--no-clean-output", is_flag=True, help="Keep existing files in the experiment output directory")
+@click.option("--no-timestamp", is_flag=True, help="Use the legacy non-timestamped output directory name")
 @click.option("--start", type=str, default=None, help="Override start date")
 @click.option("--end", type=str, default=None, help="Override end date")
 def experiment(
@@ -255,6 +258,7 @@ def experiment(
     entry_shock_score_max_override: float | None,
     initial_cash: float | None,
     no_clean_output: bool,
+    no_timestamp: bool,
     start: str | None,
     end: str | None,
 ) -> None:
@@ -356,6 +360,7 @@ def experiment(
             spec=spec,
             config=run_config,
             clean_output=not no_clean_output,
+            use_timestamp=not no_timestamp,
         )
     except ValueError as exc:
         raise click.ClickException(str(exc))
@@ -383,6 +388,17 @@ def analyze(output_dir: str) -> None:
     report_path.write_text(report, encoding="utf-8")
     click.echo(str(report_path))
 
+
+
+
+@cli.command(name="dashboard")
+@click.option("--experiment-path", required=True, help="Path to a completed experiment directory")
+def dashboard(experiment_path: str) -> None:
+    """Build experiment-level dashboard CSVs for a completed experiment."""
+    outputs = build_experiment_dashboard(experiment_path)
+    click.echo(f"Dashboard directory: {Path(experiment_path) / 'dashboard'}")
+    for name, output_path in outputs.items():
+        click.echo(f"{name}: {output_path}")
 
 @cli.command(name="walk-forward")
 @click.option("--symbol", required=True, help="Single symbol (e.g. 600519.SH)")

@@ -6,6 +6,11 @@ import yaml
 from ashare.cli import cli
 from ashare.config.settings import BacktestConfig
 
+def _timestamped_output_dir(tmp_path, base_name: str):
+    matches = sorted((tmp_path / "outputs").glob(f"*_{base_name}"))
+    assert matches, f"No timestamped output directory found for {base_name}"
+    return matches[-1]
+
 class _DummyStrategy:
     params = (
         ("z_entry", -1.0),
@@ -64,7 +69,7 @@ def test_cli_param_and_date_overrides_have_highest_precedence(monkeypatch, tmp_p
     assert result.exit_code == 0
     assert "Date range: 2025-01-01 → 2025-12-31 (CLI override)" in result.output
 
-    run_dir = tmp_path / "outputs" / "exp_param_flow" / "run_001"
+    run_dir = _timestamped_output_dir(tmp_path, "exp_param_flow") / "run_001"
     snapshot = yaml.safe_load((run_dir / "config_snapshot.yaml").read_text())
     assert snapshot["parameters"]["z_entry"] == -1.5
     assert snapshot["parameters"]["z_exit"] == 0.3
@@ -102,7 +107,7 @@ def test_cli_initial_cash_override_has_highest_precedence(monkeypatch, tmp_path)
     )
 
     assert result.exit_code == 0
-    run_dir = tmp_path / "outputs" / "exp_param_flow" / "run_001"
+    run_dir = _timestamped_output_dir(tmp_path, "exp_param_flow") / "run_001"
     snapshot = yaml.safe_load((run_dir / "config_snapshot.yaml").read_text())
     assert snapshot["initial_cash"] == 300000.0
     run_payload = json.loads((run_dir / "run_result.json").read_text(encoding="utf-8"))
@@ -148,8 +153,10 @@ params:
 
     assert result.exit_code == 0
     assert "Running experiment: shock_reversion_intraday_template" in result.output
-    assert f"Output directory: outputs/{spec_path.stem}" in result.output
-    assert (tmp_path / "outputs" / spec_path.stem / "run_001" / "run_result.json").exists()
+    output_root = _timestamped_output_dir(tmp_path, spec_path.stem)
+    assert f"Output directory: {output_root.relative_to(tmp_path)}" in result.output
+    assert f"Experiment output directory: {output_root.resolve()}" in result.output
+    assert (output_root / "run_001" / "run_result.json").exists()
     assert not (tmp_path / "outputs" / "shock_reversion_intraday_template").exists()
 
 def test_executor_logs_running_parameters(monkeypatch, caplog, tmp_path) -> None:
@@ -237,7 +244,7 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert "Running experiment: shock_reversion_intraday_cli_experiment" in result.output
     assert "Total runs: 4" in result.output
 
-    output_root = tmp_path / "outputs" / "shock_reversion_intraday_cli_experiment"
+    output_root = _timestamped_output_dir(tmp_path, "shock_reversion_intraday_cli_experiment")
     run_payload = json.loads((output_root / "run_001" / "run_result.json").read_text(encoding="utf-8"))
     summary_text = (output_root / "summary.csv").read_text(encoding="utf-8")
     trades_text = (output_root / "trades.csv").read_text(encoding="utf-8")

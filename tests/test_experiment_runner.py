@@ -209,6 +209,7 @@ def test_execute_experiment_overwrites_existing_output_directory_by_default(monk
         strategy_name="mid_freq_ma",
         spec={**base_spec, "grid": {"short_period": [3, 5, 7, 9], "long_period": [8, 10, 12, 14, 16, 18, 20, 22]}},
         config=BacktestConfig(),
+        use_timestamp=False,
     )
 
     output_root = tmp_path / "outputs" / experiment_name
@@ -219,6 +220,7 @@ def test_execute_experiment_overwrites_existing_output_directory_by_default(monk
         strategy_name="mid_freq_ma",
         spec={**base_spec, "grid": {"short_period": [3, 5, 7], "long_period": [8, 10, 12, 14, 16, 18, 20, 22]}},
         config=BacktestConfig(),
+        use_timestamp=False,
     )
 
     run_dirs = sorted(path.name for path in output_root.iterdir() if path.is_dir() and path.name.startswith("run_"))
@@ -274,6 +276,7 @@ def test_execute_experiment_can_preserve_existing_outputs_when_clean_disabled(mo
         },
         config=BacktestConfig(),
         clean_output=False,
+        use_timestamp=False,
     )
 
     assert (output_root / "stale.txt").exists()
