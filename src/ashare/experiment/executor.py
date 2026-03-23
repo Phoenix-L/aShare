@@ -14,6 +14,7 @@ import yaml
 from ashare.config.settings import BacktestConfig
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
+from ashare.analysis.experiment_dashboard import build_experiment_dashboard
 from ashare.experiment.grid import expand_grid, generate_parameter_sets
 from ashare.experiment.result import build_summary
 from ashare.strategies.validation import validate_strategy_params
@@ -236,6 +237,7 @@ def execute_experiment_spec(
     _write_csv(signals_path, experiment_signals, SIGNAL_EXPORT_COLUMNS)
 
     summary_path, summary_sorted_path, ranked_records = build_summary(output_name)
+    dashboard_outputs = build_experiment_dashboard(str(output_root))
     run_performance_report_path = output_root / "run_performance_report.csv"
     return {
         "experiment_name": experiment_name,
@@ -246,6 +248,8 @@ def execute_experiment_spec(
         "run_performance_report_path": str(run_performance_report_path),
         "trades_path": str(trades_path),
         "signals_path": str(signals_path),
+        "dashboard_dir": str(output_root / "dashboard"),
+        "dashboard_outputs": dashboard_outputs,
         "num_runs": total_runs,
         "results": ranked_records,
     }
