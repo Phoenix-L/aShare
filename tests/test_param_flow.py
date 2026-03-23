@@ -264,6 +264,8 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert "recovery_target" in trades_text
     assert "take_profit_price" in trades_text
     assert "effective_target_price" in trades_text
+    assert "add_shock_scores" in trades_text
+    assert "add_score_count" in trades_text
     assert "bars_to_mfe" in trades_text
     assert "mfe" in trades_text
     assert "etd" in trades_text
