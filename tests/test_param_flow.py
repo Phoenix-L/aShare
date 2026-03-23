@@ -7,7 +7,7 @@ from ashare.cli import cli
 from ashare.config.settings import BacktestConfig
 
 def _timestamped_output_dir(tmp_path, base_name: str):
-    matches = sorted((tmp_path / "outputs").glob(f"*_{base_name}"))
+    matches = sorted((tmp_path / "outputs" / base_name).glob(f"*_{base_name}"))
     assert matches, f"No timestamped output directory found for {base_name}"
     return matches[-1]
 
@@ -155,7 +155,7 @@ params:
     assert "Running experiment: shock_reversion_intraday_template" in result.output
     output_root = _timestamped_output_dir(tmp_path, spec_path.stem)
     assert f"Output directory: {output_root.relative_to(tmp_path)}" in result.output
-    assert f"Experiment output directory: {output_root.resolve()}" in result.output
+    assert f"Experiment run directory: {output_root.resolve()}" in result.output
     assert (output_root / "run_001" / "run_result.json").exists()
     assert not (tmp_path / "outputs" / "shock_reversion_intraday_template").exists()
 
@@ -472,6 +472,45 @@ def test_cli_experiment_supports_no_clean_output_flag(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert captured["clean_output"] is False
+
+
+def test_cli_experiment_supports_no_pointer_update_flag(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("ashare.cli.load_backtest_config", lambda: BacktestConfig())
+    monkeypatch.setattr("ashare.cli.get_strategy_class", lambda _: _ShockStrategy)
+
+    def _fake_execute(**kwargs):
+        captured.update(kwargs)
+        return {
+            "num_runs": 1,
+            "output_dir": "outputs/demo/demo_run",
+            "summary_path": "outputs/demo/demo_run/summary.csv",
+            "summary_sorted_path": "outputs/demo/demo_run/summary_sorted.csv",
+            "results": [],
+        }
+
+    monkeypatch.setattr("ashare.cli.execute_experiment_spec", _fake_execute)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "experiment",
+            "--strategy",
+            "shock_reversion_intraday",
+            "--symbols",
+            "600519.SH",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--no-pointer-update",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["update_pointers"] is False
 
 
 def test_cli_ranking_output_falls_back_to_non_null_params_for_unknown_strategy(monkeypatch) -> None:

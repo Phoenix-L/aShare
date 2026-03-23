@@ -46,10 +46,12 @@ def test_resolve_output_root_supports_timestamp_and_legacy_names(monkeypatch) ->
     output_name, output_root = resolve_output_root(experiment_name="shock_reversion_intraday", use_timestamp=True)
     assert output_name == "20260323_153045_shock_reversion_intraday"
     assert output_root.name == output_name
+    assert output_root.parent.name == "shock_reversion_intraday"
 
     legacy_name, legacy_root = resolve_output_root(experiment_name="shock_reversion_intraday", use_timestamp=False)
     assert legacy_name == "shock_reversion_intraday"
     assert legacy_root.name == "shock_reversion_intraday"
+    assert legacy_root.parent.name == "shock_reversion_intraday"
 
 
 def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None:
