@@ -640,6 +640,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         blocked_by_shock_score_high = bool(signal_trigger and score_filter_enabled and not score_below_max)
         entry_signal = bool(signal_trigger)
         executed = False
+        entry_executed = False
+        add_executed = False
+        execution_type = ""
         blocked_by: list[str] = []
         exit_reason: str | None = None
         exit_snapshot = self._build_exit_snapshot(close)
@@ -710,6 +713,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 return
             if self.active_order is None and self._check_add_leg(close, add_shock_score, len(self)):
                 self.add_leg(close, int(self.p.trade_unit), entry_shock_score, add_shock_score)
+                executed = True
+                add_executed = True
+                execution_type = "add"
             elif signal_trigger:
                 # Mirror flat-account branch: shock still firing while we cannot enter/add on this bar.
                 if self.active_order is not None:
@@ -739,6 +745,8 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "shock_score": float(entry_shock_score),
                 }
                 executed = True
+                entry_executed = True
+                execution_type = "entry"
 
         if entry_signal:
             self.signal_events.append(
@@ -755,7 +763,9 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "shock_score_filter_enabled": bool(score_filter_enabled),
                     "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
                     "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
-                    "entry_executed": bool(executed),
+                    "entry_executed": bool(entry_executed),
+                    "add_executed": bool(add_executed),
+                    "execution_type": execution_type,
                 }
             )
 

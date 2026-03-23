@@ -276,6 +276,8 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert "datetime" in signals_text
     assert "threshold" in signals_text
     assert "entry_executed" in signals_text
+    assert "add_executed" in signals_text
+    assert "execution_type" in signals_text
     assert len(signals_text.strip().splitlines()) > 1
 
 

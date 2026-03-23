@@ -87,6 +87,8 @@ SIGNAL_EXPORT_COLUMNS = [
     "blocked_by_shock_score_high",
     "trend_ok",
     "entry_executed",
+    "add_executed",
+    "execution_type",
 ]
 
 
