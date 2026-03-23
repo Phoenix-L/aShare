@@ -272,6 +272,7 @@ def test_cli_experiment_supports_shock_reversion_strategy_and_generates_trades(m
     assert "exit_reason" in trades_text
     assert "recovery" in trades_text
     assert len(trades_text.strip().splitlines()) > 1
+    assert signals_text.splitlines()[0].startswith("run_id,")
     assert "datetime" in signals_text
     assert "threshold" in signals_text
     assert "entry_executed" in signals_text

@@ -61,6 +61,7 @@ TRADE_EXPORT_COLUMNS = [
 ]
 
 SIGNAL_EXPORT_COLUMNS = [
+    "run_id",
     "symbol",
     "datetime",
     "excursion",
@@ -308,7 +309,13 @@ def execute_experiment_spec(
 
             signal_rows = getattr(strat, "signal_events", None)
             if signal_rows:
-                experiment_signals.extend(signal_rows)
+                experiment_signals.extend(
+                    {
+                        "run_id": f"run_{run_index:03d}",
+                        **signal_row,
+                    }
+                    for signal_row in signal_rows
+                )
 
             diagnostics_path = run_dir / "diagnostics.json"
             diagnostics_summary_path = run_dir / "diagnostics_summary.json"

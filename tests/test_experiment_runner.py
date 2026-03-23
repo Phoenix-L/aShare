@@ -734,10 +734,18 @@ def test_execute_experiment_writes_shock_score_bucket_analysis(monkeypatch, tmp_
     )
 
     bucket_path = Path(result["output_dir"]) / "shock_score_buckets.csv"
+    trades_path = Path(result["output_dir"]) / "trades.csv"
+    signals_path = Path(result["output_dir"]) / "signals.csv"
     bucket_df = pd.read_csv(bucket_path)
+    trades_df = pd.read_csv(trades_path)
+    signals_df = pd.read_csv(signals_path)
 
     assert bucket_path.exists()
+    assert trades_path.exists()
+    assert signals_path.exists()
     assert list(bucket_df["score_bucket"]) == ["0-20", "20-40", "40-60", "60-80", "80-100"]
+    assert signals_df.columns[0] == "run_id"
+    assert set(signals_df["run_id"]) == set(trades_df["run_id"])
     weak = bucket_df.loc[bucket_df["score_bucket"] == "20-40"].iloc[0]
     strong = bucket_df.loc[bucket_df["score_bucket"] == "60-80"].iloc[0]
     assert weak["executed_trades"] == 1
