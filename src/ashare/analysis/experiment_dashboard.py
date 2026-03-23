@@ -34,6 +34,11 @@ EXPERIMENT_TRADE_COLUMNS = [
     "ladder_used",
     "entry_shock_score",
     "add_shock_score",
+    "add_shock_scores",
+    "add_score_count",
+    "add_score_min",
+    "add_score_max",
+    "add_score_avg",
     "holding_period",
 ]
 CONFIG_GROUP_COLUMNS = ["recovery_frac", "ladder_enabled", "add_score_min", "max_legs"]
@@ -209,11 +214,78 @@ def _derive_trade_frame(trades_df: pd.DataFrame, run_id: str) -> pd.DataFrame:
     working["entry_shock_score"] = _coerce_numeric(
         _coalesce_column(working, ["entry_shock_score_at_entry", "shock_score_at_entry", "entry_shock_score"], fill_value=None)
     )
+    if "add_shock_scores" in working.columns:
+        raw_add_scores = working["add_shock_scores"]
+    else:
+        raw_add_scores = pd.Series(["[]"] * len(working.index), index=working.index)
+    parsed_add_scores = raw_add_scores.apply(lambda value: _parse_add_score_list(value, run_id=run_id))
+    working["add_shock_scores"] = parsed_add_scores.apply(json.dumps)
+    working["add_score_count"] = parsed_add_scores.apply(len)
+    working["add_score_min"] = parsed_add_scores.apply(lambda scores: min(scores) if scores else None)
+    working["add_score_max"] = parsed_add_scores.apply(lambda scores: max(scores) if scores else None)
+    working["add_score_avg"] = parsed_add_scores.apply(lambda scores: float(sum(scores) / len(scores)) if scores else None)
     working["add_shock_score"] = _coerce_numeric(
-        _coalesce_column(working, ["add_shock_score_at_entry", "add_shock_score", "add_shock_score_at_signal"], fill_value=None)
+        _coalesce_column(working, ["add_score_avg", "add_shock_score", "add_shock_score_at_signal"], fill_value=None)
     )
     working["holding_period"] = _coerce_numeric(_coalesce_column(working, ["holding_period", "holding_bars"], fill_value=None))
     return working[EXPERIMENT_TRADE_COLUMNS].copy()
+
+
+def _parse_add_score_list(value: Any, *, run_id: str) -> list[float]:
+    """Parse persisted add-score JSON into a normalized numeric list."""
+    if value is None:
+        return []
+    try:
+        if pd.isna(value):
+            return []
+    except TypeError:
+        pass
+
+    payload = value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            logger.warning("Run %s has malformed add_shock_scores payload: %r", run_id, value)
+            return []
+
+    if not isinstance(payload, list):
+        logger.warning("Run %s has non-list add_shock_scores payload: %r", run_id, value)
+        return []
+
+    normalized: list[float] = []
+    for item in payload:
+        try:
+            normalized.append(float(item))
+        except (TypeError, ValueError):
+            logger.warning("Run %s has non-numeric add_shock_scores item: %r", run_id, item)
+    return normalized
+
+
+def _build_add_score_analysis(trades_df: pd.DataFrame) -> pd.DataFrame:
+    columns = ["score_bucket", "trade_count", "avg_return", "win_rate"]
+    if trades_df.empty or "add_shock_scores" not in trades_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    working = trades_df.copy()
+    working["add_scores_list"] = working.apply(
+        lambda row: _parse_add_score_list(row.get("add_shock_scores"), run_id=str(row.get("run_id", "unknown"))),
+        axis=1,
+    )
+    exploded = working.explode("add_scores_list")
+    exploded = exploded.dropna(subset=["add_scores_list"])
+    if exploded.empty:
+        return pd.DataFrame(columns=columns)
+
+    exploded["add_shock_score"] = _coerce_numeric(exploded["add_scores_list"])
+    exploded["trade_return"] = _coerce_numeric(exploded["trade_return"])
+    exploded = exploded.dropna(subset=["add_shock_score"])
+    if exploded.empty:
+        return pd.DataFrame(columns=columns)
+    return _score_bucket_analysis(exploded, "add_shock_score")
 
 
 def _load_run_payload(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -444,7 +516,7 @@ def build_experiment_dashboard(experiment_path: str) -> dict[str, str]:
     entry_score_analysis = _score_bucket_analysis(trades_df, "entry_shock_score")
     entry_score_analysis.to_csv(dashboard_dir / DASHBOARD_FILENAMES["entry_score_analysis"], index=False)
 
-    add_score_analysis = _score_bucket_analysis(trades_df, "add_shock_score")
+    add_score_analysis = _build_add_score_analysis(trades_df)
     add_score_analysis.to_csv(dashboard_dir / DASHBOARD_FILENAMES["add_score_analysis"], index=False)
 
     run_report_df = _load_run_performance_report(experiment_dir, run_dirs)
