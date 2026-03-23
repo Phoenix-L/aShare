@@ -4,6 +4,12 @@ import yaml
 import pandas as pd
 from click.testing import CliRunner
 
+
+def _timestamped_output_dir(tmp_path, base_name: str):
+    matches = sorted((tmp_path / "outputs").glob(f"*_{base_name}"))
+    assert matches, f"No timestamped output directory found for {base_name}"
+    return matches[-1]
+
 from ashare.cli import cli
 from ashare.config.settings import BacktestConfig
 
@@ -64,7 +70,8 @@ def test_experiment_yaml_only_uses_config_range(monkeypatch, tmp_path) -> None:
     assert called["args"] == ("002850.SZ", "2024-01-01", "2024-12-31")
     assert "Date range: 2024-01-01 → 2024-12-31 (from config)" in result.output
 
-    snapshot = yaml.safe_load((tmp_path / "outputs" / "exp_yaml_only" / "run_001" / "config_snapshot.yaml").read_text())
+    output_root = _timestamped_output_dir(tmp_path, "exp_yaml_only")
+    snapshot = yaml.safe_load((output_root / "run_001" / "config_snapshot.yaml").read_text())
     assert snapshot["date_range"] == {"start": "2024-01-01", "end": "2024-12-31"}
 
 
@@ -146,7 +153,8 @@ def test_experiment_cli_override_takes_precedence(monkeypatch, tmp_path) -> None
     assert called["args"] == ("002850.SZ", "2025-01-01", "2025-12-31")
     assert "Date range: 2025-01-01 → 2025-12-31 (CLI override)" in result.output
 
-    snapshot = yaml.safe_load((tmp_path / "outputs" / "exp_override" / "run_001" / "config_snapshot.yaml").read_text())
+    output_root = _timestamped_output_dir(tmp_path, "exp_override")
+    snapshot = yaml.safe_load((output_root / "run_001" / "config_snapshot.yaml").read_text())
     assert snapshot["date_range"] == {"start": "2025-01-01", "end": "2025-12-31"}
 
 

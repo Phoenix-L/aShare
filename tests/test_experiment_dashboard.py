@@ -10,7 +10,7 @@ from click.testing import CliRunner
 from ashare.analysis.experiment_dashboard import build_experiment_dashboard
 from ashare.cli import cli
 from ashare.config.settings import BacktestConfig
-from ashare.experiment.executor import execute_experiment_spec
+from ashare.experiment.executor import execute_experiment_spec, resolve_output_root
 from ashare.strategies.mid_freq_ma import MidFreqMA
 
 
@@ -32,6 +32,24 @@ def _write_run_payload(run_dir: Path, *, params: dict | None = None, meta: dict 
         ),
         encoding="utf-8",
     )
+
+
+def test_resolve_output_root_supports_timestamp_and_legacy_names(monkeypatch) -> None:
+    class _FixedDatetime:
+        @classmethod
+        def now(cls):
+            import datetime as _dt
+            return _dt.datetime(2026, 3, 23, 15, 30, 45)
+
+    monkeypatch.setattr("ashare.experiment.executor.datetime", _FixedDatetime)
+
+    output_name, output_root = resolve_output_root(experiment_name="shock_reversion_intraday", use_timestamp=True)
+    assert output_name == "20260323_153045_shock_reversion_intraday"
+    assert output_root.name == output_name
+
+    legacy_name, legacy_root = resolve_output_root(experiment_name="shock_reversion_intraday", use_timestamp=False)
+    assert legacy_name == "shock_reversion_intraday"
+    assert legacy_root.name == "shock_reversion_intraday"
 
 
 def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None:

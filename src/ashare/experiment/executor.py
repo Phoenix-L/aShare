@@ -6,6 +6,7 @@ import csv
 import json
 import shutil
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +99,20 @@ def _report_grid_size(original_grid_size: int, deduplicated_runs: int) -> None:
         print(f"Deduplicated runs: {deduplicated_runs}")
 
 
+
+
+def resolve_output_root(
+    *,
+    experiment_name: str,
+    output_name: str | None = None,
+    use_timestamp: bool = True,
+) -> tuple[str, Path]:
+    """Resolve the top-level experiment output directory name and path."""
+    base_name = str(output_name or experiment_name)
+    resolved_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{base_name}" if use_timestamp else base_name
+    return resolved_name, Path("outputs") / resolved_name
+
+
 def prepare_output_dir(output_dir: str | Path, *, clean: bool = True) -> Path:
     """Create an experiment output directory and optionally clear existing contents."""
     output_root = Path(output_dir)
@@ -120,6 +135,7 @@ def execute_experiment_spec(
     spec: dict[str, Any],
     config: BacktestConfig,
     clean_output: bool = True,
+    use_timestamp: bool = True,
 ) -> dict[str, Any]:
     """Execute an experiment spec and write canonical output artifacts."""
     execution = dict(spec.get("execution", {}))
@@ -139,8 +155,14 @@ def execute_experiment_spec(
     _report_grid_size(len(all_combinations), len(final_runs))
 
     experiment_name = spec["name"]
-    output_name = str(spec.get("output_name") or experiment_name)
-    output_root = prepare_output_dir(Path("outputs") / output_name, clean=clean_output)
+    base_output_name = str(spec.get("output_name") or experiment_name)
+    output_name, output_root = resolve_output_root(
+        experiment_name=experiment_name,
+        output_name=base_output_name,
+        use_timestamp=use_timestamp,
+    )
+    output_root = prepare_output_dir(output_root, clean=clean_output)
+    print(f"Experiment output directory: {output_root.resolve()}")
 
     symbol_data = {
         symbol: load_minute_30(ts_code=symbol, start_date=spec["start"], end_date=spec["end"])
