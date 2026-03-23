@@ -643,6 +643,14 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         entry_executed = False
         add_executed = False
         execution_type = ""
+        last_leg_price = self.trade_state.get("last_leg_price")
+        last_leg_bar = self.trade_state.get("last_leg_bar")
+        drop_from_last_leg_pct = None
+        bars_since_last_leg = None
+        if last_leg_price not in (None, 0):
+            drop_from_last_leg_pct = (float(last_leg_price) - close) / float(last_leg_price)
+        if last_leg_bar is not None:
+            bars_since_last_leg = max(0, len(self) - int(last_leg_bar))
         blocked_by: list[str] = []
         exit_reason: str | None = None
         exit_snapshot = self._build_exit_snapshot(close)
@@ -760,9 +768,14 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "shock_score_min": active_entry_shock_score_min,
                     "shock_score_max": active_entry_shock_score_max,
                     "add_score_min": float(self.add_score_min),
+                    "ladder_enabled": bool(self.p.enable_ladder),
+                    "ladder_min_drop_pct": float(self.p.ladder_min_drop_pct),
+                    "ladder_min_bars_between_legs": int(self.p.ladder_min_bars_between_legs),
                     "shock_score_filter_enabled": bool(score_filter_enabled),
                     "blocked_by_shock_score_low": bool(blocked_by_shock_score_low),
                     "blocked_by_shock_score_high": bool(blocked_by_shock_score_high),
+                    "drop_from_last_leg_pct": drop_from_last_leg_pct,
+                    "bars_since_last_leg": bars_since_last_leg,
                     "entry_executed": bool(entry_executed),
                     "add_executed": bool(add_executed),
                     "execution_type": execution_type,

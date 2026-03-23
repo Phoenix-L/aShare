@@ -745,6 +745,9 @@ def test_execute_experiment_writes_shock_score_bucket_analysis(monkeypatch, tmp_
     assert signals_path.exists()
     assert list(bucket_df["score_bucket"]) == ["0-20", "20-40", "40-60", "60-80", "80-100"]
     assert signals_df.columns[0] == "run_id"
+    assert "ladder_enabled" in signals_df.columns
+    assert "ladder_min_drop_pct" in signals_df.columns
+    assert "ladder_min_bars_between_legs" in signals_df.columns
     assert "add_executed" in signals_df.columns
     assert "execution_type" in signals_df.columns
     assert set(signals_df["run_id"]) == set(trades_df["run_id"])

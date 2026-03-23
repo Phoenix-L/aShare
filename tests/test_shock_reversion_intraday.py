@@ -155,9 +155,14 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
         "shock_score_min",
         "shock_score_max",
         "add_score_min",
+        "ladder_enabled",
+        "ladder_min_drop_pct",
+        "ladder_min_bars_between_legs",
         "shock_score_filter_enabled",
         "blocked_by_shock_score_low",
         "blocked_by_shock_score_high",
+        "drop_from_last_leg_pct",
+        "bars_since_last_leg",
         "entry_executed",
         "add_executed",
         "execution_type",
@@ -166,6 +171,9 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
     assert signal["entry_shock_score"] == pytest.approx(signal["shock_score"])
     assert signal["shock_score"] >= 0.0
     assert signal["shock_score_min"] is None
+    assert signal["ladder_enabled"] is False
+    assert signal["ladder_min_drop_pct"] == pytest.approx(0.02)
+    assert signal["ladder_min_bars_between_legs"] == 1
     assert signal["entry_executed"] is True
     assert signal["add_executed"] is False
     assert signal["execution_type"] == "entry"
@@ -280,8 +288,13 @@ def test_shock_reversion_ladder_executes_real_adds() -> None:
     assert trade["trade_pnl_amount"] == pytest.approx((trade["exit_price"] - trade["avg_entry_price"]) * trade["position_size"])
     assert trade["add_score_count"] == len(json.loads(trade["add_shock_scores"]))
     assert trade["add_score_count"] == trade["leg_count"] - 1
-    assert any(signal["add_executed"] for signal in strat.signal_events)
-    assert any(signal["execution_type"] == "add" for signal in strat.signal_events)
+    add_signal = next(signal for signal in strat.signal_events if signal["add_executed"])
+    assert add_signal["execution_type"] == "add"
+    assert add_signal["ladder_enabled"] is True
+    assert add_signal["ladder_min_drop_pct"] == pytest.approx(0.01)
+    assert add_signal["ladder_min_bars_between_legs"] == 1
+    assert add_signal["drop_from_last_leg_pct"] is not None
+    assert add_signal["bars_since_last_leg"] >= 1
 
 
 def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
