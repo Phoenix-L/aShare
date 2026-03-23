@@ -1,11 +1,13 @@
 """CLI entry — backtest command and utility subcommands."""
 
 import datetime as dt
+from pathlib import Path
 from dataclasses import replace
 
 import click
 
 from ashare import __version__
+from ashare.analysis.experiment_dashboard import build_experiment_dashboard
 from ashare.config.loader import load_backtest_config
 from ashare.data.loaders import load_minute_30
 from ashare.engine.runner import run_backtest
@@ -383,6 +385,17 @@ def analyze(output_dir: str) -> None:
     report_path.write_text(report, encoding="utf-8")
     click.echo(str(report_path))
 
+
+
+
+@cli.command(name="dashboard")
+@click.option("--experiment-path", required=True, help="Path to a completed experiment directory")
+def dashboard(experiment_path: str) -> None:
+    """Build experiment-level dashboard CSVs for a completed experiment."""
+    outputs = build_experiment_dashboard(experiment_path)
+    click.echo(f"Dashboard directory: {Path(experiment_path) / 'dashboard'}")
+    for name, output_path in outputs.items():
+        click.echo(f"{name}: {output_path}")
 
 @cli.command(name="walk-forward")
 @click.option("--symbol", required=True, help="Single symbol (e.g. 600519.SH)")
