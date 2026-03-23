@@ -1,6 +1,8 @@
+import json
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
-from types import SimpleNamespace
 
 from ashare.config.settings import BacktestConfig
 from ashare.engine.runner import run_backtest
@@ -153,15 +155,26 @@ def test_shock_reversion_signal_events_include_score_breakdown() -> None:
         "shock_score_min",
         "shock_score_max",
         "add_score_min",
+        "drop_from_last_leg_pct",
+        "bars_since_last_leg",
         "shock_score_filter_enabled",
         "blocked_by_shock_score_low",
         "blocked_by_shock_score_high",
+        "in_position",
         "entry_executed",
+        "add_executed",
+        "execution_type",
     ]:
         assert key in signal
     assert signal["entry_shock_score"] == pytest.approx(signal["shock_score"])
     assert signal["shock_score"] >= 0.0
     assert signal["shock_score_min"] is None
+    assert signal["drop_from_last_leg_pct"] == pytest.approx(0.0)
+    assert signal["bars_since_last_leg"] == 0
+    assert signal["in_position"] is True
+    assert signal["entry_executed"] is True
+    assert signal["add_executed"] is False
+    assert signal["execution_type"] == "entry"
 
 
 
@@ -240,6 +253,8 @@ def test_shock_reversion_trade_records_include_score_at_entry() -> None:
         (strat.completed_trades[0]["exit_price"] - strat.completed_trades[0]["entry_price"]) * 500
     )
     assert strat.completed_trades[0]["holding_period"] == 2
+    assert strat.completed_trades[0]["add_shock_scores"] == "[]"
+    assert strat.completed_trades[0]["add_score_count"] == 0
 
 
 def test_shock_reversion_ladder_executes_real_adds() -> None:
@@ -269,6 +284,13 @@ def test_shock_reversion_ladder_executes_real_adds() -> None:
     assert trade["avg_entry_price"] < trade["entry_price"]
     assert trade["effective_anchor_price"] == pytest.approx(100.0)
     assert trade["trade_pnl_amount"] == pytest.approx((trade["exit_price"] - trade["avg_entry_price"]) * trade["position_size"])
+    assert trade["add_score_count"] == len(json.loads(trade["add_shock_scores"]))
+    assert trade["add_score_count"] == trade["leg_count"] - 1
+    add_signal = next(signal for signal in strat.signal_events if signal["add_executed"])
+    assert add_signal["execution_type"] == "add"
+    assert add_signal["drop_from_last_leg_pct"] is not None
+    assert add_signal["bars_since_last_leg"] >= 1
+    assert add_signal["in_position"] is True
 
 
 def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
@@ -310,6 +332,11 @@ def test_shock_reversion_trade_records_track_multi_leg_diagnostics() -> None:
     assert trade["position_size"] == 300
     assert trade["avg_entry_price"] == pytest.approx((95.0 * 100 + 94.0 * 200) / 300)
     assert trade["effective_anchor_price"] == pytest.approx(101.0)
+    assert json.loads(trade["add_shock_scores"]) == [58.0]
+    assert trade["add_score_count"] == 1
+    assert trade["add_score_min"] == pytest.approx(58.0)
+    assert trade["add_score_max"] == pytest.approx(58.0)
+    assert trade["add_score_avg"] == pytest.approx(58.0)
 
 
 def test_shock_reversion_recovery_target_uses_effective_anchor_for_laddered_trade() -> None:
