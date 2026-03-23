@@ -1,5 +1,6 @@
 """Intraday shock-reversion strategy using close excursion from a rolling high."""
 
+import json
 import math
 
 import pandas as pd
@@ -170,6 +171,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             "effective_anchor_price": None,
             "max_position_size": 0,
             "entry_shock_score": None,
+            "add_shock_scores": [],
             "ladder_used": False,
         }
 
@@ -442,6 +444,7 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                         "effective_anchor_price": anchor_price,
                         "max_position_size": executed_size,
                         "entry_shock_score": float(context.get("shock_score_at_entry", 0.0)),
+                        "add_shock_scores": [],
                         "ladder_used": False,
                     }
                 )
@@ -462,6 +465,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                     "shock_score_at_entry": float(context.get("shock_score_at_entry", 0.0)),
                     "leg_count": 1,
                     "ladder_used": False,
+                    "add_shock_scores": json.dumps([]),
+                    "add_score_count": 0,
+                    "add_score_min": None,
+                    "add_score_max": None,
+                    "add_score_avg": None,
                     "max_position_size": executed_size,
                     "recovery_target": entry_exit_snapshot["recovery_target"],
                     "take_profit_price": entry_exit_snapshot["take_profit_price"],
@@ -485,10 +493,17 @@ class ShockReversionIntradayStrategy(bt.Strategy):
             ts["lowest_price_since_entry"] = min(float(ts["lowest_price_since_entry"]), entry_price)
             ts["effective_anchor_price"] = max(float(ts["effective_anchor_price"] or anchor_price), anchor_price)
             ts["max_position_size"] = max(int(ts["max_position_size"]), new_total)
+            add_scores = list(ts.get("add_shock_scores", []))
+            add_scores.append(float(context.get("add_shock_score_at_signal", 0.0)))
+            ts["add_shock_scores"] = add_scores
             ts["ladder_used"] = True
 
             if self.current_trade_record is not None:
                 add_exit_snapshot = self._build_exit_snapshot(entry_price)
+                add_score_count = len(add_scores)
+                add_score_min = min(add_scores) if add_scores else None
+                add_score_max = max(add_scores) if add_scores else None
+                add_score_avg = (sum(add_scores) / add_score_count) if add_scores else None
                 self.current_trade_record.update(
                     {
                         "position_size": new_total,
@@ -500,6 +515,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                             float(self.current_trade_record.get("effective_anchor_price", anchor_price)),
                             anchor_price,
                         ),
+                        "add_shock_scores": json.dumps(add_scores),
+                        "add_score_count": add_score_count,
+                        "add_score_min": add_score_min,
+                        "add_score_max": add_score_max,
+                        "add_score_avg": add_score_avg,
                         "recovery_target": add_exit_snapshot["recovery_target"],
                         "take_profit_price": add_exit_snapshot["take_profit_price"],
                         "effective_target_price": add_exit_snapshot["effective_target_price"],
@@ -529,6 +549,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
         etd = max(0.0, (mfe_price - exit_price) / avg_entry_price) if avg_entry_price else 0.0
         trade_record = dict(self.current_trade_record)
         standardized_reason = self.pending_exit_reason or trade_record.get("pending_exit_reason") or self._standardize_exit_reason(self._check_exit_conditions(exit_price))
+        add_scores = [float(score) for score in self.trade_state.get("add_shock_scores", [])]
+        add_score_count = len(add_scores)
+        add_score_min = min(add_scores) if add_scores else None
+        add_score_max = max(add_scores) if add_scores else None
+        add_score_avg = (sum(add_scores) / add_score_count) if add_scores else None
 
         trade_record.update(
             {
@@ -554,6 +579,11 @@ class ShockReversionIntradayStrategy(bt.Strategy):
                 "return": trade_return,
                 "exit_reason": standardized_reason,
                 "exit_subtype": standardized_reason,
+                "add_shock_scores": json.dumps(add_scores),
+                "add_score_count": add_score_count,
+                "add_score_min": add_score_min,
+                "add_score_max": add_score_max,
+                "add_score_avg": add_score_avg,
                 "recovery_target": exit_snapshot["recovery_target"],
                 "take_profit_price": exit_snapshot["take_profit_price"],
                 "effective_target_price": exit_snapshot["effective_target_price"],
