@@ -14,6 +14,15 @@ Ladder-enabled example config:
 ashare experiment configs/experiments/shock_reversion_intraday_ladder_v2.yaml
 ```
 
+## Typical research workflow
+
+1. Run an experiment.
+2. Inspect dashboard summaries.
+3. Drill into `trades.csv` and `signals.csv`.
+4. Debug anomalies (missed entries, unexpected exits, add behavior).
+5. Adjust parameters.
+6. Re-run and compare against prior output.
+
 ## YAML structure
 
 Minimal structure:
@@ -48,6 +57,13 @@ parameters:
 - Add score gate uses `add_score_min` (fallback to `ladder_score_min_add`).
 - Entry and add can have separate score weights via `entry_score_weight_*` and `add_score_weight_*`.
 
+## Parameter intuition
+
+- `entry_shock_score_min`: raises entry quality threshold; higher value usually means fewer but cleaner initial entries.
+- `add_score_min`: controls add quality; higher value prevents weak continuation adds.
+- `ladder_min_drop_pct`: minimum additional adverse move required before adding.
+- `recovery_frac`: recovery depth needed from the low watermark toward anchor for recovery exits.
+
 ## How to interpret outputs
 
 ### `signals.csv`
@@ -62,6 +78,12 @@ Key columns:
 - `drop_from_last_leg_pct`, `bars_since_last_leg`
 - block flags (`blocked_by_shock_score_low/high`)
 
+Diagnostic interpretation:
+
+- `add_executed = false` often means one or more add gates failed (price drop, spacing, score, bars-left, or active order).
+- `drop_from_last_leg_pct` shows whether price displacement is sufficient for ladder continuation.
+- `add_shock_score` vs `add_score_min` explains signal-quality acceptance/rejection for adds.
+
 ### `trades.csv`
 
 Use this to inspect completed trade lifecycle.
@@ -71,6 +93,24 @@ Key columns:
 - state: `leg_count`, `ladder_used`, `add_shock_scores`, `add_score_count`
 - anchor/targets: `anchor_price_at_entry`, `effective_anchor_price`, `recovery_target`, `take_profit_price`, `effective_target_price`
 - outcomes: `exit_reason`, `trade_return`, `trade_pnl_amount`, `trade_pnl_net`, `mfe`, `mae`, `etd`
+
+Interpretation:
+
+- `exit_reason` maps to realized exit path (`recovery`, `take_profit`, `stop_loss`, `max_hold`).
+- Ladder performance is read from `leg_count`, `ladder_used`, `add_shock_scores`, and return/risk fields together.
+
+## Output structure
+
+Typical experiment output layout:
+
+```text
+outputs/<experiment_name>/
+  latest/
+  previous/
+```
+
+- `latest/` is the current run snapshot.
+- `previous/` preserves the prior snapshot for quick comparison.
 
 ## Validation checklist after a run
 

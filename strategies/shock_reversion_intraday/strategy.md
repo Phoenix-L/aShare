@@ -26,6 +26,12 @@ This separation allows different weight sets for entry and add decisions.
 
 ## Entry logic (initial leg)
 
+### Why this exists
+
+Raw excursion catches many events; score filtering helps prioritize cleaner shocks and avoid weaker setups.
+
+### Rules
+
 Entry requires all of the following:
 
 1. `signal_trigger` is true.
@@ -43,6 +49,12 @@ Entry requires all of the following:
 If executed, a buy order is submitted for `trade_unit`.
 
 ## Ladder logic (add legs)
+
+### Why this exists
+
+This is **not naive averaging down**. Adds are allowed only when continuation is meaningful and controlled by price displacement, signal quality, and spacing constraints.
+
+### Rules
 
 Ladder adds are evaluated only while a live trade is open. Add execution requires:
 
@@ -64,13 +76,17 @@ If all pass, strategy buys one additional `trade_unit` leg.
 
 ## Exit logic (shared execution engine)
 
+### Why this exists
+
+Exits are unified so stop, profit, and time logic stay consistent across strategy paths. **Recovery is based on anchor, NOT entry price.**
+
+### Rules
+
 Exit conditions are evaluated by shared helper `evaluate_exit_engine` using:
 
 - current close
 - current trade state (`avg_entry_price`, `effective_anchor_price`, `lowest_price_since_entry`, `bars_held`)
 - configured parameters
-
-### Exit rules
 
 1. **Stop loss**
    - `close <= avg_entry_price * (1 - stop_loss_pct)`
@@ -101,6 +117,10 @@ Live position state tracks:
 - `entry_shock_score`
 - `add_shock_scores` (list)
 - `ladder_used`
+
+One-line insight:
+
+- `add_shock_scores` enables per-leg ladder quality analysis.
 
 Anchor handling:
 

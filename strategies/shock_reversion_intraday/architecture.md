@@ -2,24 +2,31 @@
 
 ## End-to-end flow
 
-**signal → decision → execution → logging → analysis**
+**signal → decision → execution → state update → logging → analysis**
 
-1. **Signal**
-   - Strategy computes excursion and shock components each bar.
-2. **Decision**
-   - Entry decision uses trigger + entry score bounds.
-   - Add decision uses ladder price/score/time gates.
-   - Exit decision uses shared execution engine.
-3. **Execution**
-   - Backtrader order lifecycle (`buy` / `sell`, pending-order guard).
-4. **Logging**
-   - Signal events, diagnostics events, completed trade records.
-5. **Analysis**
-   - Experiment runner/reporting persists CSV/JSON outputs and dashboard artifacts.
+1. **Signal**: compute excursion + shock components each bar.
+2. **Decision**: resolve entry/add/exit intent.
+3. **Execution**: submit orders through Backtrader.
+4. **State update**: update live trade state after fills and per-bar tracking.
+5. **Logging**: serialize signal/trade/diagnostic events.
+6. **Analysis**: aggregate into run and experiment artifacts.
+
+## Source of truth by layer
+
+- **Strategy layer** (`shock_reversion_intraday.py`) → orchestration + state transitions.
+- **Shared exit / trade-state engine** (`components/execution.py`) → exit logic + target construction + shared metrics.
+- **Scoring model** (`components/shock_score.py`) → shock component computation and weighted scores.
+- **Logging layer** (strategy event payloads + runner serialization) → serialization only.
+
+## Decision semantics
+
+- **Entry** → signal-triggered + score-filtered.
+- **Add** → continuation + score + spacing.
+- **Exit** → shared engine.
 
 ## Components
 
-## 1) Strategy
+### 1) Strategy
 
 - File: `src/ashare/strategies/shock_reversion_intraday.py`
 - Responsibilities:
@@ -28,7 +35,7 @@
   - live trade state updates
   - signal/trade diagnostics payload construction
 
-## 2) Execution engine (shared)
+### 2) Shared exit / trade-state engine
 
 - File: `src/ashare/strategies/components/execution.py`
 - Responsibilities:
@@ -37,7 +44,7 @@
   - target construction (recovery / take-profit)
   - unified exit decision (`evaluate_exit_engine`)
 
-## 3) Scoring model
+### 3) Scoring model
 
 - File: `src/ashare/strategies/components/shock_score.py`
 - Responsibilities:
@@ -45,7 +52,7 @@
   - compute weighted score with configurable weights
   - support separate weight sets for entry vs add score paths
 
-## 4) Ladder engine (in strategy)
+### 4) Ladder engine (in strategy)
 
 - Implemented in strategy method `_check_add_leg`
 - Applies:
@@ -54,11 +61,17 @@
   - bar-spacing gate (`ladder_min_bars_between_legs`)
   - remaining-hold gate (`min_bars_left_for_add`)
 
-## 5) Logging system
+### 5) Logging system
 
 - Signal stream (`signal_events`) captures trigger-level observability.
 - Diagnostics stream (`diagnostics`) captures per-bar decision status.
 - Trade records (`completed_trades`) capture final lifecycle metrics.
+
+## Output hierarchy
+
+- **Run-level**: `signals.csv`, `trades.csv`, and run summaries.
+- **Experiment-level**: dashboard artifacts over multiple runs.
+- **Folder lifecycle**: `latest/` for current run output, `previous/` for prior snapshot.
 
 ## Data artifacts
 
@@ -69,7 +82,7 @@ Primary run artifacts:
   - includes ladder context (`drop_from_last_leg_pct`, `bars_since_last_leg`)
 - `trades.csv`
   - includes trade lifecycle fields (`leg_count`, `add_shock_scores`, anchor/effective target fields)
-- dashboard outputs (from analysis tooling)
+- dashboard outputs
   - consolidated experiment-level views and summaries
 
 ## Design notes
