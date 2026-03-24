@@ -2,6 +2,10 @@
 
 A-share algo trading research and backtesting framework.
 
+## Version
+
+Current version: v0.7.0
+
 - **Data**: BaoStock API (minute, daily) - free, no token required
 - **Engine**: Backtrader
 - **Strategies**: Modular, testable strategy modules

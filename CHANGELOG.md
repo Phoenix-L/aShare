@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-24
+
+### Added
+
+- Experiment-level dashboard (cross-run analytics)
+- latest/previous experiment pointers
+- Research notebook layer
+- add_shock_scores (list per trade)
+- ladder diagnostics in signals.csv:
+  - add_executed
+  - execution_type
+  - drop_from_last_leg_pct
+  - bars_since_last_leg
+
+### Changed
+
+- Unified exit logic into shared execution engine
+- Recovery target now anchor-based (L + r(A - L))
+- Documentation fully synchronized (README, strategy, architecture, usage)
+
+### Removed
+
+- add_score_min/max/avg from trades.csv
+
+### Fixed
+
+- signal logging timing (entry/add execution consistency)
+- recovery target incorrect reference bug
+
 ## [0.6.0] - 2026-03-21
 
 ### Added
@@ -61,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - (None in this release.)
 
-[Unreleased]: https://github.com/Phoenix-L/aShare/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Phoenix-L/aShare/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Phoenix-L/aShare/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Phoenix-L/aShare/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Phoenix-L/aShare/compare/v0.3.0...v0.5.0
 [0.3.0]: https://github.com/Phoenix-L/aShare/compare/v0.2.0...v0.3.0
