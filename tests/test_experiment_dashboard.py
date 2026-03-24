@@ -150,6 +150,8 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
         "exit_datetime",
         "trade_return",
         "trade_pnl_amount",
+        "interest_paid",
+        "trade_pnl_net",
         "exit_reason",
         "leg_count",
         "ladder_used",
@@ -157,9 +159,6 @@ def test_build_experiment_dashboard_writes_expected_csvs(tmp_path: Path) -> None
         "add_shock_score",
         "add_shock_scores",
         "add_score_count",
-        "add_score_min",
-        "add_score_max",
-        "add_score_avg",
         "holding_period",
     ]
     assert len(experiment_trades.index) == 3
