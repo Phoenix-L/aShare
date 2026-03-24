@@ -101,10 +101,15 @@ Interpretation:
 
 ## Output structure
 
+The output folder name is determined by:
+
+- `output_name` if specified in the experiment config
+- otherwise defaults to the experiment name
+
 Typical experiment output layout:
 
 ```text
-outputs/<experiment_name>/
+outputs/<output_name_or_experiment_name>/
   latest/
   previous/
 ```

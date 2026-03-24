@@ -71,7 +71,7 @@
 
 - **Run-level**: `signals.csv`, `trades.csv`, and run summaries.
 - **Experiment-level**: dashboard artifacts over multiple runs.
-- **Folder lifecycle**: `latest/` for current run output, `previous/` for prior snapshot.
+- **Folder lifecycle** under `outputs/<output_name_or_experiment_name>/`: `latest/` for current run output, `previous/` for prior snapshot.
 
 ## Data artifacts
 
