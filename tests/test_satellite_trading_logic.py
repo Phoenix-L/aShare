@@ -25,7 +25,7 @@ def _synthetic_df(closes: list[float]) -> pd.DataFrame:
 
 
 def test_strategy_config_loads_yaml() -> None:
-    cfg = load_strategy_config("configs/core_satellite.yaml")
+    cfg = load_strategy_config("configs/core_satellite_strategy.yaml")
 
     assert cfg["strategy"] == "core_satellite"
     assert cfg["core_position"] == 2000
