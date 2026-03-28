@@ -173,35 +173,49 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Iterable[str] | None = None) -> None:
-    args = parse_args(argv)
-    feature_cfg = FeatureConfig()
-    label_cfg = LabelConfig()
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+def run_regime_backtest(
+    tickers: list[str],
+    input_dir: Path,
+    output_dir: Path,
+    feature_cfg: FeatureConfig | None = None,
+    label_cfg: LabelConfig | None = None,
+) -> None:
+    """Run deterministic regime backtest for a ticker list."""
+    feature_cfg = feature_cfg or FeatureConfig()
+    label_cfg = label_cfg or LabelConfig()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     all_state_metrics: list[pd.DataFrame] = []
     all_signal_metrics: list[dict[str, float]] = []
 
-    for ticker in args.tickers:
+    for ticker in tickers:
         state_metrics, signal_metrics = run_for_ticker(
             ticker=ticker,
-            input_dir=args.input_dir,
-            output_dir=args.output_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
             feature_cfg=feature_cfg,
             label_cfg=label_cfg,
         )
         all_state_metrics.append(state_metrics)
         all_signal_metrics.append(signal_metrics)
 
-    pd.concat(all_state_metrics, ignore_index=True).to_csv(args.output_dir / "state_behavior_summary.csv", index=False)
-    pd.DataFrame(all_signal_metrics).to_csv(args.output_dir / "transition_signal_summary.csv", index=False)
+    pd.concat(all_state_metrics, ignore_index=True).to_csv(output_dir / "state_behavior_summary.csv", index=False)
+    pd.DataFrame(all_signal_metrics).to_csv(output_dir / "transition_signal_summary.csv", index=False)
 
     config_dump = {
         "feature_config": asdict(feature_cfg),
         "label_config": asdict(label_cfg),
     }
-    pd.Series(config_dump).to_json(args.output_dir / "config_snapshot.json", indent=2)
+    pd.Series(config_dump).to_json(output_dir / "config_snapshot.json", indent=2)
+
+
+def main(argv: Iterable[str] | None = None) -> None:
+    args = parse_args(argv)
+    run_regime_backtest(
+        tickers=args.tickers,
+        input_dir=args.input_dir,
+        output_dir=args.output_dir,
+    )
 
 
 if __name__ == "__main__":

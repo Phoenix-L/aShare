@@ -1,6 +1,7 @@
 """CLI entry — backtest command and utility subcommands."""
 
 import datetime as dt
+import importlib.util
 from pathlib import Path
 from dataclasses import replace
 
@@ -481,6 +482,25 @@ def _normalize_research_ohlcv(df):
     return out[["datetime", "open", "high", "low", "close", "volume"]]
 
 
+def _load_regime_backtest_runner():
+    """Load regime backtest callable from research module."""
+    root = Path(__file__).resolve().parents[2]
+    module_path = root / "research" / "regime_state_machine" / "regime_backtest.py"
+    if not module_path.exists():
+        raise FileNotFoundError(f"Regime module not found: {module_path}")
+
+    spec = importlib.util.spec_from_file_location("regime_backtest_module", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Failed to load regime module spec")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    runner = getattr(module, "run_regime_backtest", None)
+    if runner is None:
+        raise RuntimeError("run_regime_backtest is not available in regime module")
+    return runner
+
+
 @cli.group()
 def data() -> None:
     """Data utility commands."""
@@ -506,6 +526,14 @@ def data() -> None:
     help="Output directory for per-ticker CSV files.",
 )
 @click.option("--use-cache/--no-cache", default=True, show_default=True, help="Use existing cache when available.")
+@click.option("--auto-run-regime", is_flag=True, default=False, help="Run regime backtest after fetch completes.")
+@click.option(
+    "--regime-output-dir",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    default=Path("research/regime_state_machine/outputs"),
+    show_default=True,
+    help="Output directory for regime backtest artifacts.",
+)
 def fetch_ohlcv(
     tickers: tuple[str, ...],
     start: str,
@@ -513,6 +541,8 @@ def fetch_ohlcv(
     timeframe: str,
     output_dir: Path,
     use_cache: bool,
+    auto_run_regime: bool,
+    regime_output_dir: Path,
 ) -> None:
     """Fetch and export OHLCV CSVs for research workflows."""
     try:
@@ -526,7 +556,9 @@ def fetch_ohlcv(
         raise click.UsageError("Unsupported timeframe. Use: daily, 30m")
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    click.echo("[DATA] Fetching OHLCV...")
 
+    successful_tickers: list[str] = []
     for ticker in tickers:
         try:
             if timeframe == "daily":
@@ -551,10 +583,48 @@ def fetch_ohlcv(
                 f"[OK] {ticker} | {timeframe} | {len(normalized)} rows | "
                 f"{first_dt} -> {last_dt}{overwrite_suffix}"
             )
+            successful_tickers.append(ticker)
         except NotImplementedError:
             click.echo(f"[ERROR] {ticker} 30m timeframe not supported by current provider")
         except Exception as exc:
             click.echo(f"[ERROR] {ticker} {exc}")
+
+    click.echo("[DATA] Completed")
+
+    if not auto_run_regime:
+        return
+
+    validated_tickers: list[str] = []
+    missing_or_empty: list[str] = []
+    for ticker in successful_tickers:
+        csv_path = output_dir / f"{ticker}.csv"
+        if not csv_path.exists() or csv_path.stat().st_size == 0:
+            missing_or_empty.append(ticker)
+            continue
+        validated_tickers.append(ticker)
+
+    if missing_or_empty:
+        click.echo(
+            "[WARN] Skipping regime run due to missing/empty CSV for: "
+            + ", ".join(sorted(missing_or_empty))
+        )
+        return
+
+    if not validated_tickers:
+        click.echo("[WARN] Skipping regime run: no successfully fetched ticker CSVs.")
+        return
+
+    try:
+        click.echo("[PIPELINE] Running regime classification...")
+        run_regime_backtest = _load_regime_backtest_runner()
+        run_regime_backtest(
+            tickers=sorted(validated_tickers),
+            input_dir=output_dir,
+            output_dir=regime_output_dir,
+        )
+        click.echo("[PIPELINE] Completed")
+    except Exception as exc:
+        click.echo(f"[ERROR] regime pipeline failed: {exc}")
 
 
 @cli.group()
