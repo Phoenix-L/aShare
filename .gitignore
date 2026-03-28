@@ -7,3 +7,10 @@ venv/
 logs/
 outputs/
 data/
+
+# WSL/Windows: NTFS alternate data stream files appear as *:Zone.Identifier
+**/*:Zone.Identifier
+
+# Accidental empty/junk files at repo root
+/0
+/=
