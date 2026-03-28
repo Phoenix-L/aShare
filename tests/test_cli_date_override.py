@@ -164,3 +164,103 @@ def test_invalid_date_format_is_rejected() -> None:
 
     assert result.exit_code != 0
     assert "start must be YYYY-MM-DD" in result.output
+
+
+def test_data_fetch_ohlcv_daily_writes_expected_csv(monkeypatch, tmp_path) -> None:
+    idx = pd.to_datetime(["2024-01-01", "2024-01-02"])
+    source = pd.DataFrame(
+        {
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.8, 10.8],
+            "close": [10.2, 11.2],
+            "volume": [1000, 1100],
+            "turnover_rate": [1.0, 1.1],
+        },
+        index=idx,
+    )
+
+    called = {}
+
+    def _fake_load_daily(ts_code, start_date, end_date, use_cache=True):
+        called["args"] = (ts_code, start_date, end_date, use_cache)
+        return source
+
+    monkeypatch.setattr("ashare.cli.load_daily", _fake_load_daily)
+
+    runner = CliRunner()
+    output_dir = tmp_path / "ohlcv"
+    result = runner.invoke(
+        cli,
+        [
+            "data",
+            "fetch-ohlcv",
+            "--tickers",
+            "002850.SZ",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--timeframe",
+            "daily",
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert called["args"] == ("002850.SZ", "2024-01-01", "2024-01-31", True)
+    written = pd.read_csv(output_dir / "002850.SZ.csv")
+    assert list(written.columns) == ["datetime", "open", "high", "low", "close", "volume"]
+    assert len(written) == 2
+    assert "[OK] 002850.SZ | daily | 2 rows" in result.output
+
+
+def test_data_fetch_ohlcv_continues_on_ticker_error(monkeypatch, tmp_path) -> None:
+    idx = pd.to_datetime(["2024-01-01"])
+    good = pd.DataFrame(
+        {
+            "open": [10.0],
+            "high": [10.5],
+            "low": [9.8],
+            "close": [10.2],
+            "volume": [1000],
+            "turnover_rate": [1.0],
+        },
+        index=idx,
+    )
+
+    def _fake_load_daily(ts_code, start_date, end_date, use_cache=True):
+        if ts_code == "BAD.SZ":
+            raise ValueError("invalid ticker")
+        return good
+
+    monkeypatch.setattr("ashare.cli.load_daily", _fake_load_daily)
+
+    runner = CliRunner()
+    output_dir = tmp_path / "ohlcv"
+    result = runner.invoke(
+        cli,
+        [
+            "data",
+            "fetch-ohlcv",
+            "--tickers",
+            "BAD.SZ",
+            "--tickers",
+            "000001.SZ",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--timeframe",
+            "daily",
+            "--output-dir",
+            str(output_dir),
+            "--no-cache",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "[ERROR] BAD.SZ invalid ticker" in result.output
+    assert "[OK] 000001.SZ | daily | 1 rows" in result.output
+    assert (output_dir / "000001.SZ.csv").exists()

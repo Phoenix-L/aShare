@@ -50,6 +50,8 @@ def load_minute_30(
     ts_code: str,
     start_date: str,
     end_date: str,
+    *,
+    use_cache: bool = True,
 ) -> pd.DataFrame:
     """
     Load 30-minute OHLCV data with turnover_rate.
@@ -64,13 +66,14 @@ def load_minute_30(
     provider_name = _provider_name(provider)
     frequency = "30min"
 
-    if cache_exists(provider_name, ts_code, frequency, start_date, end_date):
+    if use_cache and cache_exists(provider_name, ts_code, frequency, start_date, end_date):
         df = load_from_cache(provider_name, ts_code, frequency, start_date, end_date)
         return _validate_loaded_frame(df, source="fetch_minute30")
 
     df = provider.fetch_minute30(ts_code, start_date, end_date)
     validated = _validate_loaded_frame(df, source="fetch_minute30")
-    save_to_cache(provider_name, ts_code, frequency, start_date, end_date, validated)
+    if use_cache:
+        save_to_cache(provider_name, ts_code, frequency, start_date, end_date, validated)
     return validated
 
 
@@ -78,6 +81,8 @@ def load_daily(
     ts_code: str,
     start_date: str,
     end_date: str,
+    *,
+    use_cache: bool = True,
 ) -> pd.DataFrame:
     """
     Load daily OHLCV data with turnover_rate.
@@ -92,11 +97,12 @@ def load_daily(
     provider_name = _provider_name(provider)
     frequency = "daily"
 
-    if cache_exists(provider_name, ts_code, frequency, start_date, end_date):
+    if use_cache and cache_exists(provider_name, ts_code, frequency, start_date, end_date):
         df = load_from_cache(provider_name, ts_code, frequency, start_date, end_date)
         return _validate_loaded_frame(df, source="fetch_daily")
 
     df = provider.fetch_daily(ts_code, start_date, end_date)
     validated = _validate_loaded_frame(df, source="fetch_daily")
-    save_to_cache(provider_name, ts_code, frequency, start_date, end_date, validated)
+    if use_cache:
+        save_to_cache(provider_name, ts_code, frequency, start_date, end_date, validated)
     return validated
