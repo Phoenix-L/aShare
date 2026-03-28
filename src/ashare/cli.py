@@ -1,6 +1,7 @@
 """CLI entry — backtest command and utility subcommands."""
 
 import datetime as dt
+import importlib.util
 from pathlib import Path
 from dataclasses import replace
 
@@ -9,7 +10,7 @@ import click
 from ashare import __version__
 from ashare.analysis.experiment_dashboard import build_experiment_dashboard
 from ashare.config.loader import load_backtest_config
-from ashare.data.loaders import load_minute_30
+from ashare.data.loaders import load_daily, load_minute_30
 from ashare.engine.runner import run_backtest
 from ashare.experiment.executor import execute_experiment_spec
 from ashare.experiment.grid import generate_parameter_sets
@@ -450,6 +451,180 @@ def _default_date_range(days: int = 30) -> tuple[str, str]:
     today = dt.date.today()
     start = today - dt.timedelta(days=days)
     return start.isoformat(), today.isoformat()
+
+
+def _normalize_research_ohlcv(df):
+    """Normalize provider output into regime research CSV schema."""
+    out = df.copy()
+
+    if out.empty:
+        raise ValueError("empty data response")
+
+    if "close" not in out.columns:
+        raise ValueError("missing close column")
+
+    out = out.dropna(subset=["open", "high", "low", "close", "volume"])
+    if out.empty:
+        raise ValueError("all rows dropped after NaN filtering")
+
+    for col in ["open", "high", "low", "close", "volume"]:
+        out[col] = out[col].astype(float)
+
+    out = out.sort_index()
+    out = out[~out.index.duplicated(keep="last")]
+    out = out.dropna(subset=["close"])
+    if out.empty:
+        raise ValueError("no valid rows after normalization")
+
+    out = out.reset_index()
+    out.rename(columns={out.columns[0]: "datetime"}, inplace=True)
+    out["datetime"] = out["datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    return out[["datetime", "open", "high", "low", "close", "volume"]]
+
+
+def _load_regime_backtest_runner():
+    """Load regime backtest callable from research module."""
+    root = Path(__file__).resolve().parents[2]
+    module_path = root / "research" / "regime_state_machine" / "regime_backtest.py"
+    if not module_path.exists():
+        raise FileNotFoundError(f"Regime module not found: {module_path}")
+
+    spec = importlib.util.spec_from_file_location("regime_backtest_module", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Failed to load regime module spec")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    runner = getattr(module, "run_regime_backtest", None)
+    if runner is None:
+        raise RuntimeError("run_regime_backtest is not available in regime module")
+    return runner
+
+
+@cli.group()
+def data() -> None:
+    """Data utility commands."""
+    pass
+
+
+@data.command(name="fetch-ohlcv")
+@click.option("--tickers", multiple=True, required=True, help="One or more tickers, e.g. 002850.SZ")
+@click.option("--start", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("--end", required=True, help="End date (YYYY-MM-DD)")
+@click.option(
+    "--timeframe",
+    type=click.Choice(["daily", "30m"], case_sensitive=False),
+    default="daily",
+    show_default=True,
+    help="Bar timeframe to fetch.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    default=Path("data/research/ohlcv"),
+    show_default=True,
+    help="Output directory for per-ticker CSV files.",
+)
+@click.option("--use-cache/--no-cache", default=True, show_default=True, help="Use existing cache when available.")
+@click.option("--auto-run-regime", is_flag=True, default=False, help="Run regime backtest after fetch completes.")
+@click.option(
+    "--regime-output-dir",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    default=Path("research/regime_state_machine/outputs"),
+    show_default=True,
+    help="Output directory for regime backtest artifacts.",
+)
+def fetch_ohlcv(
+    tickers: tuple[str, ...],
+    start: str,
+    end: str,
+    timeframe: str,
+    output_dir: Path,
+    use_cache: bool,
+    auto_run_regime: bool,
+    regime_output_dir: Path,
+) -> None:
+    """Fetch and export OHLCV CSVs for research workflows."""
+    try:
+        start = _validate_date_arg("start", start) or start
+        end = _validate_date_arg("end", end) or end
+    except ValueError as e:
+        raise click.UsageError(str(e))
+
+    timeframe = timeframe.lower()
+    if timeframe not in {"daily", "30m"}:
+        raise click.UsageError("Unsupported timeframe. Use: daily, 30m")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    click.echo("[DATA] Fetching OHLCV...")
+
+    successful_tickers: list[str] = []
+    for ticker in tickers:
+        try:
+            if timeframe == "daily":
+                df = load_daily(ts_code=ticker, start_date=start, end_date=end, use_cache=use_cache)
+            elif timeframe == "30m":
+                df = load_minute_30(ts_code=ticker, start_date=start, end_date=end, use_cache=use_cache)
+            else:
+                raise click.ClickException("30m timeframe not supported by current provider")
+
+            normalized = _normalize_research_ohlcv(df)
+            if normalized.empty:
+                raise ValueError("empty data response")
+
+            output_path = output_dir / f"{ticker}.csv"
+            existed = output_path.exists()
+            normalized.to_csv(output_path, index=False)
+
+            first_dt = normalized["datetime"].iloc[0]
+            last_dt = normalized["datetime"].iloc[-1]
+            overwrite_suffix = " (overwritten)" if existed else ""
+            click.echo(
+                f"[OK] {ticker} | {timeframe} | {len(normalized)} rows | "
+                f"{first_dt} -> {last_dt}{overwrite_suffix}"
+            )
+            successful_tickers.append(ticker)
+        except NotImplementedError:
+            click.echo(f"[ERROR] {ticker} 30m timeframe not supported by current provider")
+        except Exception as exc:
+            click.echo(f"[ERROR] {ticker} {exc}")
+
+    click.echo("[DATA] Completed")
+
+    if not auto_run_regime:
+        return
+
+    validated_tickers: list[str] = []
+    missing_or_empty: list[str] = []
+    for ticker in successful_tickers:
+        csv_path = output_dir / f"{ticker}.csv"
+        if not csv_path.exists() or csv_path.stat().st_size == 0:
+            missing_or_empty.append(ticker)
+            continue
+        validated_tickers.append(ticker)
+
+    if missing_or_empty:
+        click.echo(
+            "[WARN] Skipping regime run due to missing/empty CSV for: "
+            + ", ".join(sorted(missing_or_empty))
+        )
+        return
+
+    if not validated_tickers:
+        click.echo("[WARN] Skipping regime run: no successfully fetched ticker CSVs.")
+        return
+
+    try:
+        click.echo("[PIPELINE] Running regime classification...")
+        run_regime_backtest = _load_regime_backtest_runner()
+        run_regime_backtest(
+            tickers=sorted(validated_tickers),
+            input_dir=output_dir,
+            output_dir=regime_output_dir,
+        )
+        click.echo("[PIPELINE] Completed")
+    except Exception as exc:
+        click.echo(f"[ERROR] regime pipeline failed: {exc}")
 
 
 @cli.group()

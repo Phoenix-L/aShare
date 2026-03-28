@@ -164,3 +164,195 @@ def test_invalid_date_format_is_rejected() -> None:
 
     assert result.exit_code != 0
     assert "start must be YYYY-MM-DD" in result.output
+
+
+def test_data_fetch_ohlcv_daily_writes_expected_csv(monkeypatch, tmp_path) -> None:
+    idx = pd.to_datetime(["2024-01-01", "2024-01-02"])
+    source = pd.DataFrame(
+        {
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.8, 10.8],
+            "close": [10.2, 11.2],
+            "volume": [1000, 1100],
+            "turnover_rate": [1.0, 1.1],
+        },
+        index=idx,
+    )
+
+    called = {}
+
+    def _fake_load_daily(ts_code, start_date, end_date, use_cache=True):
+        called["args"] = (ts_code, start_date, end_date, use_cache)
+        return source
+
+    monkeypatch.setattr("ashare.cli.load_daily", _fake_load_daily)
+
+    runner = CliRunner()
+    output_dir = tmp_path / "ohlcv"
+    result = runner.invoke(
+        cli,
+        [
+            "data",
+            "fetch-ohlcv",
+            "--tickers",
+            "002850.SZ",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--timeframe",
+            "daily",
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert called["args"] == ("002850.SZ", "2024-01-01", "2024-01-31", True)
+    written = pd.read_csv(output_dir / "002850.SZ.csv")
+    assert list(written.columns) == ["datetime", "open", "high", "low", "close", "volume"]
+    assert len(written) == 2
+    assert "[OK] 002850.SZ | daily | 2 rows" in result.output
+
+
+def test_data_fetch_ohlcv_continues_on_ticker_error(monkeypatch, tmp_path) -> None:
+    idx = pd.to_datetime(["2024-01-01"])
+    good = pd.DataFrame(
+        {
+            "open": [10.0],
+            "high": [10.5],
+            "low": [9.8],
+            "close": [10.2],
+            "volume": [1000],
+            "turnover_rate": [1.0],
+        },
+        index=idx,
+    )
+
+    def _fake_load_daily(ts_code, start_date, end_date, use_cache=True):
+        if ts_code == "BAD.SZ":
+            raise ValueError("invalid ticker")
+        return good
+
+    monkeypatch.setattr("ashare.cli.load_daily", _fake_load_daily)
+
+    runner = CliRunner()
+    output_dir = tmp_path / "ohlcv"
+    result = runner.invoke(
+        cli,
+        [
+            "data",
+            "fetch-ohlcv",
+            "--tickers",
+            "BAD.SZ",
+            "--tickers",
+            "000001.SZ",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--timeframe",
+            "daily",
+            "--output-dir",
+            str(output_dir),
+            "--no-cache",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "[ERROR] BAD.SZ invalid ticker" in result.output
+    assert "[OK] 000001.SZ | daily | 1 rows" in result.output
+    assert (output_dir / "000001.SZ.csv").exists()
+
+
+def test_data_fetch_ohlcv_auto_run_regime(monkeypatch, tmp_path) -> None:
+    idx = pd.to_datetime(["2024-01-01", "2024-01-02"])
+    source = pd.DataFrame(
+        {
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.8, 10.8],
+            "close": [10.2, 11.2],
+            "volume": [1000, 1100],
+            "turnover_rate": [1.0, 1.1],
+        },
+        index=idx,
+    )
+
+    monkeypatch.setattr("ashare.cli.load_daily", lambda *args, **kwargs: source)
+    called = {}
+
+    def _fake_runner(*, tickers, input_dir, output_dir):
+        called["args"] = (tickers, input_dir, output_dir)
+
+    monkeypatch.setattr("ashare.cli._load_regime_backtest_runner", lambda: _fake_runner)
+
+    runner = CliRunner()
+    output_dir = tmp_path / "ohlcv"
+    regime_dir = tmp_path / "regime"
+    result = runner.invoke(
+        cli,
+        [
+            "data",
+            "fetch-ohlcv",
+            "--tickers",
+            "002850.SZ",
+            "--tickers",
+            "000001.SZ",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--timeframe",
+            "daily",
+            "--output-dir",
+            str(output_dir),
+            "--auto-run-regime",
+            "--regime-output-dir",
+            str(regime_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert called["args"][0] == ["000001.SZ", "002850.SZ"]
+    assert called["args"][1] == output_dir
+    assert called["args"][2] == regime_dir
+    assert "[PIPELINE] Running regime classification..." in result.output
+    assert "[PIPELINE] Completed" in result.output
+
+
+def test_data_fetch_ohlcv_skips_regime_when_no_successful_tickers(monkeypatch, tmp_path) -> None:
+    def _raise_loader(*args, **kwargs):
+        raise ValueError("invalid ticker")
+
+    monkeypatch.setattr("ashare.cli.load_daily", _raise_loader)
+
+    def _fake_runner(*, tickers, input_dir, output_dir):
+        raise AssertionError("Runner should not be called")
+
+    monkeypatch.setattr("ashare.cli._load_regime_backtest_runner", lambda: _fake_runner)
+
+    runner = CliRunner()
+    output_dir = tmp_path / "ohlcv"
+    result = runner.invoke(
+        cli,
+        [
+            "data",
+            "fetch-ohlcv",
+            "--tickers",
+            "BAD.SZ",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-31",
+            "--timeframe",
+            "daily",
+            "--output-dir",
+            str(output_dir),
+            "--auto-run-regime",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "[WARN] Skipping regime run: no successfully fetched ticker CSVs." in result.output
