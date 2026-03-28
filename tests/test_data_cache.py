@@ -118,3 +118,22 @@ def test_loader_cache_miss_fetches_and_persists(
     assert provider.minute_calls == 1
     assert cache.cache_exists("baostock", "000001.SZ", "30min", "20240101", "20240131")
     pd.testing.assert_frame_equal(loaded, sample_df)
+
+
+def test_loader_use_cache_false_bypasses_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    sample_df: pd.DataFrame,
+    parquet_shim: None,
+) -> None:
+    monkeypatch.setenv("ASHARE_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("ASHARE_DATA_PROVIDER", "baostock")
+    provider = CountingProvider(sample_df)
+    monkeypatch.setattr(loaders, "get_provider", lambda: provider)
+
+    cache.save_to_cache("baostock", "000001.SZ", "daily", "20240101", "20240131", sample_df)
+
+    loaded = loaders.load_daily("000001.SZ", "20240101", "20240131", use_cache=False)
+
+    assert provider.daily_calls == 1
+    pd.testing.assert_frame_equal(loaded, sample_df)

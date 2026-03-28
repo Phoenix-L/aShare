@@ -9,7 +9,7 @@ import click
 from ashare import __version__
 from ashare.analysis.experiment_dashboard import build_experiment_dashboard
 from ashare.config.loader import load_backtest_config
-from ashare.data.loaders import load_minute_30
+from ashare.data.loaders import load_daily, load_minute_30
 from ashare.engine.runner import run_backtest
 from ashare.experiment.executor import execute_experiment_spec
 from ashare.experiment.grid import generate_parameter_sets
@@ -450,6 +450,111 @@ def _default_date_range(days: int = 30) -> tuple[str, str]:
     today = dt.date.today()
     start = today - dt.timedelta(days=days)
     return start.isoformat(), today.isoformat()
+
+
+def _normalize_research_ohlcv(df):
+    """Normalize provider output into regime research CSV schema."""
+    out = df.copy()
+
+    if out.empty:
+        raise ValueError("empty data response")
+
+    if "close" not in out.columns:
+        raise ValueError("missing close column")
+
+    out = out.dropna(subset=["open", "high", "low", "close", "volume"])
+    if out.empty:
+        raise ValueError("all rows dropped after NaN filtering")
+
+    for col in ["open", "high", "low", "close", "volume"]:
+        out[col] = out[col].astype(float)
+
+    out = out.sort_index()
+    out = out[~out.index.duplicated(keep="last")]
+    out = out.dropna(subset=["close"])
+    if out.empty:
+        raise ValueError("no valid rows after normalization")
+
+    out = out.reset_index()
+    out.rename(columns={out.columns[0]: "datetime"}, inplace=True)
+    out["datetime"] = out["datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    return out[["datetime", "open", "high", "low", "close", "volume"]]
+
+
+@cli.group()
+def data() -> None:
+    """Data utility commands."""
+    pass
+
+
+@data.command(name="fetch-ohlcv")
+@click.option("--tickers", multiple=True, required=True, help="One or more tickers, e.g. 002850.SZ")
+@click.option("--start", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("--end", required=True, help="End date (YYYY-MM-DD)")
+@click.option(
+    "--timeframe",
+    type=click.Choice(["daily", "30m"], case_sensitive=False),
+    default="daily",
+    show_default=True,
+    help="Bar timeframe to fetch.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    default=Path("data/research/ohlcv"),
+    show_default=True,
+    help="Output directory for per-ticker CSV files.",
+)
+@click.option("--use-cache/--no-cache", default=True, show_default=True, help="Use existing cache when available.")
+def fetch_ohlcv(
+    tickers: tuple[str, ...],
+    start: str,
+    end: str,
+    timeframe: str,
+    output_dir: Path,
+    use_cache: bool,
+) -> None:
+    """Fetch and export OHLCV CSVs for research workflows."""
+    try:
+        start = _validate_date_arg("start", start) or start
+        end = _validate_date_arg("end", end) or end
+    except ValueError as e:
+        raise click.UsageError(str(e))
+
+    timeframe = timeframe.lower()
+    if timeframe not in {"daily", "30m"}:
+        raise click.UsageError("Unsupported timeframe. Use: daily, 30m")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for ticker in tickers:
+        try:
+            if timeframe == "daily":
+                df = load_daily(ts_code=ticker, start_date=start, end_date=end, use_cache=use_cache)
+            elif timeframe == "30m":
+                df = load_minute_30(ts_code=ticker, start_date=start, end_date=end, use_cache=use_cache)
+            else:
+                raise click.ClickException("30m timeframe not supported by current provider")
+
+            normalized = _normalize_research_ohlcv(df)
+            if normalized.empty:
+                raise ValueError("empty data response")
+
+            output_path = output_dir / f"{ticker}.csv"
+            existed = output_path.exists()
+            normalized.to_csv(output_path, index=False)
+
+            first_dt = normalized["datetime"].iloc[0]
+            last_dt = normalized["datetime"].iloc[-1]
+            overwrite_suffix = " (overwritten)" if existed else ""
+            click.echo(
+                f"[OK] {ticker} | {timeframe} | {len(normalized)} rows | "
+                f"{first_dt} -> {last_dt}{overwrite_suffix}"
+            )
+        except NotImplementedError:
+            click.echo(f"[ERROR] {ticker} 30m timeframe not supported by current provider")
+        except Exception as exc:
+            click.echo(f"[ERROR] {ticker} {exc}")
 
 
 @cli.group()
