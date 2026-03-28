@@ -2,6 +2,7 @@
 
 import datetime as dt
 import importlib.util
+import sys
 from pathlib import Path
 from dataclasses import replace
 
@@ -494,6 +495,8 @@ def _load_regime_backtest_runner():
         raise RuntimeError("Failed to load regime module spec")
 
     module = importlib.util.module_from_spec(spec)
+    # Required before exec_module: @dataclass resolves cls.__module__ via sys.modules (Python 3.12+).
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     runner = getattr(module, "run_regime_backtest", None)
     if runner is None:

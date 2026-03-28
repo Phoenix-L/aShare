@@ -6,9 +6,15 @@ This is a standalone research script and does NOT alter live strategy logic.
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
+
+# Loaded via importlib from the CLI, cwd may be repo root — sibling modules are not on sys.path.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 import numpy as np
 import pandas as pd
