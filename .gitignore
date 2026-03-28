@@ -6,3 +6,4 @@ venv/
 .env
 logs/
 outputs/
+data/

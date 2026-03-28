@@ -7,8 +7,8 @@ strategy: shock_reversion_intraday
 symbols:
   - 002850.SZ
 
-start: 2025-10-23
-end: 2026-03-18
+start: 2025-11-21
+end: 2026-03-20
 
 experiment_name: shock_reversion_intraday_ladder_v2
 
@@ -29,13 +29,13 @@ params:
   # ===============================
   shock_score:
 
-    excursion_lookback_bars: [8,12,20]
+    excursion_lookback_bars: [8,12]
     excursion_threshold: [0.03]
 
     speed_scale: [0.03]
 
     noise_lookback: [10]
-    noise_ratio_scale: [2.0]
+    noise_ratio_scale: [3.0]
 
     # ---- ENTRY SCORE WEIGHTS ----
     entry_weights:
@@ -48,8 +48,8 @@ params:
     add_weights:
       depth: [0.60]
       speed: [0.15]
-      stabilization: [0.05]
-      noise_penalty: [0.20]
+      stabilization: [0.20]
+      noise_penalty: [0.10]
 
   # ===============================
   # ENTRY LOGIC
@@ -68,11 +68,11 @@ params:
   exit:
 
     take_profit_pct: [0.038]
-    stop_loss_pct: [0.035]
+    stop_loss_pct: [0.06]
 
-    recovery_frac: [0.38]
+    recovery_frac: [0.618]
 
-    max_hold_bars: [40]
+    max_hold_bars: [160]
 
   # ===============================
   # POSITION
@@ -96,9 +96,9 @@ params:
 
     enabled: [false, true]
 
-    max_legs: [3]
+    max_legs: [4]
 
-    ladder_min_drop_pct: [0.02, 0.03]
+    ladder_min_drop_pct: [0.02]
 
     ladder_min_bars_between_legs: [1]
 
