@@ -18,8 +18,9 @@ Scope is offline research (data load → backtest → artifacts), not production
 - **Config/spec layer** (`src/ashare/config/*`, `src/ashare/experiment/spec.py`)
   - backtest defaults, YAML spec normalization, execution overrides.
 - **Data layer** (`src/ashare/data/*`)
-  - provider selection (`baostock`/`tushare`), cache-first loads, and Backtrader feed normalization remain local.
-  - canonical bar contract + validation now delegate to `market-data-core` through a compatibility bridge (`ashare.data.core_bridge`).
+  - provider selection (`baostock`/`tushare`), cache-first fallback loads, and Backtrader feed normalization remain local.
+  - canonical bar contract + validation delegate to `market-data-core` through `ashare.data.core_bridge`.
+  - loader boundary now prefers upstream stable access APIs (`load_daily`, `load_30m`/`load_minute_30`) with local fallback.
 - **Strategy layer** (`src/ashare/strategies/*`)
   - manual strategy registry + strategy implementations.
 - **Engine layer** (`src/ashare/engine/*`)
@@ -185,8 +186,15 @@ Design principles:
 The research layer consumes canonical experiment artifacts (`summary.csv`, `summary_sorted.csv`, `metrics.json`, `diagnostics_summary.json`) and turns them into reusable aggregate metrics and a structured Markdown report. This keeps post-experiment analysis separate from backtest execution while preserving CLI and script compatibility.
 
 
-## 11) Phase 4 migration boundary
+## 11) Phase 6 migration boundary (consumer adoption wave 2)
 
-- Delegated to `market-data-core`: canonical bar schema contract resolution and validation entrypoints.
-- Still local in `aShare`: provider APIs, cache implementation, backtest/strategy/research layers.
-- Deferred: calendar/adjustment/storage policy harmonization after shared API stabilization.
+- Delegated/wrapped to `market-data-core`:
+  - canonical bar schema contract resolution and validation entrypoints,
+  - stable access loaders for daily/30m data,
+  - dataset listing/inspection metadata APIs.
+- Still local in `aShare`:
+  - concrete provider adapters, cache implementation, Backtrader adapters,
+    strategy/backtest/research layers.
+- Deferred:
+  - ingest orchestration and transform-layer (`resample`, `adjust`) adoption,
+  - full runtime hard dependency enforcement where fallback removal is acceptable.

@@ -43,8 +43,11 @@ python -m ashare backtest --symbol 000001.SZ --strategy mid_freq_ma --start 2024
 Outputs and logs are written to `outputs/` and `logs/` (gitignored).
 
 
-## Migration status (Phase 4)
+## Migration status (Phase 6: consumer adoption wave 2)
 
-- Delegated to `market-data-core` when available: canonical bar columns and canonical frame validation (`ashare.data.core_bridge`).
-- Kept local in `aShare`: provider implementations (BaoStock/Tushare), cache layout, Backtrader feed adapters, strategies, and experiment orchestration.
-- Deferred: provider/access API unification and policy-level calendar/adjustment normalization once those APIs are finalized in `market-data-core`.
+- Delegated to `market-data-core` when available:
+  - canonical bar columns and frame validation entrypoints (`ashare.data.core_bridge`),
+  - stable load API boundary (`load_daily`, `load_30m`/`load_minute_30`) via conservative delegation from `ashare.data.loaders`,
+  - dataset metadata inspection APIs (`list_datasets`, `inspect_dataset`) via compatibility wrappers.
+- Kept local in `aShare`: BaoStock/Tushare provider implementations, local cache format and paths, Backtrader feed adapters, strategies, and experiment/backtest orchestration.
+- Deferred: ingest pipeline extraction, full transform parity (`resample`, `adjust`) and making `market-data-core` strictly mandatory at runtime in all environments.

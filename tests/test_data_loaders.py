@@ -77,3 +77,31 @@ def test_loader_rejects_missing_required_columns(monkeypatch: pytest.MonkeyPatch
 
     with pytest.raises(ValueError, match="missing required columns"):
         loaders.load_daily("000001.SZ", "2024-01-01", "2024-01-02")
+
+
+def test_load_daily_prefers_market_data_core_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = {"core": 0}
+
+    def _core_loader(*, symbol: str, start: str, end: str, use_cache: bool = True) -> pd.DataFrame:
+        called["core"] += 1
+        return _valid_df()
+
+    monkeypatch.setattr(loaders, "load_daily_from_core", _core_loader)
+    monkeypatch.setattr(loaders, "get_provider", lambda: DummyProvider(None))
+
+    df = loaders.load_daily("000001.SZ", "2024-01-01", "2024-01-02")
+    assert called["core"] == 1
+    assert len(df) == 2
+
+
+def test_loaders_dataset_metadata_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loaders, "list_datasets_from_core", lambda *, data_root=None: ["cn_equity_30m_raw"])
+    monkeypatch.setattr(
+        loaders,
+        "inspect_dataset_from_core",
+        lambda dataset_id, *, data_root=None: {"dataset_id": dataset_id, "frequency": "30m"},
+    )
+
+    assert loaders.list_available_datasets() == ["cn_equity_30m_raw"]
+    inspected = loaders.inspect_available_dataset("cn_equity_30m_raw")
+    assert inspected["dataset_id"] == "cn_equity_30m_raw"

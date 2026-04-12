@@ -1,51 +1,53 @@
-# Migration Blueprint (Phase 4: aShare dependency adoption)
+# Migration Blueprint (Phase 6: consumer adoption wave 2)
 
 ## Scope
 
-This phase rewires `aShare` to consume the shared market-data foundation from
-`market-data-core` where the Phase 3 surface is available, while preserving
-strategy/backtest responsibilities inside `aShare`.
+This phase extends `aShare` adoption of stable Phase 5 `market-data-core` APIs
+while preserving `aShare` ownership of strategy/backtest/research behavior.
 
-## Boundary decision
+## Wave-2 mapping (evidence-based)
 
-### Now delegated to `market-data-core`
+### REPLACE_NOW
 
-- Canonical bar contract lookup (column contract resolution).
-- Canonical market-data frame validation entrypoint.
+- Canonical load entrypoints for daily and 30m bars:
+  - `ashare.data.loaders.load_daily` now prefers `market_data_core.access.load_daily`.
+  - `ashare.data.loaders.load_minute_30` now prefers `market_data_core.access.load_30m` / `load_minute_30`.
 
-Implementation note: `src/ashare/data/core_bridge.py` delegates to
-`market_data_core` modules if importable and falls back to legacy local checks
-if not installed.
+### WRAP_NOW
 
-### Kept local in `aShare`
+- Validation boundary:
+  - `ashare.data.core_bridge.validate_canonical_frame` now runs
+    `market_data_core.validation.validate_bars` when available, then preserves
+    legacy frame-shape checks for safety.
+- Dataset metadata inspection:
+  - local wrapper functions expose manifest-driven upstream APIs:
+    `list_available_datasets` / `inspect_available_dataset`.
+- Calendar boundary:
+  - wrapper helpers added for `session_open_anchors` and `is_session_aligned`
+    to keep a stable local compatibility import path.
 
-- Provider implementations (`BaoStockProvider`, `TushareProvider`).
-- Provider factory selection via `ASHARE_DATA_PROVIDER`.
-- Cache path/layout and cache IO.
-- Backtrader feed adapter (`to_backtrader_feed`).
-- Strategy logic, backtest runner, experiment/walk-forward orchestration.
+### KEEP_LOCAL
 
-### Deferred to later phases
+- Concrete BaoStock/Tushare provider adapters.
+- Local cache IO and path conventions.
+- Backtrader feed adapters and strategy-specific preprocessing.
+- Backtest execution, experiments, walk-forward orchestration, reporting.
 
-- Provider abstraction unification with `market-data-core` provider/access APIs.
-- Calendar policy and adjustment policy alignment once shared APIs are stable.
-- Storage layout standardization against `market-data-core` storage contract.
+### DEFER
+
+- Upstream ingest orchestration (`ingest_bars`) adoption.
+- Upstream transform layer (`resample`, `adjust`) adoption.
+- Removal of runtime fallback path when `market-data-core` is unavailable.
 
 ## Risk management
 
-- Conservative adapter pattern: keep existing `ashare.data.loaders` call sites unchanged.
-- Runtime fallback preserves behavior in environments where `market-data-core`
-  is not yet installed.
-- Added tests to verify both fallback behavior and delegation path.
+- Keep current loader function signatures unchanged for callers.
+- Prefer upstream APIs only when importable; fallback keeps behavior in
+  environments that have not yet installed `market-data-core`.
+- Add tests for both delegation and fallback paths.
 
-## Developer setup
+## Contract alignment notes
 
-Recommended local editable setup:
-
-```bash
-pip install -e ../market-data-core
-pip install -e .
-```
-
-If `market-data-core` is temporarily unavailable, local fallback remains active,
-with a TODO to remove fallback in Phase 5 when dependency is mandatory.
+- Canonical bar validation now aligns with upstream strict validation semantics.
+- Loader delegation aligns dataset reads with upstream access contracts.
+- Dataset metadata is now treated as manifest-driven when upstream is available.
