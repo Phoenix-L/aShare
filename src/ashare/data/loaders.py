@@ -7,10 +7,11 @@ import os
 import pandas as pd
 
 from ashare.data.cache import cache_exists, load_from_cache, save_to_cache
+from ashare.data.core_bridge import canonical_bar_columns, validate_canonical_frame
 from ashare.data.providers import get_provider
 
 
-_REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume", "turnover_rate"]
+_REQUIRED_COLUMNS = list(canonical_bar_columns())
 _PROVIDER_ENV = "ASHARE_DATA_PROVIDER"
 _DEFAULT_PROVIDER = "baostock"
 
@@ -30,20 +31,7 @@ def _provider_name(provider: object) -> str:
 
 def _validate_loaded_frame(df: pd.DataFrame, *, source: str) -> pd.DataFrame:
     """Validate provider output schema for downstream backtests."""
-    if df is None or df.empty:
-        raise ValueError(f"{source} returned no data")
-
-    missing = [col for col in _REQUIRED_COLUMNS if col not in df.columns]
-    if missing:
-        raise ValueError(f"{source} missing required columns: {', '.join(missing)}")
-
-    if not isinstance(df.index, pd.DatetimeIndex):
-        raise ValueError(f"{source} index must be DatetimeIndex")
-
-    if not df.index.is_monotonic_increasing:
-        df = df.sort_index()
-
-    return df
+    return validate_canonical_frame(df, source=source)
 
 
 def load_minute_30(
