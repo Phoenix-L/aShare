@@ -7,7 +7,14 @@ import os
 import pandas as pd
 
 from ashare.data.cache import cache_exists, load_from_cache, save_to_cache
-from ashare.data.core_bridge import canonical_bar_columns, validate_canonical_frame
+from ashare.data.core_bridge import (
+    canonical_bar_columns,
+    inspect_dataset_from_core,
+    list_datasets_from_core,
+    load_30m_from_core,
+    load_daily_from_core,
+    validate_canonical_frame,
+)
 from ashare.data.providers import get_provider
 
 
@@ -50,6 +57,10 @@ def load_minute_30(
         Indexed by datetime with columns:
         open, high, low, close, volume, turnover_rate
     """
+    core_df = load_30m_from_core(symbol=ts_code, start=start_date, end=end_date, use_cache=use_cache)
+    if core_df is not None:
+        return _validate_loaded_frame(core_df, source="load_minute_30")
+
     provider = get_provider()
     provider_name = _provider_name(provider)
     frequency = "30min"
@@ -81,6 +92,10 @@ def load_daily(
         Indexed by datetime with columns:
         open, high, low, close, volume, turnover_rate
     """
+    core_df = load_daily_from_core(symbol=ts_code, start=start_date, end=end_date, use_cache=use_cache)
+    if core_df is not None:
+        return _validate_loaded_frame(core_df, source="load_daily")
+
     provider = get_provider()
     provider_name = _provider_name(provider)
     frequency = "daily"
@@ -94,3 +109,15 @@ def load_daily(
     if use_cache:
         save_to_cache(provider_name, ts_code, frequency, start_date, end_date, validated)
     return validated
+
+
+def list_available_datasets(*, data_root: str | None = None) -> list[str]:
+    """List datasets from market-data-core manifests when available."""
+    from_core = list_datasets_from_core(data_root=data_root)
+    return from_core or []
+
+
+def inspect_available_dataset(dataset_id: str, *, data_root: str | None = None) -> dict[str, object]:
+    """Inspect dataset metadata from market-data-core manifests when available."""
+    from_core = inspect_dataset_from_core(dataset_id, data_root=data_root)
+    return from_core or {}
