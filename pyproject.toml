@@ -18,6 +18,7 @@ dependencies = [
   "tushare>=1.2",
   "python-dotenv>=1.0",
   "pytest>=8.2",
+  "market-data-core>=0.1",
 ]
 
 [project.scripts]

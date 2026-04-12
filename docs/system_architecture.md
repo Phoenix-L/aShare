@@ -18,7 +18,8 @@ Scope is offline research (data load → backtest → artifacts), not production
 - **Config/spec layer** (`src/ashare/config/*`, `src/ashare/experiment/spec.py`)
   - backtest defaults, YAML spec normalization, execution overrides.
 - **Data layer** (`src/ashare/data/*`)
-  - provider selection (`baostock`/`tushare`), cache-first loads, schema validation, feed normalization.
+  - provider selection (`baostock`/`tushare`), cache-first loads, and Backtrader feed normalization remain local.
+  - canonical bar contract + validation now delegate to `market-data-core` through a compatibility bridge (`ashare.data.core_bridge`).
 - **Strategy layer** (`src/ashare/strategies/*`)
   - manual strategy registry + strategy implementations.
 - **Engine layer** (`src/ashare/engine/*`)
@@ -182,3 +183,10 @@ Design principles:
 - modular
 
 The research layer consumes canonical experiment artifacts (`summary.csv`, `summary_sorted.csv`, `metrics.json`, `diagnostics_summary.json`) and turns them into reusable aggregate metrics and a structured Markdown report. This keeps post-experiment analysis separate from backtest execution while preserving CLI and script compatibility.
+
+
+## 11) Phase 4 migration boundary
+
+- Delegated to `market-data-core`: canonical bar schema contract resolution and validation entrypoints.
+- Still local in `aShare`: provider APIs, cache implementation, backtest/strategy/research layers.
+- Deferred: calendar/adjustment/storage policy harmonization after shared API stabilization.
